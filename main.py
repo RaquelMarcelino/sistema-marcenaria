@@ -45,6 +45,7 @@ def init_db():
                 cliente_telefone TEXT,
                 cliente_ambiente TEXT,
                 prazo_entrega TEXT,
+                status TEXT DEFAULT 'Em Negociação',
                 custo_materiais REAL,
                 custo_mao_obra REAL,
                 custo_frete_montagem REAL,
@@ -57,6 +58,12 @@ def init_db():
             )
         """)
         
+        # Migração simples se a coluna status não existir em bancos antigos
+        try:
+            cursor.execute("ALTER TABLE orcamentos ADD COLUMN status TEXT DEFAULT 'Em Negociação'")
+        except Exception:
+            pass
+
         # Usuários padrão
         cursor.execute("SELECT email FROM usuarios WHERE email = 'admin@marcenaria.com'")
         if not cursor.fetchone():
@@ -74,6 +81,16 @@ def init_db():
                 "outros_insumos": 15.00
             }
             cursor.execute("INSERT INTO configuracoes (chave, valor) VALUES ('precos', ?)", (json.dumps(default_precos),))
+
+        cursor.execute("SELECT valor FROM configuracoes WHERE chave = 'dados_empresa'")
+        if not cursor.fetchone():
+            default_empresa = {
+                "nome_empresa": "Marcenaria Pro Móveis Planejados",
+                "cnpj": "00.000.000/0001-00",
+                "telefone_empresa": "(11) 98888-7777",
+                "pix": "contato@marcenaria.com"
+            }
+            cursor.execute("INSERT INTO configuracoes (chave, valor) VALUES ('dados_empresa', ?)", (json.dumps(default_empresa),))
         conn.commit()
 
 init_db()
@@ -96,11 +113,32 @@ def set_precos_config(precos: dict):
         cursor.execute("INSERT OR REPLACE INTO configuracoes (chave, valor) VALUES ('precos', ?)", (json.dumps(precos),))
         conn.commit()
 
+def get_empresa_config():
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT valor FROM configuracoes WHERE chave = 'dados_empresa'")
+        row = cursor.fetchone()
+        if row:
+            return json.loads(row["valor"])
+    return {
+        "nome_empresa": "Marcenaria Pro Móveis Planejados",
+        "cnpj": "00.000.000/0001-00",
+        "telefone_empresa": "(11) 98888-7777",
+        "pix": "contato@marcenaria.com"
+    }
+
+def set_empresa_config(dados: dict):
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("INSERT OR REPLACE INTO configuracoes (chave, valor) VALUES ('dados_empresa', ?)", (json.dumps(dados),))
+        conn.commit()
+
 CURRENT_DATA = {
     "user": "admin@marcenaria.com",
     "user_perfil": "admin",
     "user_nome": "Administrador",
     "orcamento_id": None,
+    "status": "Em Negociação",
     "cliente_nome": "Cliente Exemplo",
     "cliente_telefone": "11999998888",
     "cliente_ambiente": "Cozinha Planejada",
@@ -148,7 +186,7 @@ def render_login_page(msg_erro=""):
                 </button>
             </form>
             <div class="border-t border-slate-700/60 pt-4 text-center">
-                <p class="text-[11px] text-slate-400">Contas de Acesso de Teste:</p>
+                <p class="text-[11px] text-slate-400">Contas de Acesso:</p>
                 <p class="text-[11px] text-sky-400">Admin: <b>admin@marcenaria.com</b> | Senha: <b>123456</b></p>
                 <p class="text-[11px] text-emerald-400">Vendedor: <b>vendedor@marcenaria.com</b> | Senha: <b>123456</b></p>
             </div>
@@ -249,14 +287,27 @@ def consolidar_compras(items: list):
         "outros": outros
     }
 
+def get_badge_status(status_str: str):
+    st = status_str or "Em Negociação"
+    if st == "Aprovado":
+        return "<span class='px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950 text-emerald-300 border border-emerald-800'>🟢 Aprovado</span>"
+    elif st == "Em Produção":
+        return "<span class='px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-950 text-blue-300 border border-blue-800'>🔵 Em Produção</span>"
+    elif st == "Entregue":
+        return "<span class='px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-950 text-purple-300 border border-purple-800'>🟣 Entregue</span>"
+    elif st == "Cancelado":
+        return "<span class='px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-950 text-rose-300 border border-rose-800'>🔴 Cancelado</span>"
+    else:
+        return "<span class='px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-950 text-amber-300 border border-amber-800'>🟡 Em Negociação</span>"
+
 def render_dashboard(data: dict):
     is_admin = (data.get("user_perfil") == "admin")
     dre = calcular_dre_completa(data)
     items = data.get("items", [])
     precos = get_precos_config()
+    empresa = get_empresa_config()
     compras = consolidar_compras(items)
     
-    # Renderização condicional da tabela de peças (oculta valores em dinheiro se for vendedor)
     rows_html = ""
     if items:
         for it in items:
@@ -281,10 +332,11 @@ def render_dashboard(data: dict):
         </tr>
         """
 
-    msg_zap = f"Olá {data['cliente_nome']}! Segue o orçamento para o projeto {data['cliente_ambiente']}: R$ {dre['pv']:,.2f} com prazo de entrega de {data['prazo_entrega']}."
+    msg_zap = f"Olá {data['cliente_nome']}! Segue o orçamento da {empresa['nome_empresa']} para o projeto {data['cliente_ambiente']}: R$ {dre['pv']:,.2f} com prazo de entrega de {data['prazo_entrega']}."
     zap_url = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone']}&text={urllib.parse.quote(msg_zap)}"
 
-    msg_cotacao = f"*COTAÇÃO DE MATERIAIS - {data['cliente_ambiente']}*\n"
+    msg_cotacao = f"*COTAÇÃO DE MATERIAIS - {empresa['nome_empresa']}*\n"
+    msg_cotacao += f"Projeto: {data['cliente_ambiente']}\n"
     msg_cotacao += f"- Chapas MDF Estimadas: {compras['chapas_mdf']} un ({compras['area_m2']:.1f} m²)\n"
     msg_cotacao += f"- Fita de Borda PVC: {compras['fita_metros']} metros\n"
     msg_cotacao += f"- Dobradiças com amortecedor: {compras['dobradicas']} un\n"
@@ -293,15 +345,18 @@ def render_dashboard(data: dict):
     msg_cotacao += f"Favor informar valores e prazo de entrega."
     zap_cotacao_url = f"https://api.whatsapp.com/send?text={urllib.parse.quote(msg_cotacao)}"
 
+    # Histórico do Banco com Dropdown de Status
     historico_html = ""
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, criado_em, cliente_nome, cliente_ambiente, preco_venda, lucro_liquido FROM orcamentos ORDER BY id DESC LIMIT 15")
+        cursor.execute("SELECT id, criado_em, cliente_nome, cliente_ambiente, preco_venda, lucro_liquido, status FROM orcamentos ORDER BY id DESC LIMIT 20")
         historico_rows = cursor.fetchall()
         
         if historico_rows:
             for h in historico_rows:
                 lucro_col = f"<td class='py-3 px-4 text-right text-emerald-400 font-semibold'>R$ {h['lucro_liquido']:,.2f}</td>" if is_admin else "<td class='py-3 px-4 text-right text-slate-500'>—</td>"
+                current_st = h['status'] or 'Em Negociação'
+                
                 historico_html += f"""
                 <tr class="border-b border-slate-800 hover:bg-slate-800/40 text-xs">
                     <td class="py-3 px-4 text-slate-400 font-mono">#{h['id']}</td>
@@ -310,6 +365,18 @@ def render_dashboard(data: dict):
                     <td class="py-3 px-4 text-slate-300">{h['cliente_ambiente']}</td>
                     <td class="py-3 px-4 text-right text-sky-400 font-bold">R$ {h['preco_venda']:,.2f}</td>
                     {lucro_col}
+                    <td class="py-3 px-4 text-center">
+                        <form action="/atualizar-status" method="post" class="inline">
+                            <input type="hidden" name="orcamento_id" value="{h['id']}">
+                            <select name="novo_status" onchange="this.form.submit()" class="bg-slate-950 border border-slate-700 text-[11px] text-slate-200 rounded px-2 py-1 focus:outline-none">
+                                <option value="Em Negociação" {'selected' if current_st=='Em Negociação' else ''}>🟡 Em Negociação</option>
+                                <option value="Aprovado" {'selected' if current_st=='Aprovado' else ''}>🟢 Aprovado</option>
+                                <option value="Em Produção" {'selected' if current_st=='Em Produção' else ''}>🔵 Em Produção</option>
+                                <option value="Entregue" {'selected' if current_st=='Entregue' else ''}>🟣 Entregue</option>
+                                <option value="Cancelado" {'selected' if current_st=='Cancelado' else ''}>🔴 Cancelado</option>
+                            </select>
+                        </form>
+                    </td>
                     <td class="py-3 px-4 text-center">
                         <div class="flex items-center justify-center space-x-1.5">
                             <form action="/carregar-orcamento" method="post" class="inline">
@@ -329,13 +396,12 @@ def render_dashboard(data: dict):
         else:
             historico_html = """
             <tr>
-                <td colspan="7" class="py-6 text-center text-xs text-slate-500">
+                <td colspan="8" class="py-6 text-center text-xs text-slate-500">
                     Nenhum orçamento salvo no histórico ainda. Salve o orçamento ativo abaixo.
                 </td>
             </tr>
             """
 
-    # Lista de usuários do banco para painel admin
     usuarios_html = ""
     if is_admin:
         with get_db() as conn:
@@ -353,10 +419,9 @@ def render_dashboard(data: dict):
                 </li>
                 """
 
-    status_tag = f"<span class='text-xs bg-sky-950 border border-sky-700 text-sky-300 px-2.5 py-1 rounded-full'>Editando Orçamento #{data['orcamento_id']}</span>" if data['orcamento_id'] else "<span class='text-xs bg-slate-800 border border-slate-700 text-slate-400 px-2.5 py-1 rounded-full'>Novo Orçamento em Rascunho</span>"
+    status_tag = f"<span class='text-xs bg-sky-950 border border-sky-700 text-sky-300 px-2.5 py-1 rounded-full'>Editando Orçamento #{data['orcamento_id']} ({data.get('status', 'Em Negociação')})</span>" if data['orcamento_id'] else "<span class='text-xs bg-slate-800 border border-slate-700 text-slate-400 px-2.5 py-1 rounded-full'>Novo Orçamento em Rascunho</span>"
     perfil_badge = "<span class='text-[11px] bg-blue-900/60 border border-blue-600 text-blue-300 px-2 py-0.5 rounded-full font-medium'>👑 Administrador</span>" if is_admin else "<span class='text-[11px] bg-emerald-900/60 border border-emerald-600 text-emerald-300 px-2 py-0.5 rounded-full font-medium'>💼 Vendedor</span>"
 
-    # Seção DRE Gerencial visível apenas para Admin
     dre_cards = f"""
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
@@ -393,8 +458,38 @@ def render_dashboard(data: dict):
     </div>
     """
 
-    # Seções de configurações exclusivas do Administrador
     admin_sections = f"""
+    <!-- Personalização dos Dados da Sua Marcenaria -->
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+        <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+            <h2 class="text-base font-semibold text-white">🏢 Dados da Sua Marcenaria (Cabeçalho do PDF)</h2>
+            <span class="text-xs text-slate-400">Configuração institucional da sua empresa</span>
+        </div>
+        <form action="/salvar-empresa" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div>
+                <label class="block text-xs font-medium text-slate-400 mb-1">Nome Comercial / Razão Social</label>
+                <input type="text" name="nome_empresa" value="{empresa['nome_empresa']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white">
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-400 mb-1">CNPJ</label>
+                <input type="text" name="cnpj" value="{empresa['cnpj']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white">
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-400 mb-1">Telefone / WhatsApp da Loja</label>
+                <input type="text" name="telefone_empresa" value="{empresa['telefone_empresa']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white">
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-400 mb-1">Chave PIX p/ Pagamentos</label>
+                <div class="flex gap-2">
+                    <input type="text" name="pix" value="{empresa['pix']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white">
+                    <button type="submit" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold shrink-0">
+                        Salvar
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+
     <!-- Mão de Obra e Operacionais -->
     <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
         <div class="flex justify-between items-center border-b border-slate-800 pb-3">
@@ -508,7 +603,6 @@ def render_dashboard(data: dict):
     </div>
     """ if is_admin else ""
 
-    # Painel de Markup e Ações
     markup_control = f"""
     <form action="/recalcular" method="post" class="flex items-center gap-3">
         <label class="text-xs text-slate-400 font-medium">Markup:</label>
@@ -546,7 +640,7 @@ def render_dashboard(data: dict):
         <main class="max-w-7xl mx-auto p-6 space-y-6">
             {dre_cards}
 
-            <!-- Card Consolidado de Compras para Madeireira -->
+            <!-- Resumo de Compras para Fornecedores -->
             <div class="bg-slate-900 border border-indigo-900/50 rounded-xl p-6 shadow-lg space-y-4">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
                     <div>
@@ -602,7 +696,7 @@ def render_dashboard(data: dict):
                     <h2 class="text-base font-semibold text-white">👤 Dados do Cliente & Proposta</h2>
                     <span class="text-xs text-sky-400">Vinculado ao Banco, PDF e WhatsApp</span>
                 </div>
-                <form action="/salvar-cliente" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <form action="/salvar-cliente" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">Nome do Cliente</label>
                         <input type="text" name="cliente_nome" value="{data['cliente_nome']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
@@ -614,6 +708,16 @@ def render_dashboard(data: dict):
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">Ambiente / Projeto</label>
                         <input type="text" name="cliente_ambiente" value="{data['cliente_ambiente']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Status da Proposta</label>
+                        <select name="status" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none">
+                            <option value="Em Negociação" {'selected' if data.get('status')=='Em Negociação' else ''}>🟡 Em Negociação</option>
+                            <option value="Aprovado" {'selected' if data.get('status')=='Aprovado' else ''}>🟢 Aprovado</option>
+                            <option value="Em Produção" {'selected' if data.get('status')=='Em Produção' else ''}>🔵 Em Produção</option>
+                            <option value="Entregue" {'selected' if data.get('status')=='Entregue' else ''}>🟣 Entregue</option>
+                            <option value="Cancelado" {'selected' if data.get('status')=='Cancelado' else ''}>🔴 Cancelado</option>
+                        </select>
                     </div>
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">Prazo de Entrega</label>
@@ -652,7 +756,7 @@ def render_dashboard(data: dict):
                             </button>
                         </form>
                         <a href="/gerar-pdf" class="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center space-x-1 shadow-lg shadow-emerald-600/20">
-                            <span>📄 Baixar Orçamento do Cliente (PDF)</span>
+                            <span>📄 Baixar Proposta do Cliente (PDF)</span>
                         </a>
                         <a href="{zap_url}" target="_blank" class="w-full py-2 bg-green-600 hover:bg-green-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center space-x-1 shadow-lg shadow-green-600/20">
                             <span>💬 Enviar Orçamento no WhatsApp</span>
@@ -661,11 +765,11 @@ def render_dashboard(data: dict):
                 </div>
             </div>
 
-            <!-- Histórico de Orçamentos -->
+            <!-- Histórico de Orçamentos com Status Dinâmico -->
             <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
                 <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-850">
-                    <h3 class="text-sm font-semibold text-white">📁 Histórico de Orçamentos Salvos (Banco de Dados)</h3>
-                    <span class="text-xs text-slate-400">Clique em 'Abrir' para recarregar qualquer projeto</span>
+                    <h3 class="text-sm font-semibold text-white">📁 Histórico & Funil de Pedidos (Banco de Dados)</h3>
+                    <span class="text-xs text-slate-400">Altere o status para acompanhar a produção</span>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="w-full text-left border-collapse">
@@ -677,6 +781,7 @@ def render_dashboard(data: dict):
                                 <th class="py-3 px-4">Ambiente</th>
                                 <th class="py-3 px-4 text-right">Valor Venda</th>
                                 <th class="py-3 px-4 text-right">Lucro Líquido</th>
+                                <th class="py-3 px-4 text-center">Status do Pedido</th>
                                 <th class="py-3 px-4 text-center">Ações</th>
                             </tr>
                         </thead>
@@ -734,6 +839,28 @@ def login(username: str = Form(...), password: str = Form(...)):
 
     return render_dashboard(data=CURRENT_DATA)
 
+@app.post("/salvar-empresa", response_class=HTMLResponse)
+def salvar_empresa(nome_empresa: str = Form(...), cnpj: str = Form(...), telefone_empresa: str = Form(...), pix: str = Form(...)):
+    if CURRENT_DATA.get("user_perfil") == "admin":
+        dados = {
+            "nome_empresa": nome_empresa,
+            "cnpj": cnpj,
+            "telefone_empresa": telefone_empresa,
+            "pix": pix
+        }
+        set_empresa_config(dados)
+    return RedirectResponse(url="/painel-get", status_code=303)
+
+@app.post("/atualizar-status", response_class=HTMLResponse)
+def atualizar_status(orcamento_id: int = Form(...), novo_status: str = Form(...)):
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE orcamentos SET status = ? WHERE id = ?", (novo_status, orcamento_id))
+        conn.commit()
+    if CURRENT_DATA.get("orcamento_id") == orcamento_id:
+        CURRENT_DATA["status"] = novo_status
+    return RedirectResponse(url="/painel-get", status_code=303)
+
 @app.post("/criar-usuario", response_class=HTMLResponse)
 def criar_usuario(nome: str = Form(...), email: str = Form(...), senha: str = Form(...), perfil: str = Form(...)):
     if CURRENT_DATA.get("user_perfil") == "admin":
@@ -746,6 +873,7 @@ def criar_usuario(nome: str = Form(...), email: str = Form(...), senha: str = Fo
 @app.get("/novo-orcamento", response_class=HTMLResponse)
 def novo_orcamento():
     CURRENT_DATA["orcamento_id"] = None
+    CURRENT_DATA["status"] = "Em Negociação"
     CURRENT_DATA["cliente_nome"] = "Novo Cliente"
     CURRENT_DATA["cliente_telefone"] = ""
     CURRENT_DATA["cliente_ambiente"] = "Ambiente Geral"
@@ -796,6 +924,7 @@ def salvar_banco():
                     cliente_telefone = ?,
                     cliente_ambiente = ?,
                     prazo_entrega = ?,
+                    status = ?,
                     custo_materiais = ?,
                     custo_mao_obra = ?,
                     custo_frete_montagem = ?,
@@ -812,6 +941,7 @@ def salvar_banco():
                 CURRENT_DATA["cliente_telefone"],
                 CURRENT_DATA["cliente_ambiente"],
                 CURRENT_DATA["prazo_entrega"],
+                CURRENT_DATA.get("status", "Em Negociação"),
                 dre["custo_mat"],
                 dre["custo_mo"],
                 dre["custo_frete_mont"],
@@ -825,14 +955,15 @@ def salvar_banco():
             ))
         else:
             cursor.execute("""
-                INSERT INTO orcamentos (criado_em, cliente_nome, cliente_telefone, cliente_ambiente, prazo_entrega, custo_materiais, custo_mao_obra, custo_frete_montagem, imposto_pct, comissao_pct, markup, preco_venda, lucro_liquido, items_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO orcamentos (criado_em, cliente_nome, cliente_telefone, cliente_ambiente, prazo_entrega, status, custo_materiais, custo_mao_obra, custo_frete_montagem, imposto_pct, comissao_pct, markup, preco_venda, lucro_liquido, items_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 agora,
                 CURRENT_DATA["cliente_nome"],
                 CURRENT_DATA["cliente_telefone"],
                 CURRENT_DATA["cliente_ambiente"],
                 CURRENT_DATA["prazo_entrega"],
+                CURRENT_DATA.get("status", "Em Negociação"),
                 dre["custo_mat"],
                 dre["custo_mo"],
                 dre["custo_frete_mont"],
@@ -856,6 +987,7 @@ def carregar_orcamento(orcamento_id: int = Form(...)):
         row = cursor.fetchone()
         if row:
             CURRENT_DATA["orcamento_id"] = row["id"]
+            CURRENT_DATA["status"] = row["status"] or "Em Negociação"
             CURRENT_DATA["cliente_nome"] = row["cliente_nome"]
             CURRENT_DATA["cliente_telefone"] = row["cliente_telefone"]
             CURRENT_DATA["cliente_ambiente"] = row["cliente_ambiente"]
@@ -883,12 +1015,14 @@ def salvar_cliente(
     cliente_nome: str = Form(...),
     cliente_telefone: str = Form(...),
     cliente_ambiente: str = Form(...),
-    prazo_entrega: str = Form(...)
+    prazo_entrega: str = Form(...),
+    status: str = Form("Em Negociação")
 ):
     CURRENT_DATA["cliente_nome"] = cliente_nome
     CURRENT_DATA["cliente_telefone"] = cliente_telefone
     CURRENT_DATA["cliente_ambiente"] = cliente_ambiente
     CURRENT_DATA["prazo_entrega"] = prazo_entrega
+    CURRENT_DATA["status"] = status
     return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.post("/salvar-precos", response_class=HTMLResponse)
@@ -982,6 +1116,7 @@ async def upload_xml(file: UploadFile = File(...)):
 
 @app.get("/gerar-pdf")
 def gerar_pdf(id: int = None):
+    empresa = get_empresa_config()
     if id:
         with get_db() as conn:
             cursor = conn.cursor()
@@ -992,13 +1127,8 @@ def gerar_pdf(id: int = None):
                 c_tel = row["cliente_telefone"]
                 c_amb = row["cliente_ambiente"]
                 c_prazo = row["prazo_entrega"]
-                custo_mat = row["custo_materiais"]
-                custo_mo = row["custo_mao_obra"]
-                custo_frete_mont = row["custo_frete_montagem"]
-                custo_direto = custo_mat + custo_mo + custo_frete_mont
-                markup = row["markup"]
+                c_status = row["status"] or "Em Negociação"
                 pv = row["preco_venda"]
-                lucro = row["lucro_liquido"]
                 items = json.loads(row["items_json"]) if row["items_json"] else []
             else:
                 return Response(content="Orçamento não encontrado", status_code=404)
@@ -1008,13 +1138,8 @@ def gerar_pdf(id: int = None):
         c_tel = CURRENT_DATA['cliente_telefone']
         c_amb = CURRENT_DATA['cliente_ambiente']
         c_prazo = CURRENT_DATA['prazo_entrega']
-        custo_mat = dre["custo_mat"]
-        custo_mo = dre["custo_mo"]
-        custo_frete_mont = dre["custo_frete_mont"]
-        custo_direto = dre["custo_direto_total"]
-        markup = CURRENT_DATA["markup"]
+        c_status = CURRENT_DATA.get('status', 'Em Negociação')
         pv = dre["pv"]
-        lucro = dre["lucro_liquido"]
         items = CURRENT_DATA["items"]
 
     buffer = io.BytesIO()
@@ -1022,14 +1147,19 @@ def gerar_pdf(id: int = None):
     styles = getSampleStyleSheet()
     elements = []
 
-    title_style = ParagraphStyle(name='TitleStyle', parent=styles['Heading1'], fontSize=18, textColor=colors.HexColor('#0f172a'), spaceAfter=4)
-    elements.append(Paragraph("Marcenaria Pro - Proposta Comercial de Móveis Sob Medida", title_style))
-    elements.append(Spacer(1, 8))
+    # Cabeçalho com os Dados da Empresa
+    title_style = ParagraphStyle(name='TitleStyle', parent=styles['Heading1'], fontSize=18, textColor=colors.HexColor('#0f172a'), spaceAfter=2)
+    sub_empresa = ParagraphStyle(name='SubEmpresa', parent=styles['Normal'], fontSize=9, textColor=colors.HexColor('#475569'), spaceAfter=10)
+    
+    elements.append(Paragraph(f"{empresa['nome_empresa']}", title_style))
+    elements.append(Paragraph(f"CNPJ: {empresa['cnpj']} | Contato: {empresa['telefone_empresa']} | PIX: {empresa['pix']}", sub_empresa))
+    elements.append(Spacer(1, 4))
 
+    # Dados do Cliente e Projeto
     cliente_data = [
         ["Cliente:", c_nome, "Data da Proposta:", date.today().strftime("%d/%m/%Y")],
         ["WhatsApp/Tel:", c_tel, "Prazo de Entrega:", c_prazo],
-        ["Ambiente/Projeto:", c_amb, "Validade da Proposta:", "15 dias"]
+        ["Ambiente/Projeto:", c_amb, "Status:", c_status]
     ]
     cliente_table = Table(cliente_data, colWidths=[110, 160, 120, 150])
     cliente_table.setStyle(TableStyle([
@@ -1093,6 +1223,7 @@ def gerar_pdf(id: int = None):
 
 @app.get("/gerar-pdf-compras")
 def gerar_pdf_compras(id: int = None):
+    empresa = get_empresa_config()
     if id:
         with get_db() as conn:
             cursor = conn.cursor()
@@ -1117,7 +1248,7 @@ def gerar_pdf_compras(id: int = None):
     elements = []
 
     title_style = ParagraphStyle(name='TitleStyle', parent=styles['Heading1'], fontSize=18, textColor=colors.HexColor('#1e1b4b'), spaceAfter=4)
-    elements.append(Paragraph("Marcenaria Pro - Lista de Compras & Cotação Fornecedor", title_style))
+    elements.append(Paragraph(f"{empresa['nome_empresa']} - Cotação Fornecedor", title_style))
     elements.append(Spacer(1, 8))
 
     meta_data = [
