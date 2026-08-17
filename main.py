@@ -1307,19 +1307,19 @@ def render_dashboard(data: dict):
         </main>
 
         <script>
-            function filtrarTabela() {
+            function filtrarTabela() {{
                 var input = document.getElementById("campoBusca");
                 var filter = input.value.toLowerCase();
                 var rows = document.getElementsByClassName("item-linha");
-                for (var i = 0; i < rows.length; i++) {
+                for (var i = 0; i < rows.length; i++) {{
                     var data = rows[i].getAttribute("data-busca");
-                    if (data && data.indexOf(filter) > -1) {
+                    if (data && data.indexOf(filter) > -1) {{
                         rows[i].style.display = "";
-                    } else {
+                    }} else {{
                         rows[i].style.display = "none";
-                    }
-                }
-            }
+                    }}
+                }}
+            }}
         </script>
     </body>
     </html>
