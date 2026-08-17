@@ -567,8 +567,9 @@ def render_dashboard(data: dict):
                                 <input type="hidden" name="orcamento_id" value="{h['id']}">
                                 <button type="submit" class="px-2 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded text-[11px] font-semibold">Abrir</button>
                             </form>
-                            <a href="/gerar-pdf?id={h['id']}" class="px-2 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-[11px] font-semibold">Orçamento</a>
+                            <a href="/gerar-pdf?id={h['id']}" class="px-2 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-[11px] font-semibold">Orç.</a>
                             <a href="/gerar-contrato?id={h['id']}" class="px-2 py-1 bg-amber-700 hover:bg-amber-600 text-white rounded text-[11px] font-semibold">Contrato</a>
+                            <a href="/gerar-etiquetas?id={h['id']}" class="px-2 py-1 bg-teal-700 hover:bg-teal-600 text-white rounded text-[11px] font-semibold">Etiquetas</a>
                             <a href="/gerar-pdf-compras?id={h['id']}" class="px-2 py-1 bg-indigo-700 hover:bg-indigo-600 text-white rounded text-[11px] font-semibold">Compras</a>
                             <form action="/excluir-orcamento" method="post" class="inline" onsubmit="return confirm('Deseja excluir este orçamento?');">
                                 <input type="hidden" name="orcamento_id" value="{h['id']}">
@@ -608,7 +609,6 @@ def render_dashboard(data: dict):
     perfil_badge = "<span class='text-[11px] bg-blue-900/60 border border-blue-600 text-blue-300 px-2 py-0.5 rounded-full font-medium'>👑 Administrador</span>" if is_admin else "<span class='text-[11px] bg-emerald-900/60 border border-emerald-600 text-emerald-300 px-2 py-0.5 rounded-full font-medium'>💼 Vendedor</span>"
 
     dre_cards = f"""
-    <!-- Métricas Globais da Empresa -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
             <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Faturamento Fechado</p>
@@ -1042,12 +1042,15 @@ def render_dashboard(data: dict):
                                 <span>💾 Salvar no Histórico (Banco)</span>
                             </button>
                         </form>
-                        <div class="grid grid-cols-2 gap-2">
-                            <a href="/gerar-pdf" class="py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center shadow-lg shadow-emerald-600/20">
-                                <span>📄 Orçamento (PDF)</span>
+                        <div class="grid grid-cols-3 gap-1.5">
+                            <a href="/gerar-pdf" class="py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-center text-[11px] rounded-lg transition-colors flex items-center justify-center shadow-lg shadow-emerald-600/20">
+                                <span>📄 Orçamento</span>
                             </a>
-                            <a href="/gerar-contrato" class="py-2 bg-amber-600 hover:bg-amber-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center shadow-lg shadow-amber-600/20">
-                                <span>📑 Contrato (PDF)</span>
+                            <a href="/gerar-contrato" class="py-2 bg-amber-600 hover:bg-amber-500 text-white font-semibold text-center text-[11px] rounded-lg transition-colors flex items-center justify-center shadow-lg shadow-amber-600/20">
+                                <span>📑 Contrato</span>
+                            </a>
+                            <a href="/gerar-etiquetas" class="py-2 bg-teal-600 hover:bg-teal-500 text-white font-semibold text-center text-[11px] rounded-lg transition-colors flex items-center justify-center shadow-lg shadow-teal-600/20">
+                                <span>🏷️ Etiquetas</span>
                             </a>
                         </div>
                         <a href="{zap_url}" target="_blank" class="w-full py-2 bg-green-600 hover:bg-green-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center space-x-1 shadow-lg shadow-green-600/20">
@@ -1142,7 +1145,6 @@ def exportar_csv():
     output = io.StringIO()
     writer = csv.writer(output, delimiter=';')
     
-    # Cabeçalho da Planilha
     writer.writerow([
         "ID", "Data/Hora", "Cliente", "Telefone", "Ambiente", "Prazo Entrega",
         "Status", "Custo Materiais (R$)", "Mao de Obra (R$)", "Frete e Montagem (R$)",
@@ -1615,6 +1617,106 @@ def gerar_pdf(id: int = None):
     doc.build(elements)
     buffer.seek(0)
     nome_arquivo = f"proposta-{c_nome.replace(' ', '_')}.pdf"
+    return Response(content=buffer.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"})
+
+@app.get("/gerar-etiquetas")
+def gerar_etiquetas(id: int = None):
+    empresa = get_empresa_config()
+    if id:
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (id,))
+            row = cursor.fetchone()
+            if row:
+                c_nome = row["cliente_nome"]
+                c_amb = row["cliente_ambiente"]
+                orc_id = row["id"]
+                items = json.loads(row["items_json"]) if row["items_json"] else []
+            else:
+                return Response(content="Orçamento não encontrado", status_code=404)
+    else:
+        c_nome = CURRENT_DATA['cliente_nome']
+        c_amb = CURRENT_DATA['cliente_ambiente']
+        orc_id = CURRENT_DATA['orcamento_id'] or 1
+        items = CURRENT_DATA["items"]
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=20, leftMargin=20, topMargin=25, bottomMargin=25)
+    styles = getSampleStyleSheet()
+    elements = []
+
+    title_style = ParagraphStyle(name='TitleStyle', parent=styles['Heading1'], fontSize=16, alignment=1, textColor=colors.HexColor('#0f172a'), spaceAfter=2)
+    sub_title = ParagraphStyle(name='SubTitle', parent=styles['Normal'], fontSize=9, alignment=1, textColor=colors.HexColor('#64748b'), spaceAfter=14)
+    
+    elements.append(Paragraph(f"<b>{empresa['nome_empresa']}</b> - Etiquetas de Produção & Fitas de Borda", title_style))
+    elements.append(Paragraph(f"Projeto: <b>{c_amb}</b> | Cliente: <b>{c_nome}</b> | Ref: #{orc_id}", sub_title))
+
+    pecas_mdf = []
+    for idx, it in enumerate(items, 1):
+        if "MDF" in it.get("tipo", "") or it.get("largura", 0) > 0:
+            qtd = int(it.get("qtd", 1))
+            for q in range(1, qtd + 1):
+                pecas_mdf.append({
+                    "id_tag": f"#{orc_id}-P{len(pecas_mdf)+1:02d}",
+                    "nome": it.get("nome", "Peça MDF"),
+                    "dim": it.get("dimensoes", "-"),
+                    "fitas": "Bordas: 2x Comp. / 1x Larg."
+                })
+
+    if not pecas_mdf:
+        pecas_mdf = [
+            {"id_tag": f"#{orc_id}-P01", "nome": "Lateral Direita Torre Quente", "dim": "2200 x 600 x 18 mm", "fitas": "Bordas: 2C / 1L"},
+            {"id_tag": f"#{orc_id}-P02", "nome": "Lateral Esquerda Torre Quente", "dim": "2200 x 600 x 18 mm", "fitas": "Bordas: 2C / 1L"},
+            {"id_tag": f"#{orc_id}-P03", "nome": "Base Inferior Balcão", "dim": "1200 x 580 x 18 mm", "fitas": "Bordas: 1C / 2L"},
+            {"id_tag": f"#{orc_id}-P04", "nome": "Porta Basculante Superior", "dim": "800 x 400 x 18 mm", "fitas": "Bordas: 4 Lados 22mm"}
+        ]
+
+    # Grid 2 colunas de etiquetas
+    cards_data = []
+    linha_atual = []
+    
+    lbl_tag = ParagraphStyle(name='LblTag', parent=styles['Normal'], fontSize=8.5, leading=10, textColor=colors.HexColor('#0284c7'), fontName="Helvetica-Bold")
+    lbl_nome = ParagraphStyle(name='LblNome', parent=styles['Normal'], fontSize=9.5, leading=12, textColor=colors.HexColor('#0f172a'), fontName="Helvetica-Bold")
+    lbl_dim = ParagraphStyle(name='LblDim', parent=styles['Normal'], fontSize=8.5, leading=11, textColor=colors.HexColor('#334155'))
+    lbl_fitas = ParagraphStyle(name='LblFitas', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#166534'), fontName="Helvetica-Bold")
+
+    for p in pecas_mdf:
+        conteudo_etiqueta = [
+            [Paragraph(f"<b>{p['id_tag']}</b> | {c_amb[:20]}", lbl_tag)],
+            [Paragraph(f"{p['nome'][:30]}", lbl_nome)],
+            [Paragraph(f"Dimensões: <b>{p['dim']}</b>", lbl_dim)],
+            [Paragraph(f"🏷️ {p['fitas']}", lbl_fitas)]
+        ]
+        t_card = Table(conteudo_etiqueta, colWidths=[270])
+        t_card.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f8fafc')),
+            ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#94a3b8')),
+            ('PADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+            ('TOPPADDING', (0, 0), (-1, -1), 3),
+        ]))
+        
+        linha_atual.append(t_card)
+        if len(linha_atual) == 2:
+            cards_data.append(linha_atual)
+            linha_atual = []
+
+    if linha_atual:
+        linha_atual.append("")
+        cards_data.append(linha_atual)
+
+    grid_table = Table(cards_data, colWidths=[280, 280])
+    grid_table.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ('TOPPADDING', (0, 0), (-1, -1), 8),
+    ]))
+    elements.append(grid_table)
+
+    doc.build(elements)
+    buffer.seek(0)
+    nome_arquivo = f"etiquetas-producao-{c_amb.replace(' ', '_')}.pdf"
     return Response(content=buffer.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"})
 
 @app.get("/gerar-contrato")
