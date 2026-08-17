@@ -247,7 +247,6 @@ CURRENT_DATA = {
 def numero_extenso_reais(valor: float) -> str:
     inteiro = int(valor)
     centavos = int(round((valor - inteiro) * 100))
-    
     unidades = ["", "um", "dois", "três", "quatro", "cinco", "seis", "sete", "oito", "nove"]
     de_10_a_19 = ["dez", "onze", "doze", "treze", "quatorze", "quinze", "dezesseis", "dezessete", "dezoito", "dezenove"]
     dezenas = ["", "", "vinte", "trinta", "quarenta", "cinquenta", "sessenta", "setenta", "oitenta", "noventa"]
@@ -280,10 +279,7 @@ def numero_extenso_reais(valor: float) -> str:
         resto = inteiro % 1000
         partes_mil = []
         if milhares > 0:
-            if milhares == 1:
-                partes_mil.append("mil")
-            else:
-                partes_mil.append(f"{converter_grupo(milhares)} mil")
+            partes_mil.append("mil" if milhares == 1 else f"{converter_grupo(milhares)} mil")
         if resto > 0:
             partes_mil.append(converter_grupo(resto))
         texto = " e ".join(partes_mil) + " reais"
@@ -560,7 +556,6 @@ def render_dashboard(data: dict):
     else:
         svg_chapas_html = "<div class='py-8 text-center text-xs text-slate-500'>Importe um projeto XML para renderizar os diagramas de corte.</div>"
 
-    # Galeria de Imagens / Renders 3D
     galeria_html = ""
     if imagens:
         for idx, img_b64 in enumerate(imagens):
@@ -1817,7 +1812,6 @@ def gerar_pdf(id: int = None):
     elements.append(cliente_table)
     elements.append(Spacer(1, 10))
 
-    # Anexo do Render 3D do Promob se houver
     if imagens:
         try:
             img_bytes = io.BytesIO(base64.b64decode(imagens[0]))
