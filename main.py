@@ -6,6 +6,7 @@ from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 import io
+import csv
 import urllib.parse
 import json
 import sqlite3
@@ -71,7 +72,6 @@ def init_db():
             )
         """)
         
-        # Migrações caso colunas não existam em bancos anteriores
         colunas = ["status", "entrada_valor", "num_parcelas", "forma_pagamento", "estoque_baixado"]
         for col in colunas:
             try:
@@ -79,7 +79,6 @@ def init_db():
             except Exception:
                 pass
 
-        # Inicialização do Estoque Padrão
         cursor.execute("SELECT codigo FROM estoque WHERE codigo = 'mdf'")
         if not cursor.fetchone():
             itens_padrao = [
@@ -164,6 +163,39 @@ def get_estoque_atual():
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM estoque")
         return cursor.fetchall()
+
+def get_metricas_financeiras():
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT preco_venda, lucro_liquido, status FROM orcamentos")
+        rows = cursor.fetchall()
+        
+        total_orcamentos = len(rows)
+        faturamento_total = 0.0
+        lucro_acumulado = 0.0
+        aprovados = 0
+        
+        for r in rows:
+            st = r["status"] or "Em Negociação"
+            pv = float(r["preco_venda"] or 0.0)
+            lucro = float(r["lucro_liquido"] or 0.0)
+            
+            if st in ["Aprovado", "Em Produção", "Entregue"]:
+                faturamento_total += pv
+                lucro_acumulado += lucro
+                aprovados += 1
+
+        taxa_conversao = (aprovados / total_orcamentos * 100.0) if total_orcamentos > 0 else 0.0
+        ticket_medio = (faturamento_total / aprovados) if aprovados > 0 else 0.0
+        
+        return {
+            "total_orcamentos": total_orcamentos,
+            "aprovados": aprovados,
+            "faturamento_total": faturamento_total,
+            "lucro_acumulado": lucro_acumulado,
+            "ticket_medio": ticket_medio,
+            "taxa_conversao": taxa_conversao
+        }
 
 CURRENT_DATA = {
     "user": "admin@marcenaria.com",
@@ -395,6 +427,7 @@ def render_dashboard(data: dict):
     empresa = get_empresa_config()
     compras = consolidar_compras_e_nesting(items)
     estoque = get_estoque_atual()
+    metricas = get_metricas_financeiras()
     
     rows_html = ""
     if items:
@@ -451,12 +484,11 @@ def render_dashboard(data: dict):
     else:
         svg_chapas_html = "<div class='py-8 text-center text-xs text-slate-500'>Importe um projeto XML para renderizar os diagramas de corte.</div>"
 
-    # Seção de Cards de Estoque com Alertas de Reposição
     estoque_cards_html = ""
     for est in estoque:
         is_baixo = est['quantidade'] <= est['qtd_minima']
         borda_cor = "border-rose-700/60 bg-rose-950/20" if is_baixo else "border-slate-800 bg-slate-950"
-        tag_status = "<span class='text-[10px] text-rose-400 font-bold'>⚠️ Repor Estoque</span>" if is_baixo else "<span class='text-[10px] text-emerald-400'>✓ Regular</span>"
+        tag_status = "<span class='text-[10px] text-rose-400 font-bold'>⚠️ Repor</span>" if is_baixo else "<span class='text-[10px] text-emerald-400'>✓ Regular</span>"
         estoque_cards_html += f"""
         <div class="p-3.5 rounded-xl border {borda_cor} flex flex-col justify-between space-y-2">
             <div class="flex justify-between items-start">
@@ -487,7 +519,6 @@ def render_dashboard(data: dict):
     msg_cotacao += f"Favor enviar cotação e disponibilidade."
     zap_cotacao_url = f"https://api.whatsapp.com/send?text={urllib.parse.quote(msg_cotacao)}"
 
-    # Histórico do Banco com Dropdown de Status e Baixa de Estoque
     historico_html = ""
     with get_db() as conn:
         cursor = conn.cursor()
@@ -500,10 +531,10 @@ def render_dashboard(data: dict):
                 current_st = h['status'] or 'Em Negociação'
                 baixado = int(h['estoque_baixado'] or 0)
                 
-                btn_baixa = "<span class='text-[10px] text-emerald-400 font-medium px-2 py-0.5 bg-emerald-950/60 rounded border border-emerald-800'>Estoque Baixado</span>" if baixado else f"""
+                btn_baixa = "<span class='text-[10px] text-emerald-400 font-medium px-2 py-0.5 bg-emerald-950/60 rounded border border-emerald-800'>Baixado</span>" if baixado else f"""
                 <form action="/dar-baixa-estoque" method="post" class="inline" onsubmit="return confirm('Confirmar baixa automática dos materiais no estoque?');">
                     <input type="hidden" name="orcamento_id" value="{h['id']}">
-                    <button type="submit" class="px-2 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-[10px] font-semibold">Baixar Estoque</button>
+                    <button type="submit" class="px-2 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-[10px] font-semibold">Baixar</button>
                 </form>
                 """
 
@@ -577,26 +608,27 @@ def render_dashboard(data: dict):
     perfil_badge = "<span class='text-[11px] bg-blue-900/60 border border-blue-600 text-blue-300 px-2 py-0.5 rounded-full font-medium'>👑 Administrador</span>" if is_admin else "<span class='text-[11px] bg-emerald-900/60 border border-emerald-600 text-emerald-300 px-2 py-0.5 rounded-full font-medium'>💼 Vendedor</span>"
 
     dre_cards = f"""
+    <!-- Métricas Globais da Empresa -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
-            <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Custo Direto Total</p>
-            <p class="text-xl font-bold text-white">R$ {dre['custo_direto_total']:,.2f}</p>
-            <p class="text-[11px] text-slate-500">Mat: R$ {dre['custo_mat']:,.0f} | M.O: R$ {dre['custo_mo']:,.0f} | Frete/Mont: R$ {dre['custo_frete_mont']:,.0f}</p>
+            <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Faturamento Fechado</p>
+            <p class="text-xl font-bold text-sky-400">R$ {metricas['faturamento_total']:,.2f}</p>
+            <p class="text-[11px] text-slate-500">{metricas['aprovados']} pedidos fechados / em produção</p>
         </div>
         <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
-            <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Preço de Venda ({data['markup']:.1f}x)</p>
-            <p class="text-xl font-bold text-sky-400">R$ {dre['pv']:,.2f}</p>
-            <p class="text-[11px] text-slate-500">Proposta final para o cliente</p>
+            <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Lucro Líquido Acumulado</p>
+            <p class="text-xl font-bold text-emerald-400">R$ {metricas['lucro_acumulado']:,.2f}</p>
+            <p class="text-[11px] text-slate-500">Saldo limpo gerado no caixa</p>
         </div>
         <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
-            <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Deduções (Imposto + Com.)</p>
-            <p class="text-xl font-bold text-rose-400">R$ {(dre['imposto_val'] + dre['comissao_val']):,.2f}</p>
-            <p class="text-[11px] text-slate-500">Imp. {data['imposto_pct']}% (R$ {dre['imposto_val']:,.0f}) | Com. {data['comissao_pct']}% (R$ {dre['comissao_val']:,.0f})</p>
+            <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Ticket Médio por Projeto</p>
+            <p class="text-xl font-bold text-white">R$ {metricas['ticket_medio']:,.2f}</p>
+            <p class="text-[11px] text-slate-500">Média por ambiente fechado</p>
         </div>
         <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
-            <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Margem Líquida Real</p>
-            <p class="text-xl font-bold text-emerald-400">R$ {dre['lucro_liquido']:,.2f}</p>
-            <p class="text-[11px] text-slate-500">Retorno limpo no caixa ({dre['margem_liq_pct']:.1f}%)</p>
+            <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Taxa de Conversão</p>
+            <p class="text-xl font-bold text-amber-400">{metricas['taxa_conversao']:.1f}%</p>
+            <p class="text-[11px] text-slate-500">{metricas['total_orcamentos']} orçamentos gerados no total</p>
         </div>
     </div>
     """ if is_admin else f"""
@@ -1025,11 +1057,16 @@ def render_dashboard(data: dict):
                 </div>
             </div>
 
-            <!-- Histórico de Orçamentos com Status Dinâmico e Baixa de Estoque -->
+            <!-- Histórico de Orçamentos com Exportação CSV/Excel -->
             <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
-                <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-850">
-                    <h3 class="text-sm font-semibold text-white">📁 Histórico, Pedidos & Produção (Banco de Dados)</h3>
-                    <span class="text-xs text-slate-400">Gerencie status e execute baixas automáticas de estoque</span>
+                <div class="p-4 border-b border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 bg-slate-850">
+                    <div>
+                        <h3 class="text-sm font-semibold text-white">📁 Histórico, Pedidos & Produção (Banco de Dados)</h3>
+                        <span class="text-xs text-slate-400">Gerencie status, baixe materiais e exporte relatórios</span>
+                    </div>
+                    <a href="/exportar-csv" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold flex items-center space-x-1 transition-colors">
+                        <span>📊 Exportar Planilha (CSV/Excel)</span>
+                    </a>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="w-full text-left border-collapse">
@@ -1100,6 +1137,39 @@ def login(username: str = Form(...), password: str = Form(...)):
 
     return render_dashboard(data=CURRENT_DATA)
 
+@app.get("/exportar-csv")
+def exportar_csv():
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=';')
+    
+    # Cabeçalho da Planilha
+    writer.writerow([
+        "ID", "Data/Hora", "Cliente", "Telefone", "Ambiente", "Prazo Entrega",
+        "Status", "Custo Materiais (R$)", "Mao de Obra (R$)", "Frete e Montagem (R$)",
+        "Impostos (%)", "Comissao (%)", "Markup", "Preco Venda (R$)", "Lucro Liquido (R$)",
+        "Entrada (R$)", "Num Parcelas", "Forma Pagamento", "Estoque Baixado"
+    ])
+    
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM orcamentos ORDER BY id DESC")
+        for r in cursor.fetchall():
+            writer.writerow([
+                r["id"], r["criado_em"], r["cliente_nome"], r["cliente_telefone"], r["cliente_ambiente"],
+                r["prazo_entrega"], r["status"], f"{r['custo_materiais']:.2f}", f"{r['custo_mao_obra']:.2f}",
+                f"{r['custo_frete_montagem']:.2f}", r["imposto_pct"], r["comissao_pct"], r["markup"],
+                f"{r['preco_venda']:.2f}", f"{r['lucro_liquido']:.2f}", f"{r['entrada_valor'] or 0.0:.2f}",
+                r["num_parcelas"] or 1, r["forma_pagamento"] or "PIX", "Sim" if r["estoque_baixado"] else "Nao"
+            ])
+            
+    output.seek(0)
+    nome_arquivo = f"relatorio-financeiro-marcenaria-{date.today().strftime('%d-%m-%Y')}.csv"
+    return Response(
+        content=output.getvalue().encode('utf-8-sig'),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"}
+    )
+
 @app.post("/salvar-empresa", response_class=HTMLResponse)
 def salvar_empresa(nome_empresa: str = Form(...), cnpj: str = Form(...), telefone_empresa: str = Form(...), pix: str = Form(...)):
     if CURRENT_DATA.get("user_perfil") == "admin":
@@ -1131,7 +1201,6 @@ def dar_baixa_estoque(orcamento_id: int = Form(...)):
             items = json.loads(row["items_json"]) if row["items_json"] else []
             compras = consolidar_compras_e_nesting(items)
             
-            # Baixa nas quantidades correspondentes
             cursor.execute("UPDATE estoque SET quantidade = MAX(quantidade - ?, 0) WHERE codigo = 'mdf'", (compras["chapas_mdf"],))
             cursor.execute("UPDATE estoque SET quantidade = MAX(quantidade - ?, 0) WHERE codigo = 'fita'", (compras["fita_metros"],))
             cursor.execute("UPDATE estoque SET quantidade = MAX(quantidade - ?, 0) WHERE codigo = 'dobradica'", (compras["dobradicas"],))
