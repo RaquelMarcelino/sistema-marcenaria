@@ -69,14 +69,23 @@ def init_db():
                 num_parcelas INTEGER DEFAULT 1,
                 forma_pagamento TEXT DEFAULT 'PIX / Transferência',
                 estoque_baixado INTEGER DEFAULT 0,
+                valor_recebido REAL DEFAULT 0.0,
                 items_json TEXT
             )
         """)
         
-        colunas = ["status", "entrada_valor", "num_parcelas", "forma_pagamento", "estoque_baixado", "data_entrega_prevista"]
-        for col in colunas:
+        colunas = [
+            ("status", "TEXT"),
+            ("entrada_valor", "REAL"),
+            ("num_parcelas", "INTEGER"),
+            ("forma_pagamento", "TEXT"),
+            ("estoque_baixado", "INTEGER"),
+            ("data_entrega_prevista", "TEXT"),
+            ("valor_recebido", "REAL")
+        ]
+        for col, tipo in colunas:
             try:
-                cursor.execute(f"ALTER TABLE orcamentos ADD COLUMN {col} TEXT")
+                cursor.execute(f"ALTER TABLE orcamentos ADD COLUMN {col} {tipo}")
             except Exception:
                 pass
 
@@ -168,32 +177,38 @@ def get_estoque_atual():
 def get_metricas_financeiras():
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT preco_venda, lucro_liquido, status FROM orcamentos")
+        cursor.execute("SELECT preco_venda, lucro_liquido, status, valor_recebido FROM orcamentos")
         rows = cursor.fetchall()
         
         total_orcamentos = len(rows)
         faturamento_total = 0.0
         lucro_acumulado = 0.0
+        total_recebido = 0.0
         aprovados = 0
         
         for r in rows:
             st = r["status"] or "Em Negociação"
             pv = float(r["preco_venda"] or 0.0)
             lucro = float(r["lucro_liquido"] or 0.0)
+            rec = float(r["valor_recebido"] or 0.0)
             
             if st in ["Aprovado", "Em Produção", "Entregue"]:
                 faturamento_total += pv
                 lucro_acumulado += lucro
+                total_recebido += rec
                 aprovados += 1
 
         taxa_conversao = (aprovados / total_orcamentos * 100.0) if total_orcamentos > 0 else 0.0
         ticket_medio = (faturamento_total / aprovados) if aprovados > 0 else 0.0
+        saldo_a_receber = max(faturamento_total - total_recebido, 0.0)
         
         return {
             "total_orcamentos": total_orcamentos,
             "aprovados": aprovados,
             "faturamento_total": faturamento_total,
             "lucro_acumulado": lucro_acumulado,
+            "total_recebido": total_recebido,
+            "saldo_a_receber": saldo_a_receber,
             "ticket_medio": ticket_medio,
             "taxa_conversao": taxa_conversao
         }
@@ -213,6 +228,7 @@ CURRENT_DATA = {
     "num_parcelas": 3,
     "forma_pagamento": "Entrada + Cartão de Crédito",
     "estoque_baixado": 0,
+    "valor_recebido": 1000.0,
     "custo_materiais": 0.0,
     "dias_producao": 3,
     "valor_diaria": 180.0,
@@ -223,6 +239,54 @@ CURRENT_DATA = {
     "markup": 2.2,
     "items": []
 }
+
+def numero_extenso_reais(valor: float) -> str:
+    inteiro = int(valor)
+    centavos = int(round((valor - inteiro) * 100))
+    
+    unidades = ["", "um", "dois", "três", "quatro", "cinco", "seis", "sete", "oito", "nove"]
+    de_10_a_19 = ["dez", "onze", "doze", "treze", "quatorze", "quinze", "dezesseis", "dezessete", "dezoito", "dezenove"]
+    dezenas = ["", "", "vinte", "trinta", "quarenta", "cinquenta", "sessenta", "setenta", "oitenta", "noventa"]
+    centenas = ["", "cento", "duzentos", "trezentos", "quatrocentos", "quinhentos", "seiscentos", "setecentos", "oitocentos", "novecentos"]
+
+    def converter_grupo(n):
+        if n == 100:
+            return "cem"
+        c = n // 100
+        d = (n % 100) // 10
+        u = n % 10
+        partes = []
+        if c > 0:
+            partes.append(centenas[c])
+        if d == 1:
+            partes.append(de_10_a_19[u])
+        else:
+            if d > 1:
+                partes.append(dezenas[d])
+            if u > 0:
+                partes.append(unidades[u])
+        return " e ".join(partes)
+
+    if inteiro == 0:
+        texto = "zero reais"
+    elif inteiro == 1:
+        texto = "um real"
+    else:
+        milhares = inteiro // 1000
+        resto = inteiro % 1000
+        partes_mil = []
+        if milhares > 0:
+            if milhares == 1:
+                partes_mil.append("mil")
+            else:
+                partes_mil.append(f"{converter_grupo(milhares)} mil")
+        if resto > 0:
+            partes_mil.append(converter_grupo(resto))
+        texto = " e ".join(partes_mil) + " reais"
+
+    if centavos > 0:
+        texto += f" e {centavos}/100 centavos"
+    return texto.capitalize()
 
 def render_login_page(msg_erro=""):
     erro_tag = f"<p class='text-rose-400 text-xs text-center bg-rose-950/60 border border-rose-800 p-2 rounded-lg'>{msg_erro}</p>" if msg_erro else ""
@@ -239,7 +303,7 @@ def render_login_page(msg_erro=""):
         <div class="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-8 shadow-2xl space-y-6">
             <div class="text-center space-y-2">
                 <h1 class="text-2xl font-bold tracking-tight text-white">Marcenaria Pro SaaS</h1>
-                <p class="text-xs text-slate-400">Gestão de Orçamentos Promob, Cronograma & Produção DRE</p>
+                <p class="text-xs text-slate-400">Gestão de Orçamentos Promob, Contas a Receber & Recibos</p>
             </div>
             {erro_tag}
             <form action="/painel" method="post" class="space-y-4">
@@ -309,6 +373,9 @@ def calcular_dre_completa(d: dict):
     saldo_restante = max(pv - entrada, 0.0)
     n_parc = max(int(d.get("num_parcelas", 1)), 1)
     valor_parcela = saldo_restante / n_parc if n_parc > 0 else 0.0
+    
+    valor_recebido = float(d.get("valor_recebido", 0.0))
+    saldo_devedor = max(pv - valor_recebido, 0.0)
 
     return {
         "custo_mat": custo_mat,
@@ -323,7 +390,9 @@ def calcular_dre_completa(d: dict):
         "entrada": entrada,
         "saldo_restante": saldo_restante,
         "n_parc": n_parc,
-        "valor_parcela": valor_parcela
+        "valor_parcela": valor_parcela,
+        "valor_recebido": valor_recebido,
+        "saldo_devedor": saldo_devedor
     }
 
 def consolidar_compras_e_nesting(items: list):
@@ -513,13 +582,23 @@ def render_dashboard(data: dict):
     
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, criado_em, cliente_nome, cliente_ambiente, preco_venda, lucro_liquido, status, estoque_baixado, data_entrega_prevista FROM orcamentos ORDER BY id DESC LIMIT 25")
+        cursor.execute("SELECT id, criado_em, cliente_nome, cliente_ambiente, preco_venda, lucro_liquido, status, estoque_baixado, data_entrega_prevista, valor_recebido FROM orcamentos ORDER BY id DESC LIMIT 25")
         historico_rows = cursor.fetchall()
         
         for h in historico_rows:
             current_st = h['status'] or 'Em Negociação'
             data_prev = h['data_entrega_prevista'] or (hoje + timedelta(days=20)).strftime("%Y-%m-%d")
+            pv_item = float(h['preco_venda'] or 0.0)
+            rec_item = float(h['valor_recebido'] or 0.0)
             
+            # Status Financeiro
+            if pv_item > 0 and rec_item >= pv_item:
+                tag_pgto = "<span class='px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950 text-emerald-300 border border-emerald-800'>🟢 Quitado</span>"
+            elif rec_item > 0:
+                tag_pgto = f"<span class='px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-950 text-amber-300 border border-amber-800'>🟡 Pago: R$ {rec_item:,.0f}</span>"
+            else:
+                tag_pgto = "<span class='px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-950 text-rose-300 border border-rose-800'>🔴 Pendente</span>"
+
             try:
                 dt_obj = datetime.strptime(data_prev, "%Y-%m-%d").date()
                 dias_restantes = (dt_obj - hoje).days
@@ -585,6 +664,9 @@ def render_dashboard(data: dict):
                     </form>
                 </td>
                 <td class="py-3 px-4 text-center">
+                    {tag_pgto}
+                </td>
+                <td class="py-3 px-4 text-center">
                     {btn_baixa}
                 </td>
                 <td class="py-3 px-4 text-center">
@@ -595,9 +677,9 @@ def render_dashboard(data: dict):
                         </form>
                         <a href="/gerar-pdf?id={h['id']}" class="px-1.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-[10px] font-semibold">Orç.</a>
                         <a href="/gerar-contrato?id={h['id']}" class="px-1.5 py-1 bg-amber-700 hover:bg-amber-600 text-white rounded text-[10px] font-semibold">Contrato</a>
+                        <a href="/gerar-recibo?id={h['id']}" class="px-1.5 py-1 bg-blue-700 hover:bg-blue-600 text-white rounded text-[10px] font-semibold">Recibo</a>
                         <a href="/gerar-vistoria?id={h['id']}" class="px-1.5 py-1 bg-purple-700 hover:bg-purple-600 text-white rounded text-[10px] font-semibold">Vistoria</a>
                         <a href="/gerar-etiquetas?id={h['id']}" class="px-1.5 py-1 bg-teal-700 hover:bg-teal-600 text-white rounded text-[10px] font-semibold">Etiquetas</a>
-                        <a href="/gerar-pdf-compras?id={h['id']}" class="px-1.5 py-1 bg-indigo-700 hover:bg-indigo-600 text-white rounded text-[10px] font-semibold">Compras</a>
                         <form action="/excluir-orcamento" method="post" class="inline" onsubmit="return confirm('Deseja excluir este orçamento?');">
                             <input type="hidden" name="orcamento_id" value="{h['id']}">
                             <button type="submit" class="px-1 py-1 bg-rose-700/60 hover:bg-rose-600 text-white rounded text-[10px]">✕</button>
@@ -608,7 +690,7 @@ def render_dashboard(data: dict):
             """
 
         if not historico_rows:
-            historico_html = "<tr><td colspan='9' class='py-6 text-center text-xs text-slate-500'>Nenhum orçamento salvo no histórico ainda.</td></tr>"
+            historico_html = "<tr><td colspan='10' class='py-6 text-center text-xs text-slate-500'>Nenhum orçamento salvo no histórico ainda.</td></tr>"
 
     cronograma_cards_html = cronograma_cards_html or "<div class='py-6 text-center text-xs text-slate-500 col-span-full'>Nenhum projeto em produção no momento. Passe orçamentos para 'Em Produção' ou 'Aprovado' para ver o cronograma.</div>"
 
@@ -651,7 +733,7 @@ def render_dashboard(data: dict):
         <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
             <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Faturamento Fechado</p>
             <p class="text-xl font-bold text-sky-400">R$ {metricas['faturamento_total']:,.2f}</p>
-            <p class="text-[11px] text-slate-500">{metricas['aprovados']} pedidos fechados / em produção</p>
+            <p class="text-[11px] text-slate-500">Recebido: R$ {metricas['total_recebido']:,.2f} | Saldo: R$ {metricas['saldo_a_receber']:,.2f}</p>
         </div>
         <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
             <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Lucro Líquido Acumulado</p>
@@ -661,7 +743,7 @@ def render_dashboard(data: dict):
         <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
             <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Ticket Médio por Projeto</p>
             <p class="text-xl font-bold text-white">R$ {metricas['ticket_medio']:,.2f}</p>
-            <p class="text-[11px] text-slate-500">Média por ambiente fechado</p>
+            <p class="text-[11px] text-slate-500">{metricas['aprovados']} projetos fechados</p>
         </div>
         <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
             <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Taxa de Conversão</p>
@@ -726,7 +808,7 @@ def render_dashboard(data: dict):
     <!-- Personalização dos Dados da Sua Marcenaria -->
     <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
         <div class="flex justify-between items-center border-b border-slate-800 pb-3">
-            <h2 class="text-base font-semibold text-white">🏢 Dados da Sua Marcenaria (Contrato e Cabeçalho do PDF)</h2>
+            <h2 class="text-base font-semibold text-white">🏢 Dados da Sua Marcenaria (Contrato, Recibo e Cabeçalho do PDF)</h2>
             <span class="text-xs text-slate-400">Configuração institucional da sua empresa</span>
         </div>
         <form action="/salvar-empresa" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -918,23 +1000,26 @@ def render_dashboard(data: dict):
                 </div>
             </div>
 
-            <!-- Simulador de Pagamento e Condições Comerciais -->
+            <!-- Contas a Receber & Simulador de Pagamento -->
             <div class="bg-slate-900 border border-amber-900/50 rounded-xl p-6 shadow-lg space-y-4">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
                     <div>
-                        <h2 class="text-base font-semibold text-white">💳 Condições de Pagamento & Financiamento</h2>
-                        <p class="text-xs text-amber-400">Simule a entrada e o parcelamento para constar no Contrato e Proposta</p>
+                        <h2 class="text-base font-semibold text-white">💳 Contas a Receber, Parcelamento & Recibos</h2>
+                        <p class="text-xs text-amber-400">Acompanhe entradas, registre pagamentos e emita recibos oficiais</p>
                     </div>
-                    <div class="flex gap-2">
+                    <div class="flex flex-wrap gap-2">
+                        <a href="/gerar-recibo" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs rounded-lg transition-colors flex items-center space-x-1 shadow-md">
+                            <span>📄 Emitir Recibo (PDF)</span>
+                        </a>
                         <a href="/gerar-contrato" class="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-medium text-xs rounded-lg transition-colors flex items-center space-x-1 shadow-md">
-                            <span>📑 Emitir Contrato (PDF)</span>
+                            <span>📑 Contrato (PDF)</span>
                         </a>
                         <a href="/gerar-vistoria" class="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white font-medium text-xs rounded-lg transition-colors flex items-center space-x-1 shadow-md">
-                            <span>📋 Termo de Vistoria (PDF)</span>
+                            <span>📋 Vistoria (PDF)</span>
                         </a>
                     </div>
                 </div>
-                <form action="/salvar-pagamento" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <form action="/salvar-pagamento" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">Valor de Entrada (R$)</label>
                         <input type="number" step="50" name="entrada_valor" value="{data['entrada_valor']}" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-amber-500">
@@ -942,7 +1027,7 @@ def render_dashboard(data: dict):
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">Nº de Parcelas</label>
                         <select name="num_parcelas" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none">
-                            <option value="1" {'selected' if data.get('num_parcelas')==1 else ''}>1x (À vista ou parcela única)</option>
+                            <option value="1" {'selected' if data.get('num_parcelas')==1 else ''}>1x (À vista / Parcela Única)</option>
                             <option value="2" {'selected' if data.get('num_parcelas')==2 else ''}>2x parcelas</option>
                             <option value="3" {'selected' if data.get('num_parcelas')==3 else ''}>3x parcelas</option>
                             <option value="4" {'selected' if data.get('num_parcelas')==4 else ''}>4x parcelas</option>
@@ -953,18 +1038,22 @@ def render_dashboard(data: dict):
                         </select>
                     </div>
                     <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Valor Já Recebido (R$)</label>
+                        <input type="number" step="50" name="valor_recebido" value="{data.get('valor_recebido', 0.0)}" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-amber-500">
+                    </div>
+                    <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">Forma de Pagamento</label>
                         <input type="text" name="forma_pagamento" value="{data['forma_pagamento']}" placeholder="Ex: Entrada PIX + Cartão" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-amber-500">
                     </div>
                     <div class="flex items-end">
                         <button type="submit" class="w-full py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold transition-colors">
-                            Atualizar Condições
+                            Atualizar Pagamento
                         </button>
                     </div>
                 </form>
                 <div class="bg-slate-950 p-3 rounded-lg border border-slate-800 flex flex-wrap justify-between items-center text-xs">
-                    <span class="text-slate-300">Resumo: <b>Entrada de R$ {dre['entrada']:,.2f}</b> + <b>{dre['n_parc']}x de R$ {dre['valor_parcela']:,.2f}</b></span>
-                    <span class="text-amber-400 font-semibold">Total: R$ {dre['pv']:,.2f} ({data['forma_pagamento']})</span>
+                    <span class="text-slate-300">Total Proposta: <b>R$ {dre['pv']:,.2f}</b> | Recebido: <b class="text-emerald-400">R$ {dre['valor_recebido']:,.2f}</b> | Saldo Devedor: <b class="text-rose-400">R$ {dre['saldo_devedor']:,.2f}</b></span>
+                    <span class="text-amber-400 font-semibold">{data['forma_pagamento']}</span>
                 </div>
             </div>
 
@@ -1036,7 +1125,7 @@ def render_dashboard(data: dict):
             <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
                 <div class="flex justify-between items-center border-b border-slate-800 pb-3">
                     <h2 class="text-base font-semibold text-white">👤 Dados do Cliente & Proposta</h2>
-                    <span class="text-xs text-sky-400">Vinculado ao Cronograma, Contrato, Vistoria, Banco e WhatsApp</span>
+                    <span class="text-xs text-sky-400">Vinculado ao Cronograma, Contrato, Recibo, Vistoria e WhatsApp</span>
                 </div>
                 <form action="/salvar-cliente" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
                     <div>
@@ -1108,11 +1197,11 @@ def render_dashboard(data: dict):
                             <a href="/gerar-contrato" class="py-2 bg-amber-600 hover:bg-amber-500 text-white font-semibold text-center text-[11px] rounded-lg transition-colors flex items-center justify-center shadow-lg shadow-amber-600/20">
                                 <span>📑 Contrato</span>
                             </a>
+                            <a href="/gerar-recibo" class="py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-center text-[11px] rounded-lg transition-colors flex items-center justify-center shadow-lg shadow-blue-600/20">
+                                <span>🧾 Recibo</span>
+                            </a>
                             <a href="/gerar-vistoria" class="py-2 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-center text-[11px] rounded-lg transition-colors flex items-center justify-center shadow-lg shadow-purple-600/20">
                                 <span>📋 Vistoria</span>
-                            </a>
-                            <a href="/gerar-etiquetas" class="py-2 bg-teal-600 hover:bg-teal-500 text-white font-semibold text-center text-[11px] rounded-lg transition-colors flex items-center justify-center shadow-lg shadow-teal-600/20">
-                                <span>🏷️ Etiquetas</span>
                             </a>
                         </div>
                         <a href="{zap_url}" target="_blank" class="w-full py-2 bg-green-600 hover:bg-green-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center space-x-1 shadow-lg shadow-green-600/20">
@@ -1122,12 +1211,12 @@ def render_dashboard(data: dict):
                 </div>
             </div>
 
-            <!-- Histórico de Orçamentos com Busca Dinâmica em Tempo Real -->
+            <!-- Histórico de Orçamentos com Busca e Contas a Receber -->
             <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
                 <div class="p-4 border-b border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-slate-850">
                     <div>
-                        <h3 class="text-sm font-semibold text-white">📁 Histórico, Pedidos & Produção (Banco de Dados)</h3>
-                        <span class="text-xs text-slate-400">Pesquise por cliente, ambiente ou filtre status</span>
+                        <h3 class="text-sm font-semibold text-white">📁 Histórico, Pedidos & Contas a Receber (Banco de Dados)</h3>
+                        <span class="text-xs text-slate-400">Pesquise por cliente, emita recibos e gerencie recebimentos</span>
                     </div>
                     <div class="flex items-center space-x-2 w-full sm:w-auto">
                         <input type="text" id="campoBusca" onkeyup="filtrarTabela()" placeholder="🔍 Buscar cliente ou ambiente..." class="px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500 w-full sm:w-64">
@@ -1146,7 +1235,8 @@ def render_dashboard(data: dict):
                                 <th class="py-3 px-4">Ambiente</th>
                                 <th class="py-3 px-4 text-right">Valor Venda</th>
                                 <th class="py-3 px-4 text-right">Lucro Líquido</th>
-                                <th class="py-3 px-4 text-center">Status do Pedido</th>
+                                <th class="py-3 px-4 text-center">Status</th>
+                                <th class="py-3 px-4 text-center">Pagamento</th>
                                 <th class="py-3 px-4 text-center">Estoque</th>
                                 <th class="py-3 px-4 text-center">Ações</th>
                             </tr>
@@ -1230,7 +1320,7 @@ def exportar_csv():
         "ID", "Data/Hora", "Cliente", "Telefone", "Ambiente", "Prazo Entrega", "Data Prevista",
         "Status", "Custo Materiais (R$)", "Mao de Obra (R$)", "Frete e Montagem (R$)",
         "Impostos (%)", "Comissao (%)", "Markup", "Preco Venda (R$)", "Lucro Liquido (R$)",
-        "Entrada (R$)", "Num Parcelas", "Forma Pagamento", "Estoque Baixado"
+        "Entrada (R$)", "Num Parcelas", "Valor Recebido (R$)", "Forma Pagamento", "Estoque Baixado"
     ])
     
     with get_db() as conn:
@@ -1242,8 +1332,8 @@ def exportar_csv():
                 r["prazo_entrega"], r["data_entrega_prevista"] or "-", r["status"], f"{r['custo_materiais']:.2f}",
                 f"{r['custo_mao_obra']:.2f}", f"{r['custo_frete_montagem']:.2f}", r["imposto_pct"],
                 r["comissao_pct"], r["markup"], f"{r['preco_venda']:.2f}", f"{r['lucro_liquido']:.2f}",
-                f"{r['entrada_valor'] or 0.0:.2f}", r["num_parcelas"] or 1, r["forma_pagamento"] or "PIX",
-                "Sim" if r["estoque_baixado"] else "Nao"
+                f"{r['entrada_valor'] or 0.0:.2f}", r["num_parcelas"] or 1, f"{r['valor_recebido'] or 0.0:.2f}",
+                r["forma_pagamento"] or "PIX", "Sim" if r["estoque_baixado"] else "Nao"
             ])
             
     output.seek(0)
@@ -1297,9 +1387,10 @@ def dar_baixa_estoque(orcamento_id: int = Form(...)):
     return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.post("/salvar-pagamento", response_class=HTMLResponse)
-def salvar_pagamento(entrada_valor: float = Form(0.0), num_parcelas: int = Form(1), forma_pagamento: str = Form("PIX")):
+def salvar_pagamento(entrada_valor: float = Form(0.0), num_parcelas: int = Form(1), valor_recebido: float = Form(0.0), forma_pagamento: str = Form("PIX")):
     CURRENT_DATA["entrada_valor"] = entrada_valor
     CURRENT_DATA["num_parcelas"] = num_parcelas
+    CURRENT_DATA["valor_recebido"] = valor_recebido
     CURRENT_DATA["forma_pagamento"] = forma_pagamento
     return RedirectResponse(url="/painel-get", status_code=303)
 
@@ -1333,6 +1424,7 @@ def novo_orcamento():
     CURRENT_DATA["data_entrega_prevista"] = (date.today() + timedelta(days=20)).strftime("%Y-%m-%d")
     CURRENT_DATA["entrada_valor"] = 0.0
     CURRENT_DATA["num_parcelas"] = 1
+    CURRENT_DATA["valor_recebido"] = 0.0
     CURRENT_DATA["forma_pagamento"] = "PIX / Transferência"
     CURRENT_DATA["estoque_baixado"] = 0
     CURRENT_DATA["custo_materiais"] = 0.0
@@ -1394,6 +1486,7 @@ def salvar_banco():
                     entrada_valor = ?,
                     num_parcelas = ?,
                     forma_pagamento = ?,
+                    valor_recebido = ?,
                     items_json = ?
                 WHERE id = ?
             """, (
@@ -1415,13 +1508,14 @@ def salvar_banco():
                 CURRENT_DATA.get("entrada_valor", 0.0),
                 CURRENT_DATA.get("num_parcelas", 1),
                 CURRENT_DATA.get("forma_pagamento", "PIX"),
+                CURRENT_DATA.get("valor_recebido", 0.0),
                 json.dumps(CURRENT_DATA["items"]),
                 CURRENT_DATA["orcamento_id"]
             ))
         else:
             cursor.execute("""
-                INSERT INTO orcamentos (criado_em, cliente_nome, cliente_telefone, cliente_ambiente, prazo_entrega, data_entrega_prevista, status, custo_materiais, custo_mao_obra, custo_frete_montagem, imposto_pct, comissao_pct, markup, preco_venda, lucro_liquido, entrada_valor, num_parcelas, forma_pagamento, items_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO orcamentos (criado_em, cliente_nome, cliente_telefone, cliente_ambiente, prazo_entrega, data_entrega_prevista, status, custo_materiais, custo_mao_obra, custo_frete_montagem, imposto_pct, comissao_pct, markup, preco_venda, lucro_liquido, entrada_valor, num_parcelas, forma_pagamento, valor_recebido, items_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 agora,
                 CURRENT_DATA["cliente_nome"],
@@ -1441,6 +1535,7 @@ def salvar_banco():
                 CURRENT_DATA.get("entrada_valor", 0.0),
                 CURRENT_DATA.get("num_parcelas", 1),
                 CURRENT_DATA.get("forma_pagamento", "PIX"),
+                CURRENT_DATA.get("valor_recebido", 0.0),
                 json.dumps(CURRENT_DATA["items"])
             ))
             CURRENT_DATA["orcamento_id"] = cursor.lastrowid
@@ -1470,6 +1565,7 @@ def carregar_orcamento(orcamento_id: int = Form(...)):
                 CURRENT_DATA["entrada_valor"] = float(row["entrada_valor"] or 0.0)
                 CURRENT_DATA["num_parcelas"] = int(row["num_parcelas"] or 1)
                 CURRENT_DATA["forma_pagamento"] = row["forma_pagamento"] or "PIX"
+                CURRENT_DATA["valor_recebido"] = float(row["valor_recebido"] or 0.0)
                 CURRENT_DATA["estoque_baixado"] = int(row["estoque_baixado"] or 0)
             except Exception:
                 pass
@@ -1706,6 +1802,94 @@ def gerar_pdf(id: int = None):
     doc.build(elements)
     buffer.seek(0)
     nome_arquivo = f"proposta-{c_nome.replace(' ', '_')}.pdf"
+    return Response(content=buffer.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"})
+
+@app.get("/gerar-recibo")
+def gerar_recibo(id: int = None):
+    empresa = get_empresa_config()
+    if id:
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (id,))
+            row = cursor.fetchone()
+            if row:
+                c_nome = row["cliente_nome"]
+                c_tel = row["cliente_telefone"]
+                c_amb = row["cliente_ambiente"]
+                orc_id = row["id"]
+                pv = row["preco_venda"]
+                rec = float(row["valor_recebido"] or row["entrada_valor"] or row["preco_venda"])
+                forma_pgto = row["forma_pagamento"] or "PIX"
+            else:
+                return Response(content="Orçamento não encontrado", status_code=404)
+    else:
+        dre = calcular_dre_completa(CURRENT_DATA)
+        c_nome = CURRENT_DATA['cliente_nome']
+        c_tel = CURRENT_DATA['cliente_telefone']
+        c_amb = CURRENT_DATA['cliente_ambiente']
+        orc_id = CURRENT_DATA['orcamento_id'] or 1
+        pv = dre["pv"]
+        rec = float(CURRENT_DATA.get('valor_recebido', 0.0) or dre['entrada'] or pv)
+        forma_pgto = CURRENT_DATA.get("forma_pagamento", "PIX")
+
+    extenso = numero_extenso_reais(rec)
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
+    styles = getSampleStyleSheet()
+    elements = []
+
+    title_style = ParagraphStyle(name='TitleStyle', parent=styles['Heading1'], fontSize=16, alignment=1, textColor=colors.HexColor('#0f172a'), spaceAfter=4)
+    sub_empresa = ParagraphStyle(name='SubEmpresa', parent=styles['Normal'], fontSize=9, alignment=1, textColor=colors.HexColor('#475569'), spaceAfter=14)
+    body_style = ParagraphStyle(name='BodyStyle', parent=styles['Normal'], fontSize=10, leading=15, textColor=colors.HexColor('#1e293b'))
+    recibo_val_style = ParagraphStyle(name='ValStyle', parent=styles['Normal'], fontSize=12, alignment=1, textColor=colors.HexColor('#0369a1'), fontName="Helvetica-Bold")
+
+    elements.append(Paragraph(f"<b>{empresa['nome_empresa']}</b>", title_style))
+    elements.append(Paragraph(f"CNPJ: {empresa['cnpj']} | Telefone: {empresa['telefone_empresa']} | Chave PIX: {empresa['pix']}", sub_empresa))
+
+    val_box_data = [[
+        Paragraph(f"<b>RECIBO DE PAGAMENTO Nº #{orc_id:04d}</b>", recibo_val_style),
+        Paragraph(f"<b>VALOR: R$ {rec:,.2f}</b>", recibo_val_style)
+    ]]
+    val_box = Table(val_box_data, colWidths=[270, 270])
+    val_box.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#e0f2fe')),
+        ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#0284c7')),
+        ('PADDING', (0, 0), (-1, -1), 8),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+    ]))
+    elements.append(val_box)
+    elements.append(Spacer(1, 16))
+
+    texto_recibo = f"""
+    Recebemos de <b>{c_nome}</b> (Telefone: {c_tel}) a importância de <b>R$ {rec:,.2f} ({extenso})</b>, referente ao pagamento (entrada / quitação) da fabricação e instalação de móveis planejados sob medida para o projeto/ambiente: <b>{c_amb}</b>.<br/><br/>
+    <b>Forma de Liquidação:</b> {forma_pgto}.<br/>
+    <b>Valor Total Contratado da Obra:</b> R$ {pv:,.2f}.<br/>
+    Para clareza e firmeza do que foi recebido, firmamos o presente recibo dando plena e geral quitação da quantia paga.
+    """
+    elements.append(Paragraph(texto_recibo, body_style))
+    elements.append(Spacer(1, 24))
+
+    data_extenso = date.today().strftime("%d de %B de %Y")
+    elements.append(Paragraph(f"Emitido em {data_extenso}.", body_style))
+    elements.append(Spacer(1, 30))
+
+    sign_data = [
+        ["________________________________________________________"],
+        [f"<b>{empresa['nome_empresa']}</b>\nCNPJ: {empresa['cnpj']}\nRepresentante / Financeiro"]
+    ]
+    sign_table = Table(sign_data, colWidths=[400])
+    sign_table.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#0f172a')),
+        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+    ]))
+    elements.append(sign_table)
+
+    doc.build(elements)
+    buffer.seek(0)
+    nome_arquivo = f"recibo-pagamento-{c_nome.replace(' ', '_')}.pdf"
     return Response(content=buffer.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"})
 
 @app.get("/gerar-vistoria")
