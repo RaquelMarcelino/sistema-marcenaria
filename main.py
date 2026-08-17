@@ -11,7 +11,7 @@ import urllib.parse
 import json
 import sqlite3
 import math
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 app = FastAPI(title="Sistema Marcenaria & Promob")
 DB_PATH = "marcenaria.db"
@@ -55,6 +55,7 @@ def init_db():
                 cliente_telefone TEXT,
                 cliente_ambiente TEXT,
                 prazo_entrega TEXT,
+                data_entrega_prevista TEXT,
                 status TEXT DEFAULT 'Em Negociação',
                 custo_materiais REAL,
                 custo_mao_obra REAL,
@@ -72,7 +73,7 @@ def init_db():
             )
         """)
         
-        colunas = ["status", "entrada_valor", "num_parcelas", "forma_pagamento", "estoque_baixado"]
+        colunas = ["status", "entrada_valor", "num_parcelas", "forma_pagamento", "estoque_baixado", "data_entrega_prevista"]
         for col in colunas:
             try:
                 cursor.execute(f"ALTER TABLE orcamentos ADD COLUMN {col} TEXT")
@@ -207,6 +208,7 @@ CURRENT_DATA = {
     "cliente_telefone": "11999998888",
     "cliente_ambiente": "Cozinha Planejada",
     "prazo_entrega": "25 dias úteis",
+    "data_entrega_prevista": (date.today() + timedelta(days=25)).strftime("%Y-%m-%d"),
     "entrada_valor": 1000.0,
     "num_parcelas": 3,
     "forma_pagamento": "Entrada + Cartão de Crédito",
@@ -237,7 +239,7 @@ def render_login_page(msg_erro=""):
         <div class="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-8 shadow-2xl space-y-6">
             <div class="text-center space-y-2">
                 <h1 class="text-2xl font-bold tracking-tight text-white">Marcenaria Pro SaaS</h1>
-                <p class="text-xs text-slate-400">Gestão de Orçamentos Promob, Estoque & Produção DRE</p>
+                <p class="text-xs text-slate-400">Gestão de Orçamentos Promob, Cronograma & Produção DRE</p>
             </div>
             {erro_tag}
             <form action="/painel" method="post" class="space-y-4">
@@ -505,6 +507,111 @@ def render_dashboard(data: dict):
         </div>
         """
 
+    # Cronograma e Histórico de Produção com Contagem Regressiva de Dias
+    hoje = date.today()
+    cronograma_cards_html = ""
+    historico_html = ""
+    
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, criado_em, cliente_nome, cliente_ambiente, preco_venda, lucro_liquido, status, estoque_baixado, data_entrega_prevista FROM orcamentos ORDER BY id DESC LIMIT 25")
+        historico_rows = cursor.fetchall()
+        
+        for h in historico_rows:
+            current_st = h['status'] or 'Em Negociação'
+            data_prev = h['data_entrega_prevista'] or (hoje + timedelta(days=20)).strftime("%Y-%m-%d")
+            
+            try:
+                dt_obj = datetime.strptime(data_prev, "%Y-%m-%d").date()
+                dias_restantes = (dt_obj - hoje).days
+            except Exception:
+                dias_restantes = 15
+                dt_obj = hoje + timedelta(days=15)
+
+            if current_st in ["Em Produção", "Aprovado"]:
+                if dias_restantes < 0:
+                    badge_tempo = f"<span class='text-rose-400 font-bold'>🔴 Atrasado ({abs(dias_restantes)}d)</span>"
+                    card_border = "border-rose-700/60 bg-rose-950/20"
+                elif dias_restantes <= 5:
+                    badge_tempo = f"<span class='text-amber-400 font-bold'>🟡 {dias_restantes} dias restantes</span>"
+                    card_border = "border-amber-700/60 bg-amber-950/20"
+                else:
+                    badge_tempo = f"<span class='text-emerald-400 font-bold'>🟢 {dias_restantes} dias restantes</span>"
+                    card_border = "border-slate-800 bg-slate-950"
+
+                cronograma_cards_html += f"""
+                <div class="p-3.5 rounded-xl border {card_border} flex flex-col justify-between space-y-2">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <span class="font-bold text-white text-xs block">{h['cliente_nome']}</span>
+                            <span class="text-[11px] text-sky-400">{h['cliente_ambiente']}</span>
+                        </div>
+                        {badge_tempo}
+                    </div>
+                    <div class="flex justify-between items-center text-[11px] text-slate-400 border-t border-slate-800/80 pt-2">
+                        <span>Montagem: <b>{dt_obj.strftime('%d/%m/%Y')}</b></span>
+                        <span class="text-white font-semibold">R$ {h['preco_venda']:,.2f}</span>
+                    </div>
+                </div>
+                """
+
+            lucro_col = f"<td class='py-3 px-4 text-right text-emerald-400 font-semibold'>R$ {h['lucro_liquido']:,.2f}</td>" if is_admin else "<td class='py-3 px-4 text-right text-slate-500'>—</td>"
+            baixado = int(h['estoque_baixado'] or 0)
+            
+            btn_baixa = "<span class='text-[10px] text-emerald-400 font-medium px-2 py-0.5 bg-emerald-950/60 rounded border border-emerald-800'>Baixado</span>" if baixado else f"""
+            <form action="/dar-baixa-estoque" method="post" class="inline" onsubmit="return confirm('Confirmar baixa automática dos materiais no estoque?');">
+                <input type="hidden" name="orcamento_id" value="{h['id']}">
+                <button type="submit" class="px-2 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-[10px] font-semibold">Baixar</button>
+            </form>
+            """
+
+            historico_html += f"""
+            <tr class="border-b border-slate-800 hover:bg-slate-800/40 text-xs item-linha" data-busca="{h['cliente_nome'].lower()} {h['cliente_ambiente'].lower()} {current_st.lower()}">
+                <td class="py-3 px-4 text-slate-400 font-mono">#{h['id']}</td>
+                <td class="py-3 px-4 text-slate-300">{h['criado_em']}</td>
+                <td class="py-3 px-4 text-white font-medium">{h['cliente_nome']}</td>
+                <td class="py-3 px-4 text-slate-300">{h['cliente_ambiente']}</td>
+                <td class="py-3 px-4 text-right text-sky-400 font-bold">R$ {h['preco_venda']:,.2f}</td>
+                {lucro_col}
+                <td class="py-3 px-4 text-center">
+                    <form action="/atualizar-status" method="post" class="inline">
+                        <input type="hidden" name="orcamento_id" value="{h['id']}">
+                        <select name="novo_status" onchange="this.form.submit()" class="bg-slate-950 border border-slate-700 text-[11px] text-slate-200 rounded px-2 py-1 focus:outline-none">
+                            <option value="Em Negociação" {'selected' if current_st=='Em Negociação' else ''}>🟡 Em Negociação</option>
+                            <option value="Aprovado" {'selected' if current_st=='Aprovado' else ''}>🟢 Aprovado</option>
+                            <option value="Em Produção" {'selected' if current_st=='Em Produção' else ''}>🔵 Em Produção</option>
+                            <option value="Entregue" {'selected' if current_st=='Entregue' else ''}>🟣 Entregue</option>
+                            <option value="Cancelado" {'selected' if current_st=='Cancelado' else ''}>🔴 Cancelado</option>
+                        </select>
+                    </form>
+                </td>
+                <td class="py-3 px-4 text-center">
+                    {btn_baixa}
+                </td>
+                <td class="py-3 px-4 text-center">
+                    <div class="flex items-center justify-center space-x-1">
+                        <form action="/carregar-orcamento" method="post" class="inline">
+                            <input type="hidden" name="orcamento_id" value="{h['id']}">
+                            <button type="submit" class="px-2 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded text-[11px] font-semibold">Abrir</button>
+                        </form>
+                        <a href="/gerar-pdf?id={h['id']}" class="px-2 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-[11px] font-semibold">Orç.</a>
+                        <a href="/gerar-contrato?id={h['id']}" class="px-2 py-1 bg-amber-700 hover:bg-amber-600 text-white rounded text-[11px] font-semibold">Contrato</a>
+                        <a href="/gerar-etiquetas?id={h['id']}" class="px-2 py-1 bg-teal-700 hover:bg-teal-600 text-white rounded text-[11px] font-semibold">Etiquetas</a>
+                        <a href="/gerar-pdf-compras?id={h['id']}" class="px-2 py-1 bg-indigo-700 hover:bg-indigo-600 text-white rounded text-[11px] font-semibold">Compras</a>
+                        <form action="/excluir-orcamento" method="post" class="inline" onsubmit="return confirm('Deseja excluir este orçamento?');">
+                            <input type="hidden" name="orcamento_id" value="{h['id']}">
+                            <button type="submit" class="px-1.5 py-1 bg-rose-700/60 hover:bg-rose-600 text-white rounded text-[11px]">✕</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            """
+
+        if not historico_rows:
+            historico_html = "<tr><td colspan='9' class='py-6 text-center text-xs text-slate-500'>Nenhum orçamento salvo no histórico ainda.</td></tr>"
+
+    cronograma_cards_html = cronograma_cards_html or "<div class='py-6 text-center text-xs text-slate-500 col-span-full'>Nenhum projeto em produção no momento. Passe orçamentos para 'Em Produção' ou 'Aprovado' para ver o cronograma.</div>"
+
     condicoes_zap = f"Entrada de R$ {dre['entrada']:,.2f} + {dre['n_parc']}x de R$ {dre['valor_parcela']:,.2f}" if dre['n_parc'] > 1 else f"R$ {dre['pv']:,.2f} à vista"
     msg_zap = f"Olá {data['cliente_nome']}! Segue a proposta da {empresa['nome_empresa']} para o projeto {data['cliente_ambiente']}: Total de R$ {dre['pv']:,.2f} ({condicoes_zap}) com entrega em {data['prazo_entrega']}."
     zap_url = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone']}&text={urllib.parse.quote(msg_zap)}"
@@ -518,75 +625,6 @@ def render_dashboard(data: dict):
     msg_cotacao += f"- Puxadores: {compras['puxadores']} un\n"
     msg_cotacao += f"Favor enviar cotação e disponibilidade."
     zap_cotacao_url = f"https://api.whatsapp.com/send?text={urllib.parse.quote(msg_cotacao)}"
-
-    historico_html = ""
-    with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT id, criado_em, cliente_nome, cliente_ambiente, preco_venda, lucro_liquido, status, estoque_baixado FROM orcamentos ORDER BY id DESC LIMIT 20")
-        historico_rows = cursor.fetchall()
-        
-        if historico_rows:
-            for h in historico_rows:
-                lucro_col = f"<td class='py-3 px-4 text-right text-emerald-400 font-semibold'>R$ {h['lucro_liquido']:,.2f}</td>" if is_admin else "<td class='py-3 px-4 text-right text-slate-500'>—</td>"
-                current_st = h['status'] or 'Em Negociação'
-                baixado = int(h['estoque_baixado'] or 0)
-                
-                btn_baixa = "<span class='text-[10px] text-emerald-400 font-medium px-2 py-0.5 bg-emerald-950/60 rounded border border-emerald-800'>Baixado</span>" if baixado else f"""
-                <form action="/dar-baixa-estoque" method="post" class="inline" onsubmit="return confirm('Confirmar baixa automática dos materiais no estoque?');">
-                    <input type="hidden" name="orcamento_id" value="{h['id']}">
-                    <button type="submit" class="px-2 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-[10px] font-semibold">Baixar</button>
-                </form>
-                """
-
-                historico_html += f"""
-                <tr class="border-b border-slate-800 hover:bg-slate-800/40 text-xs">
-                    <td class="py-3 px-4 text-slate-400 font-mono">#{h['id']}</td>
-                    <td class="py-3 px-4 text-slate-300">{h['criado_em']}</td>
-                    <td class="py-3 px-4 text-white font-medium">{h['cliente_nome']}</td>
-                    <td class="py-3 px-4 text-slate-300">{h['cliente_ambiente']}</td>
-                    <td class="py-3 px-4 text-right text-sky-400 font-bold">R$ {h['preco_venda']:,.2f}</td>
-                    {lucro_col}
-                    <td class="py-3 px-4 text-center">
-                        <form action="/atualizar-status" method="post" class="inline">
-                            <input type="hidden" name="orcamento_id" value="{h['id']}">
-                            <select name="novo_status" onchange="this.form.submit()" class="bg-slate-950 border border-slate-700 text-[11px] text-slate-200 rounded px-2 py-1 focus:outline-none">
-                                <option value="Em Negociação" {'selected' if current_st=='Em Negociação' else ''}>🟡 Em Negociação</option>
-                                <option value="Aprovado" {'selected' if current_st=='Aprovado' else ''}>🟢 Aprovado</option>
-                                <option value="Em Produção" {'selected' if current_st=='Em Produção' else ''}>🔵 Em Produção</option>
-                                <option value="Entregue" {'selected' if current_st=='Entregue' else ''}>🟣 Entregue</option>
-                                <option value="Cancelado" {'selected' if current_st=='Cancelado' else ''}>🔴 Cancelado</option>
-                            </select>
-                        </form>
-                    </td>
-                    <td class="py-3 px-4 text-center">
-                        {btn_baixa}
-                    </td>
-                    <td class="py-3 px-4 text-center">
-                        <div class="flex items-center justify-center space-x-1">
-                            <form action="/carregar-orcamento" method="post" class="inline">
-                                <input type="hidden" name="orcamento_id" value="{h['id']}">
-                                <button type="submit" class="px-2 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded text-[11px] font-semibold">Abrir</button>
-                            </form>
-                            <a href="/gerar-pdf?id={h['id']}" class="px-2 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-[11px] font-semibold">Orç.</a>
-                            <a href="/gerar-contrato?id={h['id']}" class="px-2 py-1 bg-amber-700 hover:bg-amber-600 text-white rounded text-[11px] font-semibold">Contrato</a>
-                            <a href="/gerar-etiquetas?id={h['id']}" class="px-2 py-1 bg-teal-700 hover:bg-teal-600 text-white rounded text-[11px] font-semibold">Etiquetas</a>
-                            <a href="/gerar-pdf-compras?id={h['id']}" class="px-2 py-1 bg-indigo-700 hover:bg-indigo-600 text-white rounded text-[11px] font-semibold">Compras</a>
-                            <form action="/excluir-orcamento" method="post" class="inline" onsubmit="return confirm('Deseja excluir este orçamento?');">
-                                <input type="hidden" name="orcamento_id" value="{h['id']}">
-                                <button type="submit" class="px-1.5 py-1 bg-rose-700/60 hover:bg-rose-600 text-white rounded text-[11px]">✕</button>
-                            </form>
-                        </div>
-                    </td>
-                </tr>
-                """
-        else:
-            historico_html = """
-            <tr>
-                <td colspan="9" class="py-6 text-center text-xs text-slate-500">
-                    Nenhum orçamento salvo no histórico ainda. Salve o orçamento ativo abaixo.
-                </td>
-            </tr>
-            """
 
     usuarios_html = ""
     if is_admin:
@@ -866,6 +904,20 @@ def render_dashboard(data: dict):
         <main class="max-w-7xl mx-auto p-6 space-y-6">
             {dre_cards}
 
+            <!-- Agenda & Cronograma de Entregas e Montagens -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+                <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                    <div>
+                        <h2 class="text-base font-semibold text-white">📅 Cronograma de Entregas & Montagens (Fábrica)</h2>
+                        <p class="text-xs text-slate-400">Contagem de dias e monitoramento de prazos críticos</p>
+                    </div>
+                    <span class="text-xs text-sky-400 font-medium">Controle de Fábrica</span>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {cronograma_cards_html}
+                </div>
+            </div>
+
             <!-- Simulador de Pagamento e Condições Comerciais -->
             <div class="bg-slate-900 border border-amber-900/50 rounded-xl p-6 shadow-lg space-y-4">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
@@ -981,23 +1033,27 @@ def render_dashboard(data: dict):
             <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
                 <div class="flex justify-between items-center border-b border-slate-800 pb-3">
                     <h2 class="text-base font-semibold text-white">👤 Dados do Cliente & Proposta</h2>
-                    <span class="text-xs text-sky-400">Vinculado ao Contrato, Banco, PDF e WhatsApp</span>
+                    <span class="text-xs text-sky-400">Vinculado ao Cronograma, Contrato, Banco, PDF e WhatsApp</span>
                 </div>
-                <form action="/salvar-cliente" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                <form action="/salvar-cliente" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">Nome do Cliente</label>
                         <input type="text" name="cliente_nome" value="{data['cliente_nome']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
                     </div>
                     <div>
-                        <label class="block text-xs font-medium text-slate-400 mb-1">WhatsApp / Telefone</label>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">WhatsApp / Tel</label>
                         <input type="text" name="cliente_telefone" value="{data['cliente_telefone']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
                     </div>
                     <div>
-                        <label class="block text-xs font-medium text-slate-400 mb-1">Ambiente / Projeto</label>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Ambiente</label>
                         <input type="text" name="cliente_ambiente" value="{data['cliente_ambiente']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
                     </div>
                     <div>
-                        <label class="block text-xs font-medium text-slate-400 mb-1">Status da Proposta</label>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Data Prevista Montagem</label>
+                        <input type="date" name="data_entrega_prevista" value="{data.get('data_entrega_prevista', '')}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Status</label>
                         <select name="status" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none">
                             <option value="Em Negociação" {'selected' if data.get('status')=='Em Negociação' else ''}>🟡 Em Negociação</option>
                             <option value="Aprovado" {'selected' if data.get('status')=='Aprovado' else ''}>🟢 Aprovado</option>
@@ -1007,7 +1063,7 @@ def render_dashboard(data: dict):
                         </select>
                     </div>
                     <div>
-                        <label class="block text-xs font-medium text-slate-400 mb-1">Prazo de Entrega</label>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Prazo Texto</label>
                         <div class="flex gap-2">
                             <input type="text" name="prazo_entrega" value="{data['prazo_entrega']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
                             <button type="submit" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold shrink-0">
@@ -1060,19 +1116,22 @@ def render_dashboard(data: dict):
                 </div>
             </div>
 
-            <!-- Histórico de Orçamentos com Exportação CSV/Excel -->
+            <!-- Histórico de Orçamentos com Busca Dinâmica em Tempo Real -->
             <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
-                <div class="p-4 border-b border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 bg-slate-850">
+                <div class="p-4 border-b border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-slate-850">
                     <div>
                         <h3 class="text-sm font-semibold text-white">📁 Histórico, Pedidos & Produção (Banco de Dados)</h3>
-                        <span class="text-xs text-slate-400">Gerencie status, baixe materiais e exporte relatórios</span>
+                        <span class="text-xs text-slate-400">Pesquise por cliente, ambiente ou filtre status</span>
                     </div>
-                    <a href="/exportar-csv" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold flex items-center space-x-1 transition-colors">
-                        <span>📊 Exportar Planilha (CSV/Excel)</span>
-                    </a>
+                    <div class="flex items-center space-x-2 w-full sm:w-auto">
+                        <input type="text" id="campoBusca" onkeyup="filtrarTabela()" placeholder="🔍 Buscar cliente ou ambiente..." class="px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500 w-full sm:w-64">
+                        <a href="/exportar-csv" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold flex items-center space-x-1 shrink-0">
+                            <span>📊 CSV</span>
+                        </a>
+                    </div>
                 </div>
                 <div class="overflow-x-auto">
-                    <table class="w-full text-left border-collapse">
+                    <table class="w-full text-left border-collapse" id="tabelaHistorico">
                         <thead>
                             <tr class="bg-slate-800/40 border-b border-slate-800 text-xs font-semibold text-slate-400 uppercase">
                                 <th class="py-3 px-4"># ID</th>
@@ -1116,6 +1175,22 @@ def render_dashboard(data: dict):
                 </div>
             </div>
         </main>
+
+        <script>
+            function filtrarTabela() {
+                var input = document.getElementById("campoBusca");
+                var filter = input.value.toLowerCase();
+                var rows = document.getElementsByClassName("item-linha");
+                for (var i = 0; i < rows.length; i++) {
+                    var data = rows[i].getAttribute("data-busca");
+                    if (data && data.indexOf(filter) > -1) {
+                        rows[i].style.display = "";
+                    } else {
+                        rows[i].style.display = "none";
+                    }
+                }
+            }
+        </script>
     </body>
     </html>
     """
@@ -1146,7 +1221,7 @@ def exportar_csv():
     writer = csv.writer(output, delimiter=';')
     
     writer.writerow([
-        "ID", "Data/Hora", "Cliente", "Telefone", "Ambiente", "Prazo Entrega",
+        "ID", "Data/Hora", "Cliente", "Telefone", "Ambiente", "Prazo Entrega", "Data Prevista",
         "Status", "Custo Materiais (R$)", "Mao de Obra (R$)", "Frete e Montagem (R$)",
         "Impostos (%)", "Comissao (%)", "Markup", "Preco Venda (R$)", "Lucro Liquido (R$)",
         "Entrada (R$)", "Num Parcelas", "Forma Pagamento", "Estoque Baixado"
@@ -1158,10 +1233,11 @@ def exportar_csv():
         for r in cursor.fetchall():
             writer.writerow([
                 r["id"], r["criado_em"], r["cliente_nome"], r["cliente_telefone"], r["cliente_ambiente"],
-                r["prazo_entrega"], r["status"], f"{r['custo_materiais']:.2f}", f"{r['custo_mao_obra']:.2f}",
-                f"{r['custo_frete_montagem']:.2f}", r["imposto_pct"], r["comissao_pct"], r["markup"],
-                f"{r['preco_venda']:.2f}", f"{r['lucro_liquido']:.2f}", f"{r['entrada_valor'] or 0.0:.2f}",
-                r["num_parcelas"] or 1, r["forma_pagamento"] or "PIX", "Sim" if r["estoque_baixado"] else "Nao"
+                r["prazo_entrega"], r["data_entrega_prevista"] or "-", r["status"], f"{r['custo_materiais']:.2f}",
+                f"{r['custo_mao_obra']:.2f}", f"{r['custo_frete_montagem']:.2f}", r["imposto_pct"],
+                r["comissao_pct"], r["markup"], f"{r['preco_venda']:.2f}", f"{r['lucro_liquido']:.2f}",
+                f"{r['entrada_valor'] or 0.0:.2f}", r["num_parcelas"] or 1, r["forma_pagamento"] or "PIX",
+                "Sim" if r["estoque_baixado"] else "Nao"
             ])
             
     output.seek(0)
@@ -1248,6 +1324,7 @@ def novo_orcamento():
     CURRENT_DATA["cliente_telefone"] = ""
     CURRENT_DATA["cliente_ambiente"] = "Ambiente Geral"
     CURRENT_DATA["prazo_entrega"] = "20 dias úteis"
+    CURRENT_DATA["data_entrega_prevista"] = (date.today() + timedelta(days=20)).strftime("%Y-%m-%d")
     CURRENT_DATA["entrada_valor"] = 0.0
     CURRENT_DATA["num_parcelas"] = 1
     CURRENT_DATA["forma_pagamento"] = "PIX / Transferência"
@@ -1298,6 +1375,7 @@ def salvar_banco():
                     cliente_telefone = ?,
                     cliente_ambiente = ?,
                     prazo_entrega = ?,
+                    data_entrega_prevista = ?,
                     status = ?,
                     custo_materiais = ?,
                     custo_mao_obra = ?,
@@ -1318,6 +1396,7 @@ def salvar_banco():
                 CURRENT_DATA["cliente_telefone"],
                 CURRENT_DATA["cliente_ambiente"],
                 CURRENT_DATA["prazo_entrega"],
+                CURRENT_DATA.get("data_entrega_prevista"),
                 CURRENT_DATA.get("status", "Em Negociação"),
                 dre["custo_mat"],
                 dre["custo_mo"],
@@ -1335,14 +1414,15 @@ def salvar_banco():
             ))
         else:
             cursor.execute("""
-                INSERT INTO orcamentos (criado_em, cliente_nome, cliente_telefone, cliente_ambiente, prazo_entrega, status, custo_materiais, custo_mao_obra, custo_frete_montagem, imposto_pct, comissao_pct, markup, preco_venda, lucro_liquido, entrada_valor, num_parcelas, forma_pagamento, items_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO orcamentos (criado_em, cliente_nome, cliente_telefone, cliente_ambiente, prazo_entrega, data_entrega_prevista, status, custo_materiais, custo_mao_obra, custo_frete_montagem, imposto_pct, comissao_pct, markup, preco_venda, lucro_liquido, entrada_valor, num_parcelas, forma_pagamento, items_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 agora,
                 CURRENT_DATA["cliente_nome"],
                 CURRENT_DATA["cliente_telefone"],
                 CURRENT_DATA["cliente_ambiente"],
                 CURRENT_DATA["prazo_entrega"],
+                CURRENT_DATA.get("data_entrega_prevista"),
                 CURRENT_DATA.get("status", "Em Negociação"),
                 dre["custo_mat"],
                 dre["custo_mo"],
@@ -1375,6 +1455,7 @@ def carregar_orcamento(orcamento_id: int = Form(...)):
             CURRENT_DATA["cliente_telefone"] = row["cliente_telefone"]
             CURRENT_DATA["cliente_ambiente"] = row["cliente_ambiente"]
             CURRENT_DATA["prazo_entrega"] = row["prazo_entrega"]
+            CURRENT_DATA["data_entrega_prevista"] = row["data_entrega_prevista"] or (date.today() + timedelta(days=20)).strftime("%Y-%m-%d")
             CURRENT_DATA["custo_materiais"] = row["custo_materiais"]
             CURRENT_DATA["imposto_pct"] = row["imposto_pct"] or 6.0
             CURRENT_DATA["comissao_pct"] = row["comissao_pct"] or 4.0
@@ -1406,12 +1487,14 @@ def salvar_cliente(
     cliente_telefone: str = Form(...),
     cliente_ambiente: str = Form(...),
     prazo_entrega: str = Form(...),
+    data_entrega_prevista: str = Form(...),
     status: str = Form("Em Negociação")
 ):
     CURRENT_DATA["cliente_nome"] = cliente_nome
     CURRENT_DATA["cliente_telefone"] = cliente_telefone
     CURRENT_DATA["cliente_ambiente"] = cliente_ambiente
     CURRENT_DATA["prazo_entrega"] = prazo_entrega
+    CURRENT_DATA["data_entrega_prevista"] = data_entrega_prevista
     CURRENT_DATA["status"] = status
     return RedirectResponse(url="/painel-get", status_code=303)
 
@@ -1671,7 +1754,6 @@ def gerar_etiquetas(id: int = None):
             {"id_tag": f"#{orc_id}-P04", "nome": "Porta Basculante Superior", "dim": "800 x 400 x 18 mm", "fitas": "Bordas: 4 Lados 22mm"}
         ]
 
-    # Grid 2 colunas de etiquetas
     cards_data = []
     linha_atual = []
     
