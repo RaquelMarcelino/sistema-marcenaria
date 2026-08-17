@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 import xml.etree.ElementTree as ET
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 import io
 import csv
@@ -11,6 +11,7 @@ import urllib.parse
 import json
 import sqlite3
 import math
+import base64
 from datetime import datetime, date, timedelta
 
 app = FastAPI(title="Sistema Marcenaria & Promob")
@@ -70,6 +71,7 @@ def init_db():
                 forma_pagamento TEXT DEFAULT 'PIX / Transferência',
                 estoque_baixado INTEGER DEFAULT 0,
                 valor_recebido REAL DEFAULT 0.0,
+                imagens_json TEXT,
                 items_json TEXT
             )
         """)
@@ -81,7 +83,8 @@ def init_db():
             ("forma_pagamento", "TEXT"),
             ("estoque_baixado", "INTEGER"),
             ("data_entrega_prevista", "TEXT"),
-            ("valor_recebido", "REAL")
+            ("valor_recebido", "REAL"),
+            ("imagens_json", "TEXT")
         ]
         for col, tipo in colunas:
             try:
@@ -229,6 +232,7 @@ CURRENT_DATA = {
     "forma_pagamento": "Entrada + Cartão de Crédito",
     "estoque_baixado": 0,
     "valor_recebido": 1000.0,
+    "imagens": [],
     "custo_materiais": 0.0,
     "dias_producao": 3,
     "valor_diaria": 180.0,
@@ -303,7 +307,7 @@ def render_login_page(msg_erro=""):
         <div class="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-8 shadow-2xl space-y-6">
             <div class="text-center space-y-2">
                 <h1 class="text-2xl font-bold tracking-tight text-white">Marcenaria Pro SaaS</h1>
-                <p class="text-xs text-slate-400">Gestão de Orçamentos Promob, Contas a Receber & Recibos</p>
+                <p class="text-xs text-slate-400">Gestão de Orçamentos Promob, Galeria 3D & Produção DRE</p>
             </div>
             {erro_tag}
             <form action="/painel" method="post" class="space-y-4">
@@ -499,6 +503,7 @@ def render_dashboard(data: dict):
     compras = consolidar_compras_e_nesting(items)
     estoque = get_estoque_atual()
     metricas = get_metricas_financeiras()
+    imagens = data.get("imagens", [])
     
     rows_html = ""
     if items:
@@ -555,6 +560,22 @@ def render_dashboard(data: dict):
     else:
         svg_chapas_html = "<div class='py-8 text-center text-xs text-slate-500'>Importe um projeto XML para renderizar os diagramas de corte.</div>"
 
+    # Galeria de Imagens / Renders 3D
+    galeria_html = ""
+    if imagens:
+        for idx, img_b64 in enumerate(imagens):
+            galeria_html += f"""
+            <div class="relative group rounded-lg overflow-hidden border border-slate-700 aspect-video bg-slate-950 flex items-center justify-center">
+                <img src="data:image/jpeg;base64,{img_b64}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
+                <form action="/remover-imagem" method="post" class="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <input type="hidden" name="img_index" value="{idx}">
+                    <button type="submit" class="bg-rose-600 hover:bg-rose-500 text-white rounded p-1 text-[10px] shadow">✕</button>
+                </form>
+            </div>
+            """
+    else:
+        galeria_html = "<div class='py-6 text-center text-xs text-slate-500 col-span-full'>Nenhum render 3D ou foto anexada. Faça upload abaixo para enriquecer a proposta comercial em PDF.</div>"
+
     estoque_cards_html = ""
     for est in estoque:
         is_baixo = est['quantidade'] <= est['qtd_minima']
@@ -591,7 +612,6 @@ def render_dashboard(data: dict):
             pv_item = float(h['preco_venda'] or 0.0)
             rec_item = float(h['valor_recebido'] or 0.0)
             
-            # Status Financeiro
             if pv_item > 0 and rec_item >= pv_item:
                 tag_pgto = "<span class='px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950 text-emerald-300 border border-emerald-800'>🟢 Quitado</span>"
             elif rec_item > 0:
@@ -986,6 +1006,25 @@ def render_dashboard(data: dict):
         <main class="max-w-7xl mx-auto p-6 space-y-6">
             {dre_cards}
 
+            <!-- Galeria de Imagens / Renders 3D -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
+                    <div>
+                        <h2 class="text-base font-semibold text-white">🖼️ Galeria de Renders 3D & Fotos da Obra</h2>
+                        <p class="text-xs text-slate-400">Anexe imagens para constar no Orçamento e na Vistoria</p>
+                    </div>
+                    <form action="/upload-imagem" method="post" enctype="multipart/form-data" class="flex items-center gap-2">
+                        <input type="file" name="foto" accept="image/*" required class="block w-full text-xs text-slate-400 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-200 hover:file:bg-slate-700 cursor-pointer">
+                        <button type="submit" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold shrink-0">
+                            + Anexar Imagem
+                        </button>
+                    </form>
+                </div>
+                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                    {galeria_html}
+                </div>
+            </div>
+
             <!-- Agenda & Cronograma de Entregas e Montagens -->
             <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
                 <div class="flex justify-between items-center border-b border-slate-800 pb-3">
@@ -1311,6 +1350,22 @@ def login(username: str = Form(...), password: str = Form(...)):
 
     return render_dashboard(data=CURRENT_DATA)
 
+@app.post("/upload-imagem", response_class=HTMLResponse)
+async def upload_imagem(foto: UploadFile = File(...)):
+    contents = await foto.read()
+    if contents:
+        img_b64 = base64.b64encode(contents).decode("utf-8")
+        if "imagens" not in CURRENT_DATA:
+            CURRENT_DATA["imagens"] = []
+        CURRENT_DATA["imagens"].append(img_b64)
+    return RedirectResponse(url="/painel-get", status_code=303)
+
+@app.post("/remover-imagem", response_class=HTMLResponse)
+def remover_imagem(img_index: int = Form(...)):
+    if "imagens" in CURRENT_DATA and 0 <= img_index < len(CURRENT_DATA["imagens"]):
+        CURRENT_DATA["imagens"].pop(img_index)
+    return RedirectResponse(url="/painel-get", status_code=303)
+
 @app.get("/exportar-csv")
 def exportar_csv():
     output = io.StringIO()
@@ -1427,6 +1482,7 @@ def novo_orcamento():
     CURRENT_DATA["valor_recebido"] = 0.0
     CURRENT_DATA["forma_pagamento"] = "PIX / Transferência"
     CURRENT_DATA["estoque_baixado"] = 0
+    CURRENT_DATA["imagens"] = []
     CURRENT_DATA["custo_materiais"] = 0.0
     CURRENT_DATA["dias_producao"] = 3
     CURRENT_DATA["valor_diaria"] = 180.0
@@ -1487,6 +1543,7 @@ def salvar_banco():
                     num_parcelas = ?,
                     forma_pagamento = ?,
                     valor_recebido = ?,
+                    imagens_json = ?,
                     items_json = ?
                 WHERE id = ?
             """, (
@@ -1509,13 +1566,14 @@ def salvar_banco():
                 CURRENT_DATA.get("num_parcelas", 1),
                 CURRENT_DATA.get("forma_pagamento", "PIX"),
                 CURRENT_DATA.get("valor_recebido", 0.0),
+                json.dumps(CURRENT_DATA.get("imagens", [])),
                 json.dumps(CURRENT_DATA["items"]),
                 CURRENT_DATA["orcamento_id"]
             ))
         else:
             cursor.execute("""
-                INSERT INTO orcamentos (criado_em, cliente_nome, cliente_telefone, cliente_ambiente, prazo_entrega, data_entrega_prevista, status, custo_materiais, custo_mao_obra, custo_frete_montagem, imposto_pct, comissao_pct, markup, preco_venda, lucro_liquido, entrada_valor, num_parcelas, forma_pagamento, valor_recebido, items_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO orcamentos (criado_em, cliente_nome, cliente_telefone, cliente_ambiente, prazo_entrega, data_entrega_prevista, status, custo_materiais, custo_mao_obra, custo_frete_montagem, imposto_pct, comissao_pct, markup, preco_venda, lucro_liquido, entrada_valor, num_parcelas, forma_pagamento, valor_recebido, imagens_json, items_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 agora,
                 CURRENT_DATA["cliente_nome"],
@@ -1536,6 +1594,7 @@ def salvar_banco():
                 CURRENT_DATA.get("num_parcelas", 1),
                 CURRENT_DATA.get("forma_pagamento", "PIX"),
                 CURRENT_DATA.get("valor_recebido", 0.0),
+                json.dumps(CURRENT_DATA.get("imagens", [])),
                 json.dumps(CURRENT_DATA["items"])
             ))
             CURRENT_DATA["orcamento_id"] = cursor.lastrowid
@@ -1567,6 +1626,7 @@ def carregar_orcamento(orcamento_id: int = Form(...)):
                 CURRENT_DATA["forma_pagamento"] = row["forma_pagamento"] or "PIX"
                 CURRENT_DATA["valor_recebido"] = float(row["valor_recebido"] or 0.0)
                 CURRENT_DATA["estoque_baixado"] = int(row["estoque_baixado"] or 0)
+                CURRENT_DATA["imagens"] = json.loads(row["imagens_json"]) if row["imagens_json"] else []
             except Exception:
                 pass
             CURRENT_DATA["items"] = json.loads(row["items_json"]) if row["items_json"] else []
@@ -1692,6 +1752,7 @@ async def upload_xml(file: UploadFile = File(...)):
 @app.get("/gerar-pdf")
 def gerar_pdf(id: int = None):
     empresa = get_empresa_config()
+    imagens = []
     if id:
         with get_db() as conn:
             cursor = conn.cursor()
@@ -1707,6 +1768,7 @@ def gerar_pdf(id: int = None):
                 entrada = float(row["entrada_valor"] or 0.0)
                 n_parc = int(row["num_parcelas"] or 1)
                 forma_pgto = row["forma_pagamento"] or "PIX"
+                imagens = json.loads(row["imagens_json"]) if row["imagens_json"] else []
                 items = json.loads(row["items_json"]) if row["items_json"] else []
             else:
                 return Response(content="Orçamento não encontrado", status_code=404)
@@ -1721,6 +1783,7 @@ def gerar_pdf(id: int = None):
         entrada = dre["entrada"]
         n_parc = dre["n_parc"]
         forma_pgto = CURRENT_DATA.get("forma_pagamento", "PIX")
+        imagens = CURRENT_DATA.get("imagens", [])
         items = CURRENT_DATA["items"]
 
     v_parc = (pv - entrada) / n_parc if n_parc > 0 else 0.0
@@ -1752,7 +1815,17 @@ def gerar_pdf(id: int = None):
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
     ]))
     elements.append(cliente_table)
-    elements.append(Spacer(1, 12))
+    elements.append(Spacer(1, 10))
+
+    # Anexo do Render 3D do Promob se houver
+    if imagens:
+        try:
+            img_bytes = io.BytesIO(base64.b64decode(imagens[0]))
+            img_render = RLImage(img_bytes, width=540, height=220)
+            elements.append(img_render)
+            elements.append(Spacer(1, 10))
+        except Exception:
+            pass
 
     cond_texto = f"Entrada de R$ {entrada:,.2f} + {n_parc}x de R$ {v_parc:,.2f} ({forma_pgto})" if n_parc > 1 else f"À vista: R$ {pv:,.2f} ({forma_pgto})"
 
@@ -1773,7 +1846,7 @@ def gerar_pdf(id: int = None):
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
     ]))
     elements.append(dre_table)
-    elements.append(Spacer(1, 14))
+    elements.append(Spacer(1, 12))
 
     sum_title = ParagraphStyle(name='SumTitle', parent=styles['Heading2'], fontSize=12, textColor=colors.HexColor('#0284c7'), spaceAfter=6)
     elements.append(Paragraph("Especificação dos Módulos e Componentes", sum_title))
