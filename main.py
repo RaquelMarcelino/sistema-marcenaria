@@ -14,7 +14,7 @@ import math
 import base64
 from datetime import datetime, date, timedelta
 
-app = FastAPI(title="Sistema Marcenaria & Promob")
+app = FastAPI(title="Sistema Marcenaria Inteligente")
 DB_PATH = "marcenaria.db"
 
 def get_db():
@@ -294,6 +294,80 @@ def numero_extenso_reais(valor: float) -> str:
         texto += f" e {centavos}/100 centavos"
     return texto.capitalize()
 
+# MOTOR DE INTELIGÊNCIA PARAMÉTRICA (GERA PROJETO E CORTE SEM PROMOB)
+def gerar_engenharia_automatica(tipo_ambiente: str, metros_lineares: float, padrao_acabamento: str, precos: dict):
+    items = []
+    total_mat = 0.0
+    mult_acabamento = 1.0
+    
+    if "Elegance" in padrao_acabamento:
+        mult_acabamento = 1.3
+    elif "Premium" in padrao_acabamento:
+        mult_acabamento = 1.6
+
+    m_lin = max(metros_lineares, 1.0)
+    
+    if "Cozinha" in tipo_ambiente:
+        num_modulos = max(int(math.ceil(m_lin / 0.8)), 2)
+        
+        # Balcões Inferiores
+        for i in range(1, num_modulos + 1):
+            items.append({
+                "nome": f"Balcão Inferior #{i} (2 Portas)", "tipo": "Chapa MDF / Painel", "ambiente": tipo_ambiente,
+                "largura": 800, "altura": 700, "dimensoes": "800 x 700 x 580 mm", "qtd": 1,
+                "valor": 1.12 * precos["mdf_m2"] * mult_acabamento
+            })
+            items.append({
+                "nome": f"Portas Balcão #{i} (MDF 18mm)", "tipo": "Chapa MDF / Painel", "ambiente": tipo_ambiente,
+                "largura": 395, "altura": 680, "dimensoes": "395 x 680 x 18 mm", "qtd": 2,
+                "valor": 0.54 * precos["mdf_m2"] * mult_acabamento
+            })
+        
+        # Gaveteiro Triplo
+        items.append({
+            "nome": "Gaveteiro Triplo (Frentes e Laterais)", "tipo": "Chapa MDF / Painel", "ambiente": tipo_ambiente,
+            "largura": 600, "altura": 700, "dimensoes": "600 x 700 x 580 mm", "qtd": 1,
+            "valor": 1.40 * precos["mdf_m2"] * mult_acabamento
+        })
+        items.append({
+            "nome": "Corrediças Telescópicas Reforçadas", "tipo": "Ferragem (Corrediça)", "ambiente": tipo_ambiente,
+            "largura": 0, "altura": 0, "dimensoes": "450 mm", "qtd": 3,
+            "valor": 3 * precos["corredica"]
+        })
+
+        # Aéreos Superiores
+        for i in range(1, num_modulos + 1):
+            items.append({
+                "nome": f"Armário Aéreo Superior #{i}", "tipo": "Chapa MDF / Painel", "ambiente": tipo_ambiente,
+                "largura": 800, "altura": 700, "dimensoes": "800 x 700 x 350 mm", "qtd": 1,
+                "valor": 0.95 * precos["mdf_m2"] * mult_acabamento
+            })
+
+        # Dobradiças e Puxadores
+        qtd_dob = (num_modulos * 4) + 4
+        qtd_pux = (num_modulos * 2) + 3
+        items.append({"nome": "Dobradiças 35mm c/ Amortecedor Slow", "tipo": "Ferragem (Dobradiça)", "ambiente": tipo_ambiente, "largura": 0, "altura": 0, "dimensoes": "Ø35mm", "qtd": qtd_dob, "valor": qtd_dob * precos["dobradica"]})
+        items.append({"nome": "Puxadores Perfil Alumínio / Pontos", "tipo": "Acessório (Puxador)", "ambiente": tipo_ambiente, "largura": 0, "altura": 0, "dimensoes": "Perfil", "qtd": qtd_pux, "valor": qtd_pux * precos["puxador"]})
+        items.append({"nome": "Fita de Borda PVC 22mm", "tipo": "Fita de Borda", "ambiente": tipo_ambiente, "largura": 0, "altura": 0, "dimensoes": "-", "qtd": int(m_lin * 18), "valor": (m_lin * 18) * precos["fita_borda_m"]})
+
+    elif "Dormitório" in tipo_ambiente or "Closet" in tipo_ambiente:
+        num_portas = max(int(round(m_lin / 0.5)), 2)
+        items.append({"nome": "Laterais e Divisórias Armário (2600x600)", "tipo": "Chapa MDF / Painel", "ambiente": tipo_ambiente, "largura": 2600, "altura": 600, "dimensoes": "2600 x 600 x 18 mm", "qtd": num_portas + 1, "valor": (num_portas + 1) * (2.6 * 0.6 * precos["mdf_m2"]) * mult_acabamento})
+        items.append({"nome": "Portas Giro / Correr Armário (2500x500)", "tipo": "Chapa MDF / Painel", "ambiente": tipo_ambiente, "largura": 2500, "altura": 500, "dimensoes": "2500 x 500 x 18 mm", "qtd": num_portas, "valor": num_portas * (2.5 * 0.5 * precos["mdf_m2"]) * mult_acabamento})
+        items.append({"nome": "Prateleiras e Maleiros Internos", "tipo": "Chapa MDF / Painel", "ambiente": tipo_ambiente, "largura": 900, "altura": 550, "dimensoes": "900 x 550 x 18 mm", "qtd": num_portas * 2, "valor": (num_portas * 2) * (0.9 * 0.55 * precos["mdf_m2"]) * mult_acabamento})
+        items.append({"nome": "Gavetas Internas com Corrediça Oculta", "tipo": "Ferragem (Corrediça)", "ambiente": tipo_ambiente, "largura": 0, "altura": 0, "dimensoes": "450 mm", "qtd": 4, "valor": 4 * precos["corredica"]})
+        items.append({"nome": "Dobradiças 110º com Amortecimento", "tipo": "Ferragem (Dobradiça)", "ambiente": tipo_ambiente, "largura": 0, "altura": 0, "dimensoes": "Ø35mm", "qtd": num_portas * 4, "valor": (num_portas * 4) * precos["dobradica"]})
+        items.append({"nome": "Fita de Borda PVC 22mm", "tipo": "Fita de Borda", "ambiente": tipo_ambiente, "largura": 0, "altura": 0, "dimensoes": "-", "qtd": int(m_lin * 24), "valor": (m_lin * 24) * precos["fita_borda_m"]})
+        
+    else: # Banheiro ou Painel Sala
+        items.append({"nome": f"Painel / Módulo Estrutural ({tipo_ambiente})", "tipo": "Chapa MDF / Painel", "ambiente": tipo_ambiente, "largura": int(m_lin * 1000), "altura": 800, "dimensoes": f"{int(m_lin*1000)} x 800 x 18 mm", "qtd": 2, "valor": (m_lin * 0.8 * 2 * precos["mdf_m2"]) * mult_acabamento})
+        items.append({"nome": "Gavetas / Portas Basculantes", "tipo": "Chapa MDF / Painel", "ambiente": tipo_ambiente, "largura": 600, "altura": 350, "dimensoes": "600 x 350 x 18 mm", "qtd": 2, "valor": 2 * (0.6 * 0.35 * precos["mdf_m2"]) * mult_acabamento})
+        items.append({"nome": "Pistões a Gás / Corrediças", "tipo": "Ferragem (Corrediça)", "ambiente": tipo_ambiente, "largura": 0, "altura": 0, "dimensoes": "Kit", "qtd": 2, "valor": 2 * precos["corredica"]})
+        items.append({"nome": "Fita de Borda PVC", "tipo": "Fita de Borda", "ambiente": tipo_ambiente, "largura": 0, "altura": 0, "dimensoes": "-", "qtd": 15, "valor": 15 * precos["fita_borda_m"]})
+
+    total_mat = sum(i["valor"] for i in items)
+    return items, total_mat
+
 def render_login_page(msg_erro=""):
     erro_tag = f"<p class='text-rose-400 text-xs text-center bg-rose-950/60 border border-rose-800 p-2 rounded-lg'>{msg_erro}</p>" if msg_erro else ""
     return f"""
@@ -309,7 +383,7 @@ def render_login_page(msg_erro=""):
         <div class="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-8 shadow-2xl space-y-6">
             <div class="text-center space-y-2">
                 <h1 class="text-2xl font-bold tracking-tight text-white">Marcenaria Pro SaaS</h1>
-                <p class="text-xs text-slate-400">Gestão de Orçamentos Promob, Captação Instagram & DRE</p>
+                <p class="text-xs text-slate-400">Gerador Inteligente Paramétrico & Produção DRE</p>
             </div>
             {erro_tag}
             <form action="/painel" method="post" class="space-y-4">
@@ -326,7 +400,7 @@ def render_login_page(msg_erro=""):
                 </button>
             </form>
             <div class="border-t border-slate-700/60 pt-4 text-center">
-                <a href="/solicitar-orcamento" target="_blank" class="text-xs text-emerald-400 hover:underline font-medium block mb-2">🔗 Ver Página Pública do Instagram</a>
+                <a href="/solicitar-orcamento" target="_blank" class="text-xs text-emerald-400 hover:underline font-medium block mb-2">🔗 Ver Gerador Automático (Link Instagram)</a>
                 <p class="text-[11px] text-slate-400">Admin: <b>admin@marcenaria.com</b> | Senha: <b>123456</b></p>
             </div>
         </div>
@@ -334,27 +408,32 @@ def render_login_page(msg_erro=""):
     </html>
     """
 
-def render_pagina_captacao(sucesso=False):
+def render_pagina_captacao(sucesso=False, orc_id=None, estimativa=0.0):
     empresa = get_empresa_config()
     msg_sucesso = f"""
-    <div class="bg-emerald-950/80 border border-emerald-600 p-6 rounded-2xl text-center space-y-3">
-        <span class="text-4xl block">🎉</span>
-        <h2 class="text-xl font-bold text-white">Planta e Informações Enviadas com Sucesso!</h2>
-        <p class="text-xs text-slate-300">Nossa equipe de projetistas da <b>{empresa['nome_empresa']}</b> já recebeu sua solicitação e entraremos em contato via WhatsApp nas próximas horas com a sua proposta inicial.</p>
-        <a href="https://api.whatsapp.com/send?phone=55{empresa['telefone_empresa'].replace('(', '').replace(')', '').replace('-', '').replace(' ', '')}" target="_blank" class="inline-block px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl shadow-lg transition-colors">
-            Falar Conosco no WhatsApp
+    <div class="bg-emerald-950/90 border border-emerald-600 p-6 rounded-2xl text-center space-y-4 shadow-2xl">
+        <span class="text-5xl block animate-bounce">✨</span>
+        <h2 class="text-xl font-bold text-white">Projeto 3D & Estimativa Gerados com Sucesso!</h2>
+        <div class="bg-slate-950 p-4 rounded-xl border border-emerald-800 inline-block text-left space-y-1">
+            <p class="text-xs text-slate-400">Estimativa do Projeto Paramétrico:</p>
+            <p class="text-2xl font-bold text-emerald-400">R$ {estimativa:,.2f}</p>
+            <p class="text-[11px] text-slate-400">Entrada + Parcelamento em até 12x</p>
+        </div>
+        <p class="text-xs text-slate-300">Nossa equipe da <b>{empresa['nome_empresa']}</b> já recebeu a modulação e lista de corte para refinar a proposta com você pelo WhatsApp.</p>
+        <a href="https://api.whatsapp.com/send?phone=55{empresa['telefone_empresa'].replace('(', '').replace(')', '').replace('-', '').replace(' ', '')}&text=Olá! Acabei de gerar meu projeto #{orc_id} no site e gostaria de confirmar a proposta!" target="_blank" class="inline-block px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg transition-colors">
+            💬 Abrir Conversa no WhatsApp
         </a>
     </div>
     """ if sucesso else ""
 
     formulario = f"""
     <form action="/enviar-solicitacao-lead" method="post" enctype="multipart/form-data" class="space-y-4 bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-2xl shadow-2xl">
-        <div class="space-y-1">
-            <h2 class="text-lg font-bold text-white">Solicite seu Projeto 3D Sob Medida</h2>
-            <p class="text-xs text-slate-400">Preencha os dados e anexe a foto da sua planta baixa ou cômodo para fazermos o seu orçamento personalizado.</p>
+        <div class="space-y-1 border-b border-slate-800 pb-3">
+            <h2 class="text-lg font-bold text-white">✨ Simulador & Gerador de Projeto Sob Medida</h2>
+            <p class="text-xs text-slate-400">Informe as medidas aproximadas para gerar a lista de módulos e a estimativa instantaneamente.</p>
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
                 <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Seu Nome Completo</label>
                 <input type="text" name="nome" required placeholder="Ex: Mariana Silva" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-sky-500">
@@ -365,44 +444,58 @@ def render_pagina_captacao(sucesso=False):
             </div>
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Ambientes Desejados</label>
-                <input type="text" name="ambientes" required placeholder="Ex: Cozinha, Quarto Casal, Banheiro" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-sky-500">
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Ambiente</label>
+                <select name="tipo_ambiente" class="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none">
+                    <option value="Cozinha Planejada">Cozinha Planejada</option>
+                    <option value="Dormitório / Closet">Dormitório / Closet</option>
+                    <option value="Banheiro / Lavabo">Banheiro / Lavabo</option>
+                    <option value="Painel de Sala / Home">Painel de Sala / Home</option>
+                </select>
             </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Metros Lineares (Parede)</label>
+                <input type="number" step="0.5" min="1.0" max="25.0" name="metros_lineares" value="3.5" required class="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white text-center focus:outline-none focus:border-sky-500">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Padrão de Acabamento</label>
+                <select name="padrao_acabamento" class="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none">
+                    <option value="Linha Confort (MDF Branco)">Linha Confort (Branco TX)</option>
+                    <option value="Linha Elegance (Madeirado)">Linha Elegance (Freijó/Carvalho)</option>
+                    <option value="Linha Premium (Perfil Gola + Vidro)">Linha Premium (Perfil Gola)</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
                 <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Cidade / Bairro da Obra</label>
                 <input type="text" name="cidade" required placeholder="Ex: São Paulo / Pinheiros" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-sky-500">
             </div>
-        </div>
-
-        <!-- Campo de Faixa de Investimento Pretendido -->
-        <div>
-            <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">💰 Faixa de Investimento Pretendida (R$)</label>
-            <select name="valor_investimento" required class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-sky-500">
-                <option value="Até R$ 10.000">Até R$ 10.000 (Ambiente único compacto)</option>
-                <option value="R$ 10.000 a R$ 20.000">R$ 10.000 a R$ 20.000 (Cozinha média ou dormitório)</option>
-                <option value="R$ 20.000 a R$ 35.000">R$ 20.000 a R$ 35.000 (2 a 3 ambientes completos)</option>
-                <option value="R$ 35.000 a R$ 60.000">R$ 35.000 a R$ 60.000 (Apartamento / Casa completa)</option>
-                <option value="Acima de R$ 60.000">Acima de R$ 60.000 (Alto padrão / Casa inteira)</option>
-                <option value="Ainda não definido / Quero orientação">Ainda não definido / Quero orientação técnica</option>
-            </select>
-            <span class="text-[11px] text-slate-500 block mt-1">Isso nos ajuda a sugerir as melhores ferragens e acabamentos de acordo com o seu orçamento.</span>
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">💰 Faixa de Investimento Pretendida</label>
+                <select name="valor_investimento" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none">
+                    <option value="Até R$ 10.000">Até R$ 10.000 (Módulo Compacto)</option>
+                    <option value="R$ 10.000 a R$ 20.000">R$ 10.000 a R$ 20.000 (Cozinha média)</option>
+                    <option value="R$ 20.000 a R$ 35.000">R$ 20.000 a R$ 35.000 (2 a 3 ambientes)</option>
+                    <option value="Acima de R$ 40.000">Acima de R$ 40.000 (Apartamento Completo)</option>
+                </select>
+            </div>
         </div>
 
         <div>
-            <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">📷 Anexe a Planta Baixa ou Foto do Ambiente</label>
-            <input type="file" name="planta" accept="image/*" required class="block w-full text-xs text-slate-400 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-200 hover:file:bg-slate-700 cursor-pointer">
-            <span class="text-[11px] text-slate-500 block mt-1">Pode ser foto da planta no papel, projeto arquitetônico ou foto do cômodo vazio.</span>
+            <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">📷 Anexe a Planta Baixa ou Foto do Cômodo (Opcional)</label>
+            <input type="file" name="planta" accept="image/*" class="block w-full text-xs text-slate-400 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-200 hover:file:bg-slate-700 cursor-pointer">
         </div>
 
         <div>
-            <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">O que você gostaria no projeto? (Opcional)</label>
-            <textarea name="descricao" rows="3" placeholder="Ex: Gosto de cores amadeiradas, gostaria de iluminação LED e amortecedores em todas as portas..." class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-sky-500"></textarea>
+            <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Detalhes Adicionais (Opcional)</label>
+            <textarea name="descricao" rows="2" placeholder="Ex: Gostaria de torre quente para forno/microondas e iluminação LED embutida..." class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-sky-500"></textarea>
         </div>
 
         <button type="submit" class="w-full py-3.5 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl text-sm transition-colors shadow-lg shadow-sky-600/30 flex items-center justify-center space-x-2">
-            <span>🚀 Enviar Planta & Solicitar Projeto</span>
+            <span>⚡ Gerar Projeto & Estimativa Instantânea</span>
         </button>
     </form>
     """ if not sucesso else ""
@@ -413,7 +506,7 @@ def render_pagina_captacao(sucesso=False):
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>{empresa['nome_empresa']} - Solicitação de Projeto</title>
+        <title>{empresa['nome_empresa']} - Simulador 3D</title>
         <script src="https://cdn.tailwindcss.com"></script>
     </head>
     <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-between font-sans">
@@ -422,7 +515,7 @@ def render_pagina_captacao(sucesso=False):
                 <div class="w-9 h-9 rounded-xl bg-sky-600 flex items-center justify-center font-bold text-white shadow-md">M</div>
                 <span class="font-bold text-base sm:text-lg text-white tracking-wide">{empresa['nome_empresa']}</span>
             </div>
-            <span class="text-xs text-sky-400 font-medium">Móveis Sob Medida</span>
+            <span class="text-xs text-sky-400 font-medium">Projetos Inteligentes</span>
         </header>
 
         <main class="max-w-2xl w-full mx-auto p-4 sm:p-6 my-auto">
@@ -436,31 +529,6 @@ def render_pagina_captacao(sucesso=False):
     </body>
     </html>
     """
-
-def calcular_custo_item(nome: str, largura_mm: float, altura_mm: float, qtd: int, precos: dict):
-    n = nome.lower()
-    if any(k in n for k in ["dobradiça", "dobradica", "hinge"]):
-        custo_unit = precos.get("dobradica", 18.50)
-        tipo = "Ferragem (Dobradiça)"
-    elif any(k in n for k in ["corrediça", "corredica", "slide", "gaveta"]):
-        custo_unit = precos.get("corredica", 38.00)
-        tipo = "Ferragem (Corrediça)"
-    elif any(k in n for k in ["puxador", "handle", "perfil alumínio"]):
-        custo_unit = precos.get("puxador", 25.00)
-        tipo = "Acessório (Puxador)"
-    elif any(k in n for k in ["fita", "borda", "edge"]):
-        custo_unit = precos.get("fita_borda_m", 3.20) * 2.0
-        tipo = "Fita de Borda"
-    elif largura_mm > 0 and altura_mm > 0:
-        area_m2 = (largura_mm / 1000.0) * (altura_mm / 1000.0)
-        custo_unit = max(area_m2 * precos.get("mdf_m2", 65.0), 12.0)
-        tipo = "Chapa MDF / Painel"
-    else:
-        custo_unit = precos.get("outros_insumos", 15.00)
-        tipo = "Insumo Geral"
-
-    total = custo_unit * qtd
-    return total, tipo
 
 def calcular_dre_completa(d: dict):
     custo_mat = d.get("custo_materiais", 0.0)
@@ -630,7 +698,7 @@ def render_dashboard(data: dict):
         rows_html = """
         <tr>
             <td colspan="4" class="py-8 text-center text-sm text-slate-500">
-                Nenhum arquivo importado ainda. Faça upload de um XML do Promob/Cutlist abaixo.
+                Nenhum arquivo importado ainda. Faça upload de um XML do Promob ou use o gerador paramétrico.
             </td>
         </tr>
         """
@@ -664,7 +732,7 @@ def render_dashboard(data: dict):
             </div>
             """
     else:
-        svg_chapas_html = "<div class='py-8 text-center text-xs text-slate-500'>Importe um projeto XML para renderizar os diagramas de corte.</div>"
+        svg_chapas_html = "<div class='py-8 text-center text-xs text-slate-500'>Importe ou gere um projeto para renderizar o plano de corte.</div>"
 
     galeria_html = ""
     if imagens:
@@ -794,7 +862,7 @@ def render_dashboard(data: dict):
             </form>
             """
 
-            badge_lead = "<span class='px-2 py-0.5 bg-pink-950 text-pink-300 border border-pink-700 rounded text-[10px] font-bold'>Instagram</span>" if current_st == "Novo Lead Instagram" else ""
+            badge_lead = "<span class='px-2 py-0.5 bg-pink-950 text-pink-300 border border-pink-700 rounded text-[10px] font-bold'>⚡ Gerado</span>" if current_st == "Novo Lead Instagram" else ""
 
             historico_html += f"""
             <tr class="border-b border-slate-800 hover:bg-slate-800/40 text-xs item-linha" data-busca="{h['cliente_nome'].lower()} {h['cliente_ambiente'].lower()} {current_st.lower()}">
@@ -808,7 +876,7 @@ def render_dashboard(data: dict):
                     <form action="/atualizar-status" method="post" class="inline">
                         <input type="hidden" name="orcamento_id" value="{h['id']}">
                         <select name="novo_status" onchange="this.form.submit()" class="bg-slate-950 border border-slate-700 text-[11px] text-slate-200 rounded px-2 py-1 focus:outline-none">
-                            <option value="Novo Lead Instagram" {'selected' if current_st=='Novo Lead Instagram' else ''}>📸 Novo Lead Instagram</option>
+                            <option value="Novo Lead Instagram" {'selected' if current_st=='Novo Lead Instagram' else ''}>📸 Lead Instagram (Automático)</option>
                             <option value="Em Negociação" {'selected' if current_st=='Em Negociação' else ''}>🟡 Em Negociação</option>
                             <option value="Aprovado" {'selected' if current_st=='Aprovado' else ''}>🟢 Aprovado</option>
                             <option value="Em Produção" {'selected' if current_st=='Em Produção' else ''}>🔵 Em Produção</option>
@@ -1381,7 +1449,7 @@ def render_dashboard(data: dict):
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">Status</label>
                         <select name="status" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none">
-                            <option value="Novo Lead Instagram" {'selected' if data.get('status')=='Novo Lead Instagram' else ''}>📸 Novo Lead Instagram</option>
+                            <option value="Novo Lead Instagram" {'selected' if data.get('status')=='Novo Lead Instagram' else ''}>⚡ Lead Paramétrico (Automático)</option>
                             <option value="Em Negociação" {'selected' if data.get('status')=='Em Negociação' else ''}>🟡 Em Negociação</option>
                             <option value="Aprovado" {'selected' if data.get('status')=='Aprovado' else ''}>🟢 Aprovado</option>
                             <option value="Em Produção" {'selected' if data.get('status')=='Em Produção' else ''}>🔵 Em Produção</option>
@@ -1407,10 +1475,10 @@ def render_dashboard(data: dict):
 
             {admin_sections}
 
-            <!-- Upload + Markup + Salvar no Banco + PDF + WhatsApp -->
+            <!-- Upload XML + Salvar no Banco + PDF -->
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4 shadow-lg">
-                    <h2 class="text-base font-semibold text-white">Importar Projeto (XML Promob / Cutlist)</h2>
+                    <h2 class="text-base font-semibold text-white">Importar Projeto Avançado (XML Promob / Cutlist - Opcional)</h2>
                     <form action="/upload-xml" method="post" enctype="multipart/form-data" class="flex flex-col sm:flex-row items-center gap-4">
                         <input type="file" name="file" accept=".xml,.txt" required class="block w-full text-xs text-slate-400 file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-200 hover:file:bg-slate-700 cursor-pointer">
                         <button type="submit" class="w-full sm:w-auto px-6 py-2.5 bg-sky-600 hover:bg-sky-500 text-white font-medium rounded-lg text-sm transition-colors shrink-0">
@@ -1545,23 +1613,41 @@ def solicitar_orcamento():
 async def enviar_solicitacao_lead(
     nome: str = Form(...),
     whatsapp: str = Form(...),
-    ambientes: str = Form(...),
+    tipo_ambiente: str = Form("Cozinha Planejada"),
+    metros_lineares: float = Form(3.5),
+    padrao_acabamento: str = Form("Linha Confort (MDF Branco)"),
     cidade: str = Form(...),
     valor_investimento: str = Form("A definir"),
     descricao: str = Form(""),
-    planta: UploadFile = File(...)
+    planta: UploadFile = File(None)
 ):
     agora = datetime.now().strftime("%d/%m/%Y %H:%M")
     imagens_lead = []
     
-    contents = await planta.read()
-    if contents:
-        img_b64 = base64.b64encode(contents).decode("utf-8")
-        imagens_lead.append(img_b64)
+    if planta:
+        try:
+            contents = await planta.read()
+            if contents:
+                img_b64 = base64.b64encode(contents).decode("utf-8")
+                imagens_lead.append(img_b64)
+        except Exception:
+            pass
 
-    obs_completa = f"Lead Instagram ({cidade}) | Investimento pretendido: {valor_investimento}"
+    # ENGENHARIA PARAMÉTRICA AUTOMÁTICA (Sem Promob)
+    precos = get_precos_config()
+    items_auto, total_mat = gerar_engenharia_automatica(tipo_ambiente, metros_lineares, padrao_acabamento, precos)
+    
+    # Custo de Mão de Obra e Montagem Estimados
+    dias_prod = max(int(math.ceil(metros_lineares * 0.8)), 2)
+    custo_mo = dias_prod * 180.0
+    custo_frete_mont = 600.0
+    markup = 2.2
+    pv_estimado = (total_mat + custo_mo + custo_frete_mont) * markup
+    lucro_estimado = pv_estimado - (total_mat + custo_mo + custo_frete_mont + (pv_estimado * 0.10))
+
+    obs_completa = f"Lead Automático ({cidade}) | {metros_lineares}m lineares | Acabamento: {padrao_acabamento} | Investimento: {valor_investimento}"
     if descricao:
-        obs_completa += f" | Detalhes: {descricao}"
+        obs_completa += f" | Obs: {descricao}"
 
     with get_db() as conn:
         cursor = conn.cursor()
@@ -1578,17 +1664,19 @@ async def enviar_solicitacao_lead(
             agora,
             nome,
             whatsapp,
-            ambientes,
-            "25 dias úteis",
-            (date.today() + timedelta(days=25)).strftime("%Y-%m-%d"),
+            tipo_ambiente,
+            "20 dias úteis",
+            (date.today() + timedelta(days=20)).strftime("%Y-%m-%d"),
             "Novo Lead Instagram",
-            0.0, 0.0, 0.0, 6.0, 4.0, 2.2, 0.0, 0.0, 0.0, 1,
-            "PIX / Cartão", 0.0, json.dumps(imagens_lead), json.dumps([ambientes]),
-            obs_completa, json.dumps([])
+            total_mat, custo_mo, custo_frete_mont, 6.0, 4.0, markup,
+            pv_estimado, lucro_estimado, pv_estimado * 0.3, 3,
+            "Entrada + 3x no Cartão", 0.0, json.dumps(imagens_lead), json.dumps([tipo_ambiente]),
+            obs_completa, json.dumps(items_auto)
         ))
         conn.commit()
+        novo_id = cursor.lastrowid
 
-    return render_pagina_captacao(sucesso=True)
+    return render_pagina_captacao(sucesso=True, orc_id=novo_id, estimativa=pv_estimado)
 
 @app.post("/painel", response_class=HTMLResponse)
 def login(username: str = Form(...), password: str = Form(...)):
