@@ -36,10 +36,14 @@ def init_db():
                 cliente_telefone TEXT,
                 cliente_ambiente TEXT,
                 prazo_entrega TEXT,
-                total_custo REAL,
+                custo_materiais REAL,
+                custo_mao_obra REAL,
+                custo_frete_montagem REAL,
+                imposto_pct REAL,
+                comissao_pct REAL,
                 markup REAL,
                 preco_venda REAL,
-                lucro REAL,
+                lucro_liquido REAL,
                 items_json TEXT
             )
         """)
@@ -76,7 +80,7 @@ def set_precos_config(precos: dict):
         cursor.execute("INSERT OR REPLACE INTO configuracoes (chave, valor) VALUES ('precos', ?)", (json.dumps(precos),))
         conn.commit()
 
-# Sessão em memória para o rascunho de trabalho
+# Sessão ativa de dados
 CURRENT_DATA = {
     "user": "admin@marcenaria.com",
     "orcamento_id": None,
@@ -84,7 +88,13 @@ CURRENT_DATA = {
     "cliente_telefone": "11999998888",
     "cliente_ambiente": "Cozinha Planejada",
     "prazo_entrega": "25 dias úteis",
-    "total_custo": 0.0,
+    "custo_materiais": 0.0,
+    "dias_producao": 3,
+    "valor_diaria": 180.0,
+    "custo_frete": 250.0,
+    "custo_montagem": 350.0,
+    "imposto_pct": 6.0,
+    "comissao_pct": 4.0,
     "markup": 2.2,
     "items": []
 }
@@ -147,11 +157,38 @@ def calcular_custo_item(nome: str, largura_mm: float, altura_mm: float, qtd: int
     total = custo_unit * qtd
     return total, tipo
 
-def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente_nome="Cliente Exemplo", cliente_telefone="11999998888", cliente_ambiente="Cozinha Planejada", prazo_entrega="25 dias úteis", precos=None, orcamento_id=None):
-    items = items or []
-    precos = precos or get_precos_config()
+def calcular_dre_completa(d: dict):
+    custo_mat = d.get("custo_materiais", 0.0)
+    custo_mo = d.get("dias_producao", 0) * d.get("valor_diaria", 0.0)
+    custo_frete_mont = d.get("custo_frete", 0.0) + d.get("custo_montagem", 0.0)
+    custo_direto_total = custo_mat + custo_mo + custo_frete_mont
     
-    # Listagem de Peças da Sessão Ativa
+    markup = d.get("markup", 2.2)
+    pv = custo_direto_total * markup if custo_direto_total > 0 else 0.0
+    
+    imposto_val = (d.get("imposto_pct", 0.0) / 100.0) * pv
+    comissao_val = (d.get("comissao_pct", 0.0) / 100.0) * pv
+    
+    lucro_liquido = pv - (custo_direto_total + imposto_val + comissao_val) if pv > 0 else 0.0
+    margem_liq_pct = (lucro_liquido / pv * 100.0) if pv > 0 else 0.0
+    
+    return {
+        "custo_mat": custo_mat,
+        "custo_mo": custo_mo,
+        "custo_frete_mont": custo_frete_mont,
+        "custo_direto_total": custo_direto_total,
+        "pv": pv,
+        "imposto_val": imposto_val,
+        "comissao_val": comissao_val,
+        "lucro_liquido": lucro_liquido,
+        "margem_liq_pct": margem_liq_pct
+    }
+
+def render_dashboard(user: str, data: dict):
+    dre = calcular_dre_completa(data)
+    items = data.get("items", [])
+    precos = get_precos_config()
+    
     rows_html = ""
     if items:
         for it in items:
@@ -170,22 +207,19 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente
         rows_html = """
         <tr>
             <td colspan="4" class="py-8 text-center text-sm text-slate-500">
-                Nenhum arquivo importado ainda. Faça upload de um XML do Promob/Cutlist acima.
+                Nenhum arquivo importado ainda. Faça upload de um XML do Promob/Cutlist abaixo.
             </td>
         </tr>
         """
 
-    pv_sugerido = total_custo * markup if total_custo > 0 else 0.0
-    lucro = pv_sugerido - total_custo if total_custo > 0 else 0.0
+    msg_zap = f"Olá {data['cliente_nome']}! Segue o orçamento para o projeto {data['cliente_ambiente']}: R$ {dre['pv']:,.2f} com prazo de entrega de {data['prazo_entrega']}."
+    zap_url = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone']}&text={urllib.parse.quote(msg_zap)}"
 
-    msg_zap = f"Olá {cliente_nome}! Segue o orçamento para o projeto {cliente_ambiente}: R$ {pv_sugerido:,.2f} com prazo de entrega de {prazo_entrega}."
-    zap_url = f"https://api.whatsapp.com/send?phone=55{cliente_telefone}&text={urllib.parse.quote(msg_zap)}"
-
-    # Histórico de Orçamentos do Banco de Dados
+    # Histórico do Banco
     historico_html = ""
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, criado_em, cliente_nome, cliente_ambiente, preco_venda, total_custo, markup FROM orcamentos ORDER BY id DESC LIMIT 15")
+        cursor.execute("SELECT id, criado_em, cliente_nome, cliente_ambiente, preco_venda, lucro_liquido FROM orcamentos ORDER BY id DESC LIMIT 15")
         historico_rows = cursor.fetchall()
         
         if historico_rows:
@@ -197,6 +231,7 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente
                     <td class="py-3 px-4 text-white font-medium">{h['cliente_nome']}</td>
                     <td class="py-3 px-4 text-slate-300">{h['cliente_ambiente']}</td>
                     <td class="py-3 px-4 text-right text-sky-400 font-bold">R$ {h['preco_venda']:,.2f}</td>
+                    <td class="py-3 px-4 text-right text-emerald-400 font-semibold">R$ {h['lucro_liquido']:,.2f}</td>
                     <td class="py-3 px-4 text-center">
                         <div class="flex items-center justify-center space-x-2">
                             <form action="/carregar-orcamento" method="post" class="inline">
@@ -215,13 +250,13 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente
         else:
             historico_html = """
             <tr>
-                <td colspan="6" class="py-6 text-center text-xs text-slate-500">
+                <td colspan="7" class="py-6 text-center text-xs text-slate-500">
                     Nenhum orçamento salvo no histórico ainda. Salve o orçamento ativo abaixo.
                 </td>
             </tr>
             """
 
-    status_tag = f"<span class='text-xs bg-sky-950 border border-sky-700 text-sky-300 px-2.5 py-1 rounded-full'>Editando Orçamento #{orcamento_id}</span>" if orcamento_id else "<span class='text-xs bg-slate-800 border border-slate-700 text-slate-400 px-2.5 py-1 rounded-full'>Novo Orçamento em Rascunho</span>"
+    status_tag = f"<span class='text-xs bg-sky-950 border border-sky-700 text-sky-300 px-2.5 py-1 rounded-full'>Editando Orçamento #{data['orcamento_id']}</span>" if data['orcamento_id'] else "<span class='text-xs bg-slate-800 border border-slate-700 text-slate-400 px-2.5 py-1 rounded-full'>Novo Orçamento em Rascunho</span>"
 
     return f"""
     <!DOCTYPE html>
@@ -247,22 +282,27 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente
         </header>
 
         <main class="max-w-7xl mx-auto p-6 space-y-6">
-            <!-- Cards de Resumo DRE -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <!-- Cards de Resumo DRE Expandida -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
-                    <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Custo Insumos (XML Precificado)</p>
-                    <p class="text-2xl font-bold text-white">R$ {total_custo:,.2f}</p>
-                    <p class="text-xs text-slate-500">MDF, ferragens e fitas por valor unitário</p>
+                    <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Custo Direto Total</p>
+                    <p class="text-xl font-bold text-white">R$ {dre['custo_direto_total']:,.2f}</p>
+                    <p class="text-[11px] text-slate-500">Mat: R$ {dre['custo_mat']:,.0f} | M.O: R$ {dre['custo_mo']:,.0f} | Frete/Mont: R$ {dre['custo_frete_mont']:,.0f}</p>
                 </div>
                 <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
-                    <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Preço de Venda (Markup {markup:.1f}x)</p>
-                    <p class="text-2xl font-bold text-sky-400">R$ {pv_sugerido:,.2f}</p>
-                    <p class="text-xs text-slate-500">Valor orçado para a proposta</p>
+                    <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Preço de Venda ({data['markup']:.1f}x)</p>
+                    <p class="text-xl font-bold text-sky-400">R$ {dre['pv']:,.2f}</p>
+                    <p class="text-[11px] text-slate-500">Proposta final para o cliente</p>
                 </div>
                 <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
-                    <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Margem Bruta Estimada</p>
-                    <p class="text-2xl font-bold text-emerald-400">R$ {lucro:,.2f}</p>
-                    <p class="text-xs text-slate-500">Lucro operacional projetado</p>
+                    <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Deduções (Imposto + Com.)</p>
+                    <p class="text-xl font-bold text-rose-400">R$ {(dre['imposto_val'] + dre['comissao_val']):,.2f}</p>
+                    <p class="text-[11px] text-slate-500">Imp. {data['imposto_pct']}% (R$ {dre['imposto_val']:,.0f}) | Com. {data['comissao_pct']}% (R$ {dre['comissao_val']:,.0f})</p>
+                </div>
+                <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
+                    <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Margem Líquida Real</p>
+                    <p class="text-xl font-bold text-emerald-400">R$ {dre['lucro_liquido']:,.2f}</p>
+                    <p class="text-[11px] text-slate-500">Retorno limpo no caixa ({dre['margem_liq_pct']:.1f}%)</p>
                 </div>
             </div>
 
@@ -276,20 +316,20 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente
                     <input type="hidden" name="user" value="{user}">
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">Nome do Cliente</label>
-                        <input type="text" name="cliente_nome" value="{cliente_nome}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                        <input type="text" name="cliente_nome" value="{data['cliente_nome']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
                     </div>
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">WhatsApp / Telefone</label>
-                        <input type="text" name="cliente_telefone" value="{cliente_telefone}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                        <input type="text" name="cliente_telefone" value="{data['cliente_telefone']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
                     </div>
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">Ambiente / Projeto</label>
-                        <input type="text" name="cliente_ambiente" value="{cliente_ambiente}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                        <input type="text" name="cliente_ambiente" value="{data['cliente_ambiente']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
                     </div>
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">Prazo de Entrega</label>
                         <div class="flex gap-2">
-                            <input type="text" name="prazo_entrega" value="{prazo_entrega}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                            <input type="text" name="prazo_entrega" value="{data['prazo_entrega']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
                             <button type="submit" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold shrink-0">
                                 Salvar
                             </button>
@@ -298,11 +338,47 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente
                 </form>
             </div>
 
-            <!-- Tabela de Precificação Individual de Insumos -->
+            <!-- Módulo Mão de Obra, Frete e Custos Operacionais -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+                <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                    <h2 class="text-base font-semibold text-white">🔨 Mão de Obra & Custos Operacionais</h2>
+                    <span class="text-xs text-slate-400">Impacta diretamente a DRE</span>
+                </div>
+                <form action="/salvar-operacionais" method="post" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                    <input type="hidden" name="user" value="{user}">
+                    <div>
+                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Dias de Fabricação</label>
+                        <input type="number" step="1" min="0" name="dias_producao" value="{data['dias_producao']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Diária Marceneiro (R$)</label>
+                        <input type="number" step="10" name="valor_diaria" value="{data['valor_diaria']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Custo Frete (R$)</label>
+                        <input type="number" step="10" name="custo_frete" value="{data['custo_frete']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Montagem Cliente (R$)</label>
+                        <input type="number" step="10" name="custo_montagem" value="{data['custo_montagem']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Impostos (%)</label>
+                        <input type="number" step="0.5" min="0" max="30" name="imposto_pct" value="{data['imposto_pct']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                    </div>
+                    <div class="flex items-end">
+                        <button type="submit" class="w-full py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold transition-colors">
+                            Atualizar DRE
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Tabela de Custos Unitários de Insumos -->
             <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
                 <div class="flex justify-between items-center border-b border-slate-800 pb-3">
                     <h2 class="text-base font-semibold text-white">⚙️ Tabela de Custos Unitários por Insumo</h2>
-                    <span class="text-xs text-slate-400">Gravado no Banco de Dados</span>
+                    <span class="text-xs text-slate-400">Preços base para materiais</span>
                 </div>
                 <form action="/salvar-precos" method="post" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                     <input type="hidden" name="user" value="{user}">
@@ -328,13 +404,13 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente
                     </div>
                     <div class="flex items-end">
                         <button type="submit" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-sky-400 border border-slate-700 rounded-lg text-xs font-semibold transition-colors">
-                            Salvar Configuração
+                            Salvar Config
                         </button>
                     </div>
                 </form>
             </div>
 
-            <!-- Bloco de Upload + Markup + Salvar no Banco + PDF + WhatsApp -->
+            <!-- Upload + Markup + Salvar no Banco + PDF + WhatsApp -->
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4 shadow-lg">
                     <h2 class="text-base font-semibold text-white">Importar Projeto (XML Promob / Cutlist)</h2>
@@ -352,7 +428,7 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente
                     <form action="/recalcular" method="post" class="flex items-center gap-3">
                         <input type="hidden" name="user" value="{user}">
                         <label class="text-xs text-slate-400 font-medium">Markup:</label>
-                        <input type="number" step="0.1" min="1.0" max="5.0" name="markup" value="{markup}" class="w-20 px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-sm text-center text-white focus:outline-none focus:border-sky-500">
+                        <input type="number" step="0.1" min="1.0" max="5.0" name="markup" value="{data['markup']}" class="w-20 px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-sm text-center text-white focus:outline-none focus:border-sky-500">
                         <button type="submit" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700">
                             Recalcular
                         </button>
@@ -389,6 +465,7 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente
                                 <th class="py-3 px-4">Cliente</th>
                                 <th class="py-3 px-4">Ambiente</th>
                                 <th class="py-3 px-4 text-right">Valor Venda</th>
+                                <th class="py-3 px-4 text-right">Lucro Líquido</th>
                                 <th class="py-3 px-4 text-center">Ações</th>
                             </tr>
                         </thead>
@@ -402,7 +479,7 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente
             <!-- Listagem de Peças -->
             <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
                 <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-850">
-                    <h3 class="text-sm font-semibold text-white">Listagem de Peças e Insumos ({cliente_ambiente})</h3>
+                    <h3 class="text-sm font-semibold text-white">Listagem de Peças e Insumos ({data['cliente_ambiente']})</h3>
                     <span class="text-xs text-slate-400">{len(items)} itens detectados</span>
                 </div>
                 <div class="overflow-x-auto">
@@ -433,17 +510,7 @@ def home():
 @app.post("/painel", response_class=HTMLResponse)
 def login(username: str = Form(...), password: str = Form(...)):
     CURRENT_DATA["user"] = username
-    return render_dashboard(
-        user=username, 
-        items=CURRENT_DATA["items"], 
-        total_custo=CURRENT_DATA["total_custo"], 
-        markup=CURRENT_DATA["markup"],
-        cliente_nome=CURRENT_DATA["cliente_nome"],
-        cliente_telefone=CURRENT_DATA["cliente_telefone"],
-        cliente_ambiente=CURRENT_DATA["cliente_ambiente"],
-        prazo_entrega=CURRENT_DATA["prazo_entrega"],
-        orcamento_id=CURRENT_DATA["orcamento_id"]
-    )
+    return render_dashboard(user=username, data=CURRENT_DATA)
 
 @app.get("/novo-orcamento", response_class=HTMLResponse)
 def novo_orcamento():
@@ -452,29 +519,40 @@ def novo_orcamento():
     CURRENT_DATA["cliente_telefone"] = ""
     CURRENT_DATA["cliente_ambiente"] = "Ambiente Geral"
     CURRENT_DATA["prazo_entrega"] = "20 dias úteis"
-    CURRENT_DATA["total_custo"] = 0.0
+    CURRENT_DATA["custo_materiais"] = 0.0
+    CURRENT_DATA["dias_producao"] = 3
+    CURRENT_DATA["valor_diaria"] = 180.0
+    CURRENT_DATA["custo_frete"] = 250.0
+    CURRENT_DATA["custo_montagem"] = 350.0
+    CURRENT_DATA["imposto_pct"] = 6.0
+    CURRENT_DATA["comissao_pct"] = 4.0
     CURRENT_DATA["markup"] = 2.2
     CURRENT_DATA["items"] = []
     return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.get("/painel-get", response_class=HTMLResponse)
 def painel_get():
-    return render_dashboard(
-        user=CURRENT_DATA["user"],
-        items=CURRENT_DATA["items"],
-        total_custo=CURRENT_DATA["total_custo"],
-        markup=CURRENT_DATA["markup"],
-        cliente_nome=CURRENT_DATA["cliente_nome"],
-        cliente_telefone=CURRENT_DATA["cliente_telefone"],
-        cliente_ambiente=CURRENT_DATA["cliente_ambiente"],
-        prazo_entrega=CURRENT_DATA["prazo_entrega"],
-        orcamento_id=CURRENT_DATA["orcamento_id"]
-    )
+    return render_dashboard(user=CURRENT_DATA["user"], data=CURRENT_DATA)
+
+@app.post("/salvar-operacionais", response_class=HTMLResponse)
+def salvar_operacionais(
+    user: str = Form("admin@marcenaria.com"),
+    dias_producao: int = Form(3),
+    valor_diaria: float = Form(180.0),
+    custo_frete: float = Form(250.0),
+    custo_montagem: float = Form(350.0),
+    imposto_pct: float = Form(6.0)
+):
+    CURRENT_DATA["dias_producao"] = dias_producao
+    CURRENT_DATA["valor_diaria"] = valor_diaria
+    CURRENT_DATA["custo_frete"] = custo_frete
+    CURRENT_DATA["custo_montagem"] = custo_montagem
+    CURRENT_DATA["imposto_pct"] = imposto_pct
+    return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.post("/salvar-banco", response_class=HTMLResponse)
 def salvar_banco():
-    pv = CURRENT_DATA["total_custo"] * CURRENT_DATA["markup"]
-    lucro = pv - CURRENT_DATA["total_custo"]
+    dre = calcular_dre_completa(CURRENT_DATA)
     agora = datetime.now().strftime("%d/%m/%Y %H:%M")
     
     with get_db() as conn:
@@ -487,10 +565,14 @@ def salvar_banco():
                     cliente_telefone = ?,
                     cliente_ambiente = ?,
                     prazo_entrega = ?,
-                    total_custo = ?,
+                    custo_materiais = ?,
+                    custo_mao_obra = ?,
+                    custo_frete_montagem = ?,
+                    imposto_pct = ?,
+                    comissao_pct = ?,
                     markup = ?,
                     preco_venda = ?,
-                    lucro = ?,
+                    lucro_liquido = ?,
                     items_json = ?
                 WHERE id = ?
             """, (
@@ -499,27 +581,35 @@ def salvar_banco():
                 CURRENT_DATA["cliente_telefone"],
                 CURRENT_DATA["cliente_ambiente"],
                 CURRENT_DATA["prazo_entrega"],
-                CURRENT_DATA["total_custo"],
+                dre["custo_mat"],
+                dre["custo_mo"],
+                dre["custo_frete_mont"],
+                CURRENT_DATA["imposto_pct"],
+                CURRENT_DATA["comissao_pct"],
                 CURRENT_DATA["markup"],
-                pv,
-                lucro,
+                dre["pv"],
+                dre["lucro_liquido"],
                 json.dumps(CURRENT_DATA["items"]),
                 CURRENT_DATA["orcamento_id"]
             ))
         else:
             cursor.execute("""
-                INSERT INTO orcamentos (criado_em, cliente_nome, cliente_telefone, cliente_ambiente, prazo_entrega, total_custo, markup, preco_venda, lucro, items_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO orcamentos (criado_em, cliente_nome, cliente_telefone, cliente_ambiente, prazo_entrega, custo_materiais, custo_mao_obra, custo_frete_montagem, imposto_pct, comissao_pct, markup, preco_venda, lucro_liquido, items_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 agora,
                 CURRENT_DATA["cliente_nome"],
                 CURRENT_DATA["cliente_telefone"],
                 CURRENT_DATA["cliente_ambiente"],
                 CURRENT_DATA["prazo_entrega"],
-                CURRENT_DATA["total_custo"],
+                dre["custo_mat"],
+                dre["custo_mo"],
+                dre["custo_frete_mont"],
+                CURRENT_DATA["imposto_pct"],
+                CURRENT_DATA["comissao_pct"],
                 CURRENT_DATA["markup"],
-                pv,
-                lucro,
+                dre["pv"],
+                dre["lucro_liquido"],
                 json.dumps(CURRENT_DATA["items"])
             ))
             CURRENT_DATA["orcamento_id"] = cursor.lastrowid
@@ -539,8 +629,10 @@ def carregar_orcamento(orcamento_id: int = Form(...)):
             CURRENT_DATA["cliente_telefone"] = row["cliente_telefone"]
             CURRENT_DATA["cliente_ambiente"] = row["cliente_ambiente"]
             CURRENT_DATA["prazo_entrega"] = row["prazo_entrega"]
-            CURRENT_DATA["total_custo"] = row["total_custo"]
-            CURRENT_DATA["markup"] = row["markup"]
+            CURRENT_DATA["custo_materiais"] = row["custo_materiais"]
+            CURRENT_DATA["imposto_pct"] = row["imposto_pct"] or 6.0
+            CURRENT_DATA["comissao_pct"] = row["comissao_pct"] or 4.0
+            CURRENT_DATA["markup"] = row["markup"] or 2.2
             CURRENT_DATA["items"] = json.loads(row["items_json"]) if row["items_json"] else []
 
     return RedirectResponse(url="/painel-get", status_code=303)
@@ -588,15 +680,14 @@ def salvar_precos(
     }
     set_precos_config(precos)
 
-    # Recalcular itens ativos
-    novo_total = 0.0
+    novo_mat = 0.0
     for it in CURRENT_DATA["items"]:
         valor_item, tipo = calcular_custo_item(it["nome"], it.get("largura", 0), it.get("altura", 0), it["qtd"], precos)
         it["valor"] = valor_item
         it["tipo"] = tipo
-        novo_total += valor_item
+        novo_mat += valor_item
 
-    CURRENT_DATA["total_custo"] = novo_total
+    CURRENT_DATA["custo_materiais"] = novo_mat
     return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.post("/recalcular", response_class=HTMLResponse)
@@ -608,7 +699,7 @@ def recalcular(user: str = Form("admin@marcenaria.com"), markup: float = Form(2.
 async def upload_xml(user: str = Form("admin@marcenaria.com"), file: UploadFile = File(...)):
     contents = await file.read()
     items = []
-    total_custo = 0.0
+    total_mat = 0.0
     precos = get_precos_config()
 
     try:
@@ -626,7 +717,7 @@ async def upload_xml(user: str = Form("admin@marcenaria.com"), file: UploadFile 
                 qtd = int(elem.attrib.get("QUANTITY") or elem.attrib.get("quantidade") or 1)
                 
                 custo_total_item, tipo = calcular_custo_item(nome, largura, altura, qtd, precos)
-                total_custo += custo_total_item
+                total_mat += custo_total_item
 
                 items.append({
                     "nome": nome[:45],
@@ -645,22 +736,21 @@ async def upload_xml(user: str = Form("admin@marcenaria.com"), file: UploadFile 
                 {"nome": "Lateral MDF Branco TX 18mm", "tipo": "Chapa MDF / Painel", "largura": 2200, "altura": 600, "dimensoes": "2200 x 600 x 18", "qtd": 2, "valor": 2 * (2.2 * 0.6 * precos["mdf_m2"])},
                 {"nome": "Fita de Borda PVC 22mm", "tipo": "Fita de Borda", "largura": 0, "altura": 0, "dimensoes": "-", "qtd": 15, "valor": 15 * precos["fita_borda_m"]}
             ]
-            total_custo = sum(i["valor"] for i in items)
+            total_mat = sum(i["valor"] for i in items)
 
     except Exception:
         items = [
             {"nome": "Dobradiça Ø35mm Reta Slowmotion", "tipo": "Ferragem (Dobradiça)", "largura": 0, "altura": 0, "dimensoes": "-", "qtd": 10, "valor": 10 * precos["dobradica"]},
             {"nome": "Painel MDF Freijó 18mm", "tipo": "Chapa MDF / Painel", "largura": 1800, "altura": 800, "dimensoes": "1800 x 800 x 18", "qtd": 2, "valor": 2 * (1.8 * 0.8 * precos["mdf_m2"])}
         ]
-        total_custo = sum(i["valor"] for i in items)
+        total_mat = sum(i["valor"] for i in items)
 
     CURRENT_DATA["items"] = items
-    CURRENT_DATA["total_custo"] = total_custo
+    CURRENT_DATA["custo_materiais"] = total_mat
     return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.get("/gerar-pdf")
 def gerar_pdf(id: int = None):
-    # Se passou ID, busca o orçamento específico do banco; se não, usa a sessão atual
     if id:
         with get_db() as conn:
             cursor = conn.cursor()
@@ -671,22 +761,29 @@ def gerar_pdf(id: int = None):
                 c_tel = row["cliente_telefone"]
                 c_amb = row["cliente_ambiente"]
                 c_prazo = row["prazo_entrega"]
-                custo = row["total_custo"]
+                custo_mat = row["custo_materiais"]
+                custo_mo = row["custo_mao_obra"]
+                custo_frete_mont = row["custo_frete_montagem"]
+                custo_direto = custo_mat + custo_mo + custo_frete_mont
                 markup = row["markup"]
                 pv = row["preco_venda"]
-                lucro = row["lucro"]
+                lucro = row["lucro_liquido"]
                 items = json.loads(row["items_json"]) if row["items_json"] else []
             else:
                 return Response(content="Orçamento não encontrado", status_code=404)
     else:
+        dre = calcular_dre_completa(CURRENT_DATA)
         c_nome = CURRENT_DATA['cliente_nome']
         c_tel = CURRENT_DATA['cliente_telefone']
         c_amb = CURRENT_DATA['cliente_ambiente']
         c_prazo = CURRENT_DATA['prazo_entrega']
-        custo = CURRENT_DATA["total_custo"]
+        custo_mat = dre["custo_mat"]
+        custo_mo = dre["custo_mo"]
+        custo_frete_mont = dre["custo_frete_mont"]
+        custo_direto = dre["custo_direto_total"]
         markup = CURRENT_DATA["markup"]
-        pv = custo * markup
-        lucro = pv - custo
+        pv = dre["pv"]
+        lucro = dre["lucro_liquido"]
         items = CURRENT_DATA["items"]
 
     buffer = io.BytesIO()
@@ -696,7 +793,7 @@ def gerar_pdf(id: int = None):
 
     # Cabeçalho Principal
     title_style = ParagraphStyle(name='TitleStyle', parent=styles['Heading1'], fontSize=18, textColor=colors.HexColor('#0f172a'), spaceAfter=4)
-    elements.append(Paragraph("Marcenaria Pro - Proposta Comercial & Orçamento", title_style))
+    elements.append(Paragraph("Marcenaria Pro - Proposta Comercial & Orçamento DRE", title_style))
     elements.append(Spacer(1, 8))
 
     # Dados do Cliente
@@ -715,30 +812,35 @@ def gerar_pdf(id: int = None):
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
     ]))
     elements.append(cliente_table)
-    elements.append(Spacer(1, 14))
+    elements.append(Spacer(1, 12))
 
-    # Tabela DRE
+    # Tabela DRE Completa no PDF
     dre_data = [
-        ["Custo Total de Materiais (XML Precificado)", f"R$ {custo:,.2f}"],
+        ["Custo de Materiais e Insumos (XML)", f"R$ {custo_mat:,.2f}"],
+        ["Mão de Obra de Produção", f"R$ {custo_mo:,.2f}"],
+        ["Frete e Equipe de Montagem", f"R$ {custo_frete_mont:,.2f}"],
+        ["CUSTO DIRETO TOTAL", f"R$ {custo_direto:,.2f}"],
         ["Markup Aplicado", f"{markup:.1f}x"],
         ["VALOR TOTAL DA PROPOSTA", f"R$ {pv:,.2f}"],
-        ["Margem Bruta Operacional Estimada", f"R$ {lucro:,.2f}"]
+        ["Margem Líquida Real Projetada", f"R$ {lucro:,.2f}"]
     ]
     dre_table = Table(dre_data, colWidths=[280, 260])
     dre_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f8fafc')),
-        ('BACKGROUND', (0, 2), (-1, 2), colors.HexColor('#dbeafe')),
+        ('BACKGROUND', (0, 0), (-1, 3), colors.HexColor('#f8fafc')),
+        ('BACKGROUND', (0, 3), (-1, 3), colors.HexColor('#e2e8f0')),
+        ('BACKGROUND', (0, 5), (-1, 5), colors.HexColor('#dbeafe')),
+        ('BACKGROUND', (0, 6), (-1, 6), colors.HexColor('#dcfce7')),
         ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#0f172a')),
         ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
     ]))
     elements.append(dre_table)
-    elements.append(Spacer(1, 14))
+    elements.append(Spacer(1, 12))
 
     # Tabela de Peças
-    items = items or [{"nome": "Item Geral de Marcenaria", "dimensoes": "-", "qtd": 1, "valor": custo}]
-    table_data = [["Item / Insumo Promob", "Dimensões (mm)", "Qtd", "Custo Total"]]
+    items = items or [{"nome": "Item Geral de Marcenaria", "dimensoes": "-", "qtd": 1, "valor": custo_mat}]
+    table_data = [["Item / Insumo Promob", "Dimensões (mm)", "Qtd", "Custo Est."]]
     for it in items:
         table_data.append([
             it.get("nome", "Peça"),
@@ -754,7 +856,7 @@ def gerar_pdf(id: int = None):
         ('ALIGN', (2, 0), (2, -1), 'CENTER'),
         ('ALIGN', (3, 0), (3, -1), 'RIGHT'),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e2e8f0')),
     ]))
     elements.append(items_table)
