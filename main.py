@@ -309,7 +309,7 @@ def render_login_page(msg_erro=""):
         <div class="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-8 shadow-2xl space-y-6">
             <div class="text-center space-y-2">
                 <h1 class="text-2xl font-bold tracking-tight text-white">Marcenaria Pro SaaS</h1>
-                <p class="text-xs text-slate-400">Gestão de Orçamentos Promob, Notificações & Produção DRE</p>
+                <p class="text-xs text-slate-400">Gestão de Orçamentos Promob, Captação Instagram & DRE</p>
             </div>
             {erro_tag}
             <form action="/painel" method="post" class="space-y-4">
@@ -326,11 +326,99 @@ def render_login_page(msg_erro=""):
                 </button>
             </form>
             <div class="border-t border-slate-700/60 pt-4 text-center">
-                <p class="text-[11px] text-slate-400">Contas de Acesso:</p>
-                <p class="text-[11px] text-sky-400">Admin: <b>admin@marcenaria.com</b> | Senha: <b>123456</b></p>
-                <p class="text-[11px] text-emerald-400">Vendedor: <b>vendedor@marcenaria.com</b> | Senha: <b>123456</b></p>
+                <a href="/solicitar-orcamento" target="_blank" class="text-xs text-emerald-400 hover:underline font-medium block mb-2">🔗 Ver Página Pública do Instagram</a>
+                <p class="text-[11px] text-slate-400">Admin: <b>admin@marcenaria.com</b> | Senha: <b>123456</b></p>
             </div>
         </div>
+    </body>
+    </html>
+    """
+
+def render_pagina_captacao(sucesso=False):
+    empresa = get_empresa_config()
+    msg_sucesso = f"""
+    <div class="bg-emerald-950/80 border border-emerald-600 p-6 rounded-2xl text-center space-y-3">
+        <span class="text-4xl block">🎉</span>
+        <h2 class="text-xl font-bold text-white">Planta e Projeto Recebidos com Sucesso!</h2>
+        <p class="text-xs text-slate-300">Nossa equipe de projetistas da <b>{empresa['nome_empresa']}</b> já recebeu suas informações e entraremos em contato via WhatsApp nas próximas horas com a sua proposta inicial.</p>
+        <a href="https://api.whatsapp.com/send?phone=55{empresa['telefone_empresa'].replace('(', '').replace(')', '').replace('-', '').replace(' ', '')}" target="_blank" class="inline-block px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl shadow-lg transition-colors">
+            Falar Conosco no WhatsApp
+        </a>
+    </div>
+    """ if sucesso else ""
+
+    formulario = f"""
+    <form action="/enviar-solicitacao-lead" method="post" enctype="multipart/form-data" class="space-y-4 bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-2xl shadow-2xl">
+        <div class="space-y-1">
+            <h2 class="text-lg font-bold text-white">Solicite seu Projeto 3D Sob Medida</h2>
+            <p class="text-xs text-slate-400">Preencha os dados e anexe a foto da sua planta baixa ou cômodo para fazermos o seu orçamento.</p>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Seu Nome Completo</label>
+                <input type="text" name="nome" required placeholder="Ex: Mariana Silva" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-sky-500">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Seu WhatsApp (com DDD)</label>
+                <input type="text" name="whatsapp" required placeholder="Ex: 11999998888" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-sky-500">
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Ambientes Desejados</label>
+                <input type="text" name="ambientes" required placeholder="Ex: Cozinha, Quarto Casal, Banheiro" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-sky-500">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Cidade / Bairro da Obra</label>
+                <input type="text" name="cidade" required placeholder="Ex: São Paulo / Pinheiros" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-sky-500">
+            </div>
+        </div>
+
+        <div>
+            <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">📷 Anexe a Planta Baixa ou Foto do Ambiente</label>
+            <input type="file" name="planta" accept="image/*" required class="block w-full text-xs text-slate-400 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-200 hover:file:bg-slate-700 cursor-pointer">
+            <span class="text-[11px] text-slate-500 block mt-1">Pode ser foto da planta no papel, PDF convertido em imagem ou foto do cômodo vazio.</span>
+        </div>
+
+        <div>
+            <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">O que você gostaria no projeto? (Opcional)</label>
+            <textarea name="descricao" rows="3" placeholder="Ex: Gosto de cores claras, gostaria de torre quente na cozinha e iluminação LED nos armários..." class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-sky-500"></textarea>
+        </div>
+
+        <button type="submit" class="w-full py-3.5 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl text-sm transition-colors shadow-lg shadow-sky-600/30 flex items-center justify-center space-x-2">
+            <span>🚀 Enviar Planta & Solicitar Projeto Grátis</span>
+        </button>
+    </form>
+    """ if not sucesso else ""
+
+    return f"""
+    <!DOCTYPE html>
+    <html lang="pt-br">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>{empresa['nome_empresa']} - Solicitação de Projeto</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+    </head>
+    <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-between font-sans">
+        <header class="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="w-9 h-9 rounded-xl bg-sky-600 flex items-center justify-center font-bold text-white shadow-md">M</div>
+                <span class="font-bold text-base sm:text-lg text-white tracking-wide">{empresa['nome_empresa']}</span>
+            </div>
+            <span class="text-xs text-sky-400 font-medium">Móveis Sob Medida</span>
+        </header>
+
+        <main class="max-w-2xl w-full mx-auto p-4 sm:p-6 my-auto">
+            {msg_sucesso}
+            {formulario}
+        </main>
+
+        <footer class="bg-slate-900 border-t border-slate-800 p-4 text-center text-xs text-slate-500">
+            <p>{empresa['nome_empresa']} | Atendimento: {empresa['telefone_empresa']}</p>
+        </footer>
     </body>
     </html>
     """
@@ -577,7 +665,7 @@ def render_dashboard(data: dict):
             </div>
             """
     else:
-        galeria_html = "<div class='py-6 text-center text-xs text-slate-500 col-span-full'>Nenhum render 3D ou foto anexada. Faça upload abaixo para enriquecer a proposta comercial em PDF.</div>"
+        galeria_html = "<div class='py-6 text-center text-xs text-slate-500 col-span-full'>Nenhum render 3D ou planta anexada. Faça upload abaixo para enriquecer a proposta e a O.S.</div>"
 
     ambientes_tags_html = ""
     for amb_nome in ambientes:
@@ -612,7 +700,6 @@ def render_dashboard(data: dict):
         </div>
         """
 
-    # Mensagens Prontas de WhatsApp
     cond_texto_zap = f"Entrada de R$ {dre['entrada']:,.2f} + {dre['n_parc']}x de R$ {dre['valor_parcela']:,.2f}" if dre['n_parc'] > 1 else f"R$ {dre['pv']:,.2f} à vista"
     
     msg_proposta = f"Olá {data['cliente_nome']}! Segue a proposta da {empresa['nome_empresa']} para o projeto {data['cliente_ambiente']}: Total de R$ {dre['pv']:,.2f} ({cond_texto_zap}) com entrega em {data['prazo_entrega']}."
@@ -693,11 +780,13 @@ def render_dashboard(data: dict):
             </form>
             """
 
+            badge_lead = "<span class='px-2 py-0.5 bg-pink-950 text-pink-300 border border-pink-700 rounded text-[10px] font-bold'>Instagram</span>" if current_st == "Novo Lead Instagram" else ""
+
             historico_html += f"""
             <tr class="border-b border-slate-800 hover:bg-slate-800/40 text-xs item-linha" data-busca="{h['cliente_nome'].lower()} {h['cliente_ambiente'].lower()} {current_st.lower()}">
                 <td class="py-3 px-4 text-slate-400 font-mono">#{h['id']}</td>
                 <td class="py-3 px-4 text-slate-300">{h['criado_em']}</td>
-                <td class="py-3 px-4 text-white font-medium">{h['cliente_nome']}</td>
+                <td class="py-3 px-4 text-white font-medium">{h['cliente_nome']} {badge_lead}</td>
                 <td class="py-3 px-4 text-slate-300">{h['cliente_ambiente']}</td>
                 <td class="py-3 px-4 text-right text-sky-400 font-bold">R$ {h['preco_venda']:,.2f}</td>
                 {lucro_col}
@@ -705,6 +794,7 @@ def render_dashboard(data: dict):
                     <form action="/atualizar-status" method="post" class="inline">
                         <input type="hidden" name="orcamento_id" value="{h['id']}">
                         <select name="novo_status" onchange="this.form.submit()" class="bg-slate-950 border border-slate-700 text-[11px] text-slate-200 rounded px-2 py-1 focus:outline-none">
+                            <option value="Novo Lead Instagram" {'selected' if current_st=='Novo Lead Instagram' else ''}>📸 Novo Lead Instagram</option>
                             <option value="Em Negociação" {'selected' if current_st=='Em Negociação' else ''}>🟡 Em Negociação</option>
                             <option value="Aprovado" {'selected' if current_st=='Aprovado' else ''}>🟢 Aprovado</option>
                             <option value="Em Produção" {'selected' if current_st=='Em Produção' else ''}>🔵 Em Produção</option>
@@ -1024,6 +1114,7 @@ def render_dashboard(data: dict):
             </div>
             <div class="flex items-center space-x-4">
                 {perfil_badge}
+                <a href="/solicitar-orcamento" target="_blank" class="text-xs bg-emerald-950 text-emerald-300 border border-emerald-700 px-3 py-1.5 rounded-lg hover:bg-emerald-900/60 transition-colors">🔗 Link Instagram</a>
                 <a href="/novo-orcamento" class="text-xs bg-sky-600 hover:bg-sky-500 text-white font-medium px-3 py-1.5 rounded-lg transition-colors">+ Novo Orçamento</a>
                 <span class="text-xs text-slate-400">Usuário: <b class="text-sky-400">{data['user_nome']}</b></span>
                 <a href="/" class="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg text-slate-300 border border-slate-700">Sair</a>
@@ -1276,6 +1367,7 @@ def render_dashboard(data: dict):
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">Status</label>
                         <select name="status" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none">
+                            <option value="Novo Lead Instagram" {'selected' if data.get('status')=='Novo Lead Instagram' else ''}>📸 Novo Lead Instagram</option>
                             <option value="Em Negociação" {'selected' if data.get('status')=='Em Negociação' else ''}>🟡 Em Negociação</option>
                             <option value="Aprovado" {'selected' if data.get('status')=='Aprovado' else ''}>🟢 Aprovado</option>
                             <option value="Em Produção" {'selected' if data.get('status')=='Em Produção' else ''}>🔵 Em Produção</option>
@@ -1430,6 +1522,56 @@ def render_dashboard(data: dict):
 @app.get("/", response_class=HTMLResponse)
 def home():
     return render_login_page()
+
+@app.get("/solicitar-orcamento", response_class=HTMLResponse)
+def solicitar_orcamento():
+    return render_pagina_captacao()
+
+@app.post("/enviar-solicitacao-lead", response_class=HTMLResponse)
+async def enviar_solicitacao_lead(
+    nome: str = Form(...),
+    whatsapp: str = Form(...),
+    ambientes: str = Form(...),
+    cidade: str = Form(...),
+    descricao: str = Form(""),
+    planta: UploadFile = File(...)
+):
+    agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+    imagens_lead = []
+    
+    contents = await planta.read()
+    if contents:
+        img_b64 = base64.b64encode(contents).decode("utf-8")
+        imagens_lead.append(img_b64)
+
+    obs_completa = f"Lead Instagram ({cidade}): {descricao}" if descricao else f"Lead Instagram ({cidade})"
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO orcamentos (
+                criado_em, cliente_nome, cliente_telefone, cliente_ambiente,
+                prazo_entrega, data_entrega_prevista, status, custo_materiais,
+                custo_mao_obra, custo_frete_montagem, imposto_pct, comissao_pct,
+                markup, preco_venda, lucro_liquido, entrada_valor, num_parcelas,
+                forma_pagamento, valor_recebido, imagens_json, ambientes_json,
+                observacoes_tecnicas, items_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            agora,
+            nome,
+            whatsapp,
+            ambientes,
+            "25 dias úteis",
+            (date.today() + timedelta(days=25)).strftime("%Y-%m-%d"),
+            "Novo Lead Instagram",
+            0.0, 0.0, 0.0, 6.0, 4.0, 2.2, 0.0, 0.0, 0.0, 1,
+            "PIX / Cartão", 0.0, json.dumps(imagens_lead), json.dumps([ambientes]),
+            obs_completa, json.dumps([])
+        ))
+        conn.commit()
+
+    return render_pagina_captacao(sucesso=True)
 
 @app.post("/painel", response_class=HTMLResponse)
 def login(username: str = Form(...), password: str = Form(...)):
