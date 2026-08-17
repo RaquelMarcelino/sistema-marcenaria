@@ -6,12 +6,18 @@ from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 import io
+import urllib.parse
+from datetime import date
 
 app = FastAPI(title="Sistema Marcenaria & Promob")
 
-# Dados em memória simples para orçamento ativo
+# Armazenamento simples dos dados da sessão ativa
 CURRENT_DATA = {
     "user": "admin@marcenaria.com",
+    "cliente_nome": "Cliente Exemplo",
+    "cliente_telefone": "11999998888",
+    "cliente_ambiente": "Cozinha Planejada",
+    "prazo_entrega": "25 dias úteis",
     "total_custo": 0.0,
     "markup": 2.2,
     "items": []
@@ -50,7 +56,7 @@ LOGIN_HTML = """
 </html>
 """
 
-def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2):
+def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente_nome="Cliente Exemplo", cliente_telefone="11999998888", cliente_ambiente="Cozinha Planejada", prazo_entrega="25 dias úteis"):
     items = items or []
     rows_html = ""
     if items:
@@ -75,6 +81,10 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2):
     pv_sugerido = total_custo * markup if total_custo > 0 else 0.0
     lucro = pv_sugerido - total_custo if total_custo > 0 else 0.0
 
+    # Mensagem WhatsApp
+    msg_zap = f"Olá {cliente_nome}! Segue o orçamento para o ambiente {cliente_ambiente}: R$ {pv_sugerido:,.2f} com prazo de entrega de {prazo_entrega}."
+    zap_url = f"https://api.whatsapp.com/send?phone=55{cliente_telefone}&text={urllib.parse.quote(msg_zap)}"
+
     return f"""
     <!DOCTYPE html>
     <html lang="pt-br">
@@ -97,7 +107,7 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2):
         </header>
 
         <main class="max-w-7xl mx-auto p-6 space-y-6">
-            <!-- Cards de Resumo -->
+            <!-- Cards de Resumo DRE -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
                 <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
                     <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Custo Insumos (XML)</p>
@@ -107,7 +117,7 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2):
                 <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
                     <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Preço de Venda (Markup {markup:.1f}x)</p>
                     <p class="text-2xl font-bold text-sky-400">R$ {pv_sugerido:,.2f}</p>
-                    <p class="text-xs text-slate-500">Valor orçado para o cliente</p>
+                    <p class="text-xs text-slate-500">Valor para o cliente</p>
                 </div>
                 <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
                     <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Margem Bruta Estimada</p>
@@ -116,7 +126,39 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2):
                 </div>
             </div>
 
-            <!-- Bloco de Ações: Upload + Ajuste de Markup + Exportar PDF -->
+            <!-- Dados do Cliente e Projeto -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+                <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                    <h2 class="text-base font-semibold text-white">👤 Dados do Cliente & Proposta</h2>
+                    <span class="text-xs text-sky-400">Dados vinculados ao PDF e WhatsApp</span>
+                </div>
+                <form action="/salvar-cliente" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <input type="hidden" name="user" value="{user}">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Nome do Cliente</label>
+                        <input type="text" name="cliente_nome" value="{cliente_nome}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">WhatsApp / Telefone</label>
+                        <input type="text" name="cliente_telefone" value="{cliente_telefone}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Ambiente / Projeto</label>
+                        <input type="text" name="cliente_ambiente" value="{cliente_ambiente}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Prazo de Entrega</label>
+                        <div class="flex gap-2">
+                            <input type="text" name="prazo_entrega" value="{prazo_entrega}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                            <button type="submit" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold shrink-0">
+                                Salvar
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Bloco de Ações: Upload + Markup + PDF + WhatsApp -->
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <!-- Importador XML -->
                 <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4 shadow-lg">
@@ -130,9 +172,9 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2):
                     </form>
                 </div>
 
-                <!-- Painel de Markup e PDF -->
+                <!-- Painel de Markup e Ações -->
                 <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col justify-between space-y-4 shadow-lg">
-                    <h2 class="text-base font-semibold text-white">Ajustar Markup & PDF</h2>
+                    <h2 class="text-base font-semibold text-white">Ajustar Markup & Envio</h2>
                     <form action="/recalcular" method="post" class="flex items-center gap-3">
                         <input type="hidden" name="user" value="{user}">
                         <label class="text-xs text-slate-400 font-medium">Markup:</label>
@@ -142,16 +184,21 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2):
                         </button>
                     </form>
                     
-                    <a href="/gerar-pdf" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-center text-sm rounded-lg transition-colors flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/20">
-                        <span>📄 Baixar Orçamento em PDF</span>
-                    </a>
+                    <div class="space-y-2">
+                        <a href="/gerar-pdf" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/20">
+                            <span>📄 Baixar Orçamento em PDF</span>
+                        </a>
+                        <a href="{zap_url}" target="_blank" class="w-full py-2.5 bg-green-600 hover:bg-green-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center space-x-2 shadow-lg shadow-green-600/20">
+                            <span>💬 Enviar pelo WhatsApp</span>
+                        </a>
+                    </div>
                 </div>
             </div>
 
             <!-- Listagem de Peças -->
             <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
                 <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-850">
-                    <h3 class="text-sm font-semibold text-white">Listagem de Peças e Insumos do Projeto</h3>
+                    <h3 class="text-sm font-semibold text-white">Listagem de Peças e Insumos do Projeto ({cliente_ambiente})</h3>
                     <span class="text-xs text-slate-400">{len(items)} itens detectados</span>
                 </div>
                 <div class="overflow-x-auto">
@@ -182,12 +229,53 @@ def home():
 @app.post("/painel", response_class=HTMLResponse)
 def login(username: str = Form(...), password: str = Form(...)):
     CURRENT_DATA["user"] = username
-    return render_dashboard(user=username, items=CURRENT_DATA["items"], total_custo=CURRENT_DATA["total_custo"], markup=CURRENT_DATA["markup"])
+    return render_dashboard(
+        user=username, 
+        items=CURRENT_DATA["items"], 
+        total_custo=CURRENT_DATA["total_custo"], 
+        markup=CURRENT_DATA["markup"],
+        cliente_nome=CURRENT_DATA["cliente_nome"],
+        cliente_telefone=CURRENT_DATA["cliente_telefone"],
+        cliente_ambiente=CURRENT_DATA["cliente_ambiente"],
+        prazo_entrega=CURRENT_DATA["prazo_entrega"]
+    )
+
+@app.post("/salvar-cliente", response_class=HTMLResponse)
+def salvar_cliente(
+    user: str = Form("admin@marcenaria.com"),
+    cliente_nome: str = Form(...),
+    cliente_telefone: str = Form(...),
+    cliente_ambiente: str = Form(...),
+    prazo_entrega: str = Form(...)
+):
+    CURRENT_DATA["cliente_nome"] = cliente_nome
+    CURRENT_DATA["cliente_telefone"] = cliente_telefone
+    CURRENT_DATA["cliente_ambiente"] = cliente_ambiente
+    CURRENT_DATA["prazo_entrega"] = prazo_entrega
+    return render_dashboard(
+        user=user, 
+        items=CURRENT_DATA["items"], 
+        total_custo=CURRENT_DATA["total_custo"], 
+        markup=CURRENT_DATA["markup"],
+        cliente_nome=cliente_nome,
+        cliente_telefone=cliente_telefone,
+        cliente_ambiente=cliente_ambiente,
+        prazo_entrega=prazo_entrega
+    )
 
 @app.post("/recalcular", response_class=HTMLResponse)
 def recalcular(user: str = Form("admin@marcenaria.com"), markup: float = Form(2.2)):
     CURRENT_DATA["markup"] = markup
-    return render_dashboard(user=user, items=CURRENT_DATA["items"], total_custo=CURRENT_DATA["total_custo"], markup=markup)
+    return render_dashboard(
+        user=user, 
+        items=CURRENT_DATA["items"], 
+        total_custo=CURRENT_DATA["total_custo"], 
+        markup=markup,
+        cliente_nome=CURRENT_DATA["cliente_nome"],
+        cliente_telefone=CURRENT_DATA["cliente_telefone"],
+        cliente_ambiente=CURRENT_DATA["cliente_ambiente"],
+        prazo_entrega=CURRENT_DATA["prazo_entrega"]
+    )
 
 @app.post("/upload-xml", response_class=HTMLResponse)
 async def upload_xml(user: str = Form("admin@marcenaria.com"), file: UploadFile = File(...)):
@@ -236,7 +324,16 @@ async def upload_xml(user: str = Form("admin@marcenaria.com"), file: UploadFile 
 
     CURRENT_DATA["items"] = items
     CURRENT_DATA["total_custo"] = total_custo
-    return render_dashboard(user=user, items=items, total_custo=total_custo, markup=CURRENT_DATA["markup"])
+    return render_dashboard(
+        user=user, 
+        items=items, 
+        total_custo=total_custo, 
+        markup=CURRENT_DATA["markup"],
+        cliente_nome=CURRENT_DATA["cliente_nome"],
+        cliente_telefone=CURRENT_DATA["cliente_telefone"],
+        cliente_ambiente=CURRENT_DATA["cliente_ambiente"],
+        prazo_entrega=CURRENT_DATA["prazo_entrega"]
+    )
 
 @app.get("/gerar-pdf")
 def gerar_pdf():
@@ -245,42 +342,58 @@ def gerar_pdf():
     styles = getSampleStyleSheet()
     elements = []
 
-    # Cabeçalho
-    title_style = ParagraphStyle(name='TitleStyle', parent=styles['Heading1'], fontSize=20, textColor=colors.HexColor('#0f172a'), spaceAfter=6)
-    sub_style = ParagraphStyle(name='SubStyle', parent=styles['Normal'], fontSize=10, textColor=colors.HexColor('#64748b'), spaceAfter=14)
-    
-    elements.append(Paragraph("Marcenaria Pro - Proposta Comercial", title_style))
-    elements.append(Paragraph("Orçamento Detalhado & Especificação de Insumos Promob", sub_style))
-    elements.append(Spacer(1, 10))
+    # Cabeçalho Principal
+    title_style = ParagraphStyle(name='TitleStyle', parent=styles['Heading1'], fontSize=18, textColor=colors.HexColor('#0f172a'), spaceAfter=4)
+    elements.append(Paragraph("Marcenaria Pro - Proposta Comercial & Orçamento", title_style))
+    elements.append(Spacer(1, 8))
 
-    # Tabela DRE no PDF
+    # Dados do Cliente no PDF
+    cliente_data = [
+        ["Cliente:", CURRENT_DATA['cliente_nome'], "Data da Proposta:", date.today().strftime("%d/%m/%Y")],
+        ["WhatsApp/Tel:", CURRENT_DATA['cliente_telefone'], "Prazo de Entrega:", CURRENT_DATA['prazo_entrega']],
+        ["Ambiente/Projeto:", CURRENT_DATA['cliente_ambiente'], "Validade da Proposta:", "15 dias"]
+    ]
+    cliente_table = Table(cliente_data, colWidths=[110, 160, 120, 150])
+    cliente_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f1f5f9')),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#334155')),
+        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
+    ]))
+    elements.append(cliente_table)
+    elements.append(Spacer(1, 14))
+
+    # Tabela de Valores
     markup = CURRENT_DATA["markup"]
     custo = CURRENT_DATA["total_custo"]
     pv = custo * markup
     lucro = pv - custo
 
     dre_data = [
-        ["Custo Total de Materiais", f"R$ {custo:,.2f}"],
+        ["Custo Total de Materiais (XML)", f"R$ {custo:,.2f}"],
         ["Markup Aplicado", f"{markup:.1f}x"],
-        ["Preço Final Sugerido ao Cliente", f"R$ {pv:,.2f}"],
-        ["Margem Bruta Estimada", f"R$ {lucro:,.2f}"]
+        ["VALOR TOTAL DA PROPOSTA", f"R$ {pv:,.2f}"],
+        ["Margem Bruta Operacional", f"R$ {lucro:,.2f}"]
     ]
-    dre_table = Table(dre_data, colWidths=[280, 240])
+    dre_table = Table(dre_data, colWidths=[280, 260])
     dre_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f8fafc')),
+        ('BACKGROUND', (0, 2), (-1, 2), colors.HexColor('#dbeafe')),
         ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#0f172a')),
         ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
     ]))
     elements.append(dre_table)
-    elements.append(Spacer(1, 15))
+    elements.append(Spacer(1, 14))
 
-    # Tabela de Peças no PDF
+    # Tabela de Peças
     items = CURRENT_DATA["items"] or [
         {"nome": "Item Geral de Marcenaria", "dimensoes": "-", "qtd": 1, "valor": custo}
     ]
-    table_data = [["Item / Insumo", "Dimensões", "Qtd", "Custo Total"]]
+    table_data = [["Item / Insumo Promob", "Dimensões (mm)", "Qtd", "Custo Total"]]
     for it in items:
         table_data.append([
             it.get("nome", "Peça"),
@@ -289,7 +402,7 @@ def gerar_pdf():
             f"R$ {it.get('valor', 0.0):,.2f}"
         ])
 
-    items_table = Table(table_data, colWidths=[240, 130, 50, 100])
+    items_table = Table(table_data, colWidths=[240, 140, 50, 110])
     items_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0284c7')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
@@ -303,4 +416,4 @@ def gerar_pdf():
 
     doc.build(elements)
     buffer.seek(0)
-    return Response(content=buffer.getvalue(), media_type="application/pdf", headers={"Content-Disposition": "attachment; filename=orcamento-marcenaria.pdf"})
+    return Response(content=buffer.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename=orcamento-{CURRENT_DATA['cliente_nome'].replace(' ', '_')}.pdf"})
