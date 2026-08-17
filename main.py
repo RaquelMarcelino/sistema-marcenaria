@@ -1,10 +1,22 @@
-from fastapi import FastAPI, Form, UploadFile, File
+from fastapi import FastAPI, Form, UploadFile, File, Response
 from fastapi.responses import HTMLResponse
 import xml.etree.ElementTree as ET
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+import io
 
 app = FastAPI(title="Sistema Marcenaria & Promob")
 
-# Layout da Tela de Login
+# Dados em memória simples para orçamento ativo
+CURRENT_DATA = {
+    "user": "admin@marcenaria.com",
+    "total_custo": 0.0,
+    "markup": 2.2,
+    "items": []
+}
+
 LOGIN_HTML = """
 <!DOCTYPE html>
 <html lang="pt-br">
@@ -20,7 +32,6 @@ LOGIN_HTML = """
             <h1 class="text-2xl font-bold tracking-tight text-white">Marcenaria Pro SaaS</h1>
             <p class="text-xs text-slate-400">Gestão de Orçamentos Promob & Precificação DRE</p>
         </div>
-        
         <form action="/painel" method="post" class="space-y-4">
             <div>
                 <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">E-mail</label>
@@ -39,14 +50,15 @@ LOGIN_HTML = """
 </html>
 """
 
-def render_dashboard(user: str, items=None, total_custo=0.0):
+def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2):
+    items = items or []
     rows_html = ""
     if items:
         for it in items:
             rows_html += f"""
-            <tr class="border-b border-slate-700/50 hover:bg-slate-750">
+            <tr class="border-b border-slate-800 hover:bg-slate-850">
                 <td class="py-3 px-4 text-sm text-slate-200">{it.get('nome', 'Peça')}</td>
-                <td class="py-3 px-4 text-sm text-center text-slate-300">{it.get('dimensoes', '-')}</td>
+                <td class="py-3 px-4 text-sm text-center text-slate-400">{it.get('dimensoes', '-')}</td>
                 <td class="py-3 px-4 text-sm text-center text-slate-300">{it.get('qtd', 1)}</td>
                 <td class="py-3 px-4 text-sm text-right text-emerald-400 font-medium">R$ {it.get('valor', 0.0):.2f}</td>
             </tr>
@@ -60,7 +72,7 @@ def render_dashboard(user: str, items=None, total_custo=0.0):
         </tr>
         """
 
-    pv_sugerido = total_custo * 2.2 if total_custo > 0 else 0.0
+    pv_sugerido = total_custo * markup if total_custo > 0 else 0.0
     lucro = pv_sugerido - total_custo if total_custo > 0 else 0.0
 
     return f"""
@@ -85,43 +97,67 @@ def render_dashboard(user: str, items=None, total_custo=0.0):
         </header>
 
         <main class="max-w-7xl mx-auto p-6 space-y-6">
+            <!-- Cards de Resumo -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
-                <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1">
-                    <p class="text-xs font-medium text-slate-400 uppercase">Custo de Materiais (XML)</p>
-                    <p class="text-2xl font-bold text-white">R$ {total_custo:.2f}</p>
-                    <p class="text-xs text-slate-500">MDF, ferragens e fitas calculados</p>
+                <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
+                    <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Custo Insumos (XML)</p>
+                    <p class="text-2xl font-bold text-white">R$ {total_custo:,.2f}</p>
+                    <p class="text-xs text-slate-500">MDF, fitas e ferragens</p>
                 </div>
-                <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1">
-                    <p class="text-xs font-medium text-slate-400 uppercase">Preço de Venda Sugerido (Markup 2.2x)</p>
-                    <p class="text-2xl font-bold text-sky-400">R$ {pv_sugerido:.2f}</p>
-                    <p class="text-xs text-slate-500">Custos diretos + margem líquida</p>
+                <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
+                    <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Preço de Venda (Markup {markup:.1f}x)</p>
+                    <p class="text-2xl font-bold text-sky-400">R$ {pv_sugerido:,.2f}</p>
+                    <p class="text-xs text-slate-500">Valor orçado para o cliente</p>
                 </div>
-                <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1">
-                    <p class="text-xs font-medium text-slate-400 uppercase">Margem Bruta Estimada</p>
-                    <p class="text-2xl font-bold text-emerald-400">R$ {lucro:.2f}</p>
-                    <p class="text-xs text-slate-500">Retorno operacional do projeto</p>
+                <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
+                    <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Margem Bruta Estimada</p>
+                    <p class="text-2xl font-bold text-emerald-400">R$ {lucro:,.2f}</p>
+                    <p class="text-xs text-slate-500">Resultado financeiro do projeto</p>
                 </div>
             </div>
 
-            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
-                <h2 class="text-base font-semibold text-white">Importar Projeto (XML Promob / Cutlist)</h2>
-                <form action="/upload-xml" method="post" enctype="multipart/form-data" class="flex flex-col sm:flex-row items-center gap-4">
-                    <input type="hidden" name="user" value="{user}">
-                    <input type="file" name="file" accept=".xml,.txt" required class="block w-full text-xs text-slate-400 file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-200 hover:file:bg-slate-700 cursor-pointer">
-                    <button type="submit" class="w-full sm:w-auto px-6 py-2.5 bg-sky-600 hover:bg-sky-500 text-white font-medium rounded-lg text-sm transition-colors shrink-0">
-                        Processar e Orçar
-                    </button>
-                </form>
+            <!-- Bloco de Ações: Upload + Ajuste de Markup + Exportar PDF -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Importador XML -->
+                <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4 shadow-lg">
+                    <h2 class="text-base font-semibold text-white">Importar Projeto (XML Promob / Cutlist)</h2>
+                    <form action="/upload-xml" method="post" enctype="multipart/form-data" class="flex flex-col sm:flex-row items-center gap-4">
+                        <input type="hidden" name="user" value="{user}">
+                        <input type="file" name="file" accept=".xml,.txt" required class="block w-full text-xs text-slate-400 file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-200 hover:file:bg-slate-700 cursor-pointer">
+                        <button type="submit" class="w-full sm:w-auto px-6 py-2.5 bg-sky-600 hover:bg-sky-500 text-white font-medium rounded-lg text-sm transition-colors shrink-0">
+                            Processar e Orçar
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Painel de Markup e PDF -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col justify-between space-y-4 shadow-lg">
+                    <h2 class="text-base font-semibold text-white">Ajustar Markup & PDF</h2>
+                    <form action="/recalcular" method="post" class="flex items-center gap-3">
+                        <input type="hidden" name="user" value="{user}">
+                        <label class="text-xs text-slate-400 font-medium">Markup:</label>
+                        <input type="number" step="0.1" min="1.0" max="5.0" name="markup" value="{markup}" class="w-20 px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-sm text-center text-white focus:outline-none focus:border-sky-500">
+                        <button type="submit" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700">
+                            Recalcular
+                        </button>
+                    </form>
+                    
+                    <a href="/gerar-pdf" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-center text-sm rounded-lg transition-colors flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/20">
+                        <span>📄 Baixar Orçamento em PDF</span>
+                    </a>
+                </div>
             </div>
 
-            <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-                <div class="p-4 border-b border-slate-800 flex justify-between items-center">
-                    <h3 class="text-sm font-semibold text-white">Listagem de Peças e Insumos</h3>
+            <!-- Listagem de Peças -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
+                <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-850">
+                    <h3 class="text-sm font-semibold text-white">Listagem de Peças e Insumos do Projeto</h3>
+                    <span class="text-xs text-slate-400">{len(items)} itens detectados</span>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="w-full text-left border-collapse">
                         <thead>
-                            <tr class="bg-slate-800/50 border-b border-slate-800 text-xs font-semibold text-slate-400 uppercase">
+                            <tr class="bg-slate-800/40 border-b border-slate-800 text-xs font-semibold text-slate-400 uppercase">
                                 <th class="py-3 px-4">Descrição / Insumo</th>
                                 <th class="py-3 px-4 text-center">Dimensões (mm)</th>
                                 <th class="py-3 px-4 text-center">Quantidade</th>
@@ -145,7 +181,13 @@ def home():
 
 @app.post("/painel", response_class=HTMLResponse)
 def login(username: str = Form(...), password: str = Form(...)):
-    return render_dashboard(user=username)
+    CURRENT_DATA["user"] = username
+    return render_dashboard(user=username, items=CURRENT_DATA["items"], total_custo=CURRENT_DATA["total_custo"], markup=CURRENT_DATA["markup"])
+
+@app.post("/recalcular", response_class=HTMLResponse)
+def recalcular(user: str = Form("admin@marcenaria.com"), markup: float = Form(2.2)):
+    CURRENT_DATA["markup"] = markup
+    return render_dashboard(user=user, items=CURRENT_DATA["items"], total_custo=CURRENT_DATA["total_custo"], markup=markup)
 
 @app.post("/upload-xml", response_class=HTMLResponse)
 async def upload_xml(user: str = Form("admin@marcenaria.com"), file: UploadFile = File(...)):
@@ -175,10 +217,12 @@ async def upload_xml(user: str = Form("admin@marcenaria.com"), file: UploadFile 
 
         if not items:
             items = [
-                {"nome": "Chapa MDF Branco TX 15mm", "dimensoes": "2750 x 1830 x 15", "qtd": 2, "valor": 340.00},
-                {"nome": "Fita de Borda PVC 22mm (Rolo 20m)", "dimensoes": "-", "qtd": 1, "valor": 45.00},
-                {"nome": "Kit Dobradiças Amortecedor 35mm", "dimensoes": "-", "qtd": 8, "valor": 96.00},
-                {"nome": "Corrediça Telescópica 450mm", "dimensoes": "450 mm", "qtd": 4, "valor": 120.00}
+                {"nome": "Adesivo Tapa Furo em Poliestireno", "dimensoes": "69 x 34 x 69", "qtd": 2, "valor": 90.00},
+                {"nome": "Corrediça Telescópica 450mm - 35Kg", "dimensoes": "200 x 35 x 450", "qtd": 4, "valor": 180.00},
+                {"nome": "Div.Talheres p/ Gav.Telescópica", "dimensoes": "512 x 52 x 435", "qtd": 1, "valor": 45.00},
+                {"nome": "Dobradiça Ecco Ø35mm Reta Slowmotion", "dimensoes": "35 x 52 x 77", "qtd": 22, "valor": 990.00},
+                {"nome": "Dobradiça Ø35mm 90° p/ Canto Reto", "dimensoes": "112 x 52 x 21", "qtd": 2, "valor": 90.00},
+                {"nome": "Dobradiça Ø35mm Reta", "dimensoes": "35 x 52 x 77", "qtd": 12, "valor": 540.00}
             ]
             total_custo = sum(i["valor"] for i in items)
 
@@ -190,4 +234,73 @@ async def upload_xml(user: str = Form("admin@marcenaria.com"), file: UploadFile 
         ]
         total_custo = sum(i["valor"] for i in items)
 
-    return render_dashboard(user=user, items=items, total_custo=total_custo)
+    CURRENT_DATA["items"] = items
+    CURRENT_DATA["total_custo"] = total_custo
+    return render_dashboard(user=user, items=items, total_custo=total_custo, markup=CURRENT_DATA["markup"])
+
+@app.get("/gerar-pdf")
+def gerar_pdf():
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+    styles = getSampleStyleSheet()
+    elements = []
+
+    # Cabeçalho
+    title_style = ParagraphStyle(name='TitleStyle', parent=styles['Heading1'], fontSize=20, textColor=colors.HexColor('#0f172a'), spaceAfter=6)
+    sub_style = ParagraphStyle(name='SubStyle', parent=styles['Normal'], fontSize=10, textColor=colors.HexColor('#64748b'), spaceAfter=14)
+    
+    elements.append(Paragraph("Marcenaria Pro - Proposta Comercial", title_style))
+    elements.append(Paragraph("Orçamento Detalhado & Especificação de Insumos Promob", sub_style))
+    elements.append(Spacer(1, 10))
+
+    # Tabela DRE no PDF
+    markup = CURRENT_DATA["markup"]
+    custo = CURRENT_DATA["total_custo"]
+    pv = custo * markup
+    lucro = pv - custo
+
+    dre_data = [
+        ["Custo Total de Materiais", f"R$ {custo:,.2f}"],
+        ["Markup Aplicado", f"{markup:.1f}x"],
+        ["Preço Final Sugerido ao Cliente", f"R$ {pv:,.2f}"],
+        ["Margem Bruta Estimada", f"R$ {lucro:,.2f}"]
+    ]
+    dre_table = Table(dre_data, colWidths=[280, 240])
+    dre_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f8fafc')),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#0f172a')),
+        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
+    ]))
+    elements.append(dre_table)
+    elements.append(Spacer(1, 15))
+
+    # Tabela de Peças no PDF
+    items = CURRENT_DATA["items"] or [
+        {"nome": "Item Geral de Marcenaria", "dimensoes": "-", "qtd": 1, "valor": custo}
+    ]
+    table_data = [["Item / Insumo", "Dimensões", "Qtd", "Custo Total"]]
+    for it in items:
+        table_data.append([
+            it.get("nome", "Peça"),
+            it.get("dimensoes", "-"),
+            str(it.get("qtd", 1)),
+            f"R$ {it.get('valor', 0.0):,.2f}"
+        ])
+
+    items_table = Table(table_data, colWidths=[240, 130, 50, 100])
+    items_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0284c7')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (2, 0), (2, -1), 'CENTER'),
+        ('ALIGN', (3, 0), (3, -1), 'RIGHT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e2e8f0')),
+    ]))
+    elements.append(items_table)
+
+    doc.build(elements)
+    buffer.seek(0)
+    return Response(content=buffer.getvalue(), media_type="application/pdf", headers={"Content-Disposition": "attachment; filename=orcamento-marcenaria.pdf"})
