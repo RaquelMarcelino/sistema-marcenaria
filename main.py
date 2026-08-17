@@ -72,6 +72,7 @@ def init_db():
                 estoque_baixado INTEGER DEFAULT 0,
                 valor_recebido REAL DEFAULT 0.0,
                 imagens_json TEXT,
+                ambientes_json TEXT,
                 items_json TEXT
             )
         """)
@@ -84,7 +85,8 @@ def init_db():
             ("estoque_baixado", "INTEGER"),
             ("data_entrega_prevista", "TEXT"),
             ("valor_recebido", "REAL"),
-            ("imagens_json", "TEXT")
+            ("imagens_json", "TEXT"),
+            ("ambientes_json", "TEXT")
         ]
         for col, tipo in colunas:
             try:
@@ -233,6 +235,7 @@ CURRENT_DATA = {
     "estoque_baixado": 0,
     "valor_recebido": 1000.0,
     "imagens": [],
+    "ambientes": ["Cozinha Planejada"],
     "custo_materiais": 0.0,
     "dias_producao": 3,
     "valor_diaria": 180.0,
@@ -303,7 +306,7 @@ def render_login_page(msg_erro=""):
         <div class="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-8 shadow-2xl space-y-6">
             <div class="text-center space-y-2">
                 <h1 class="text-2xl font-bold tracking-tight text-white">Marcenaria Pro SaaS</h1>
-                <p class="text-xs text-slate-400">Gestão de Orçamentos Promob, Galeria 3D & Produção DRE</p>
+                <p class="text-xs text-slate-400">Gestão de Orçamentos Promob, Multi-Ambientes & Produção DRE</p>
             </div>
             {erro_tag}
             <form action="/painel" method="post" class="space-y-4">
@@ -500,6 +503,7 @@ def render_dashboard(data: dict):
     estoque = get_estoque_atual()
     metricas = get_metricas_financeiras()
     imagens = data.get("imagens", [])
+    ambientes = data.get("ambientes", ["Cozinha Planejada"])
     
     rows_html = ""
     if items:
@@ -509,7 +513,7 @@ def render_dashboard(data: dict):
             <tr class="border-b border-slate-800 hover:bg-slate-850">
                 <td class="py-3 px-4 text-sm text-slate-200">
                     <span class="font-medium">{it.get('nome', 'Peça')}</span>
-                    <span class="block text-[11px] text-sky-400">{it.get('tipo', 'Insumo')}</span>
+                    <span class="block text-[11px] text-sky-400">{it.get('tipo', 'Insumo')} - {it.get('ambiente', 'Geral')}</span>
                 </td>
                 <td class="py-3 px-4 text-sm text-center text-slate-400">{it.get('dimensoes', '-')}</td>
                 <td class="py-3 px-4 text-sm text-center text-slate-300">{it.get('qtd', 1)}</td>
@@ -570,6 +574,19 @@ def render_dashboard(data: dict):
             """
     else:
         galeria_html = "<div class='py-6 text-center text-xs text-slate-500 col-span-full'>Nenhum render 3D ou foto anexada. Faça upload abaixo para enriquecer a proposta comercial em PDF.</div>"
+
+    # Ambientes Tags HTML
+    ambientes_tags_html = ""
+    for amb_nome in ambientes:
+        ambientes_tags_html += f"""
+        <span class="inline-flex items-center gap-1.5 px-3 py-1 bg-sky-950/80 border border-sky-700 text-sky-300 rounded-lg text-xs font-medium">
+            <span>🏠 {amb_nome}</span>
+            <form action="/remover-ambiente" method="post" class="inline">
+                <input type="hidden" name="ambiente_nome" value="{amb_nome}">
+                <button type="submit" class="hover:text-rose-400 font-bold ml-1 text-slate-400">✕</button>
+            </form>
+        </span>
+        """
 
     estoque_cards_html = ""
     for est in estoque:
@@ -1001,6 +1018,25 @@ def render_dashboard(data: dict):
         <main class="max-w-7xl mx-auto p-6 space-y-6">
             {dre_cards}
 
+            <!-- Gestão Multi-Ambientes (Casa Completa) -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
+                    <div>
+                        <h2 class="text-base font-semibold text-white">🏠 Ambientes do Projeto / Casa Completa</h2>
+                        <p class="text-xs text-slate-400">Adicione todos os cômodos para gerar um Contrato Master unificado</p>
+                    </div>
+                    <form action="/adicionar-ambiente" method="post" class="flex items-center gap-2">
+                        <input type="text" name="novo_ambiente" placeholder="Ex: Quarto Casal, Lavabo..." required class="px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        <button type="submit" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold shrink-0">
+                            + Adicionar Cômodo
+                        </button>
+                    </form>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    {ambientes_tags_html}
+                </div>
+            </div>
+
             <!-- Galeria de Imagens / Renders 3D -->
             <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
@@ -1046,7 +1082,7 @@ def render_dashboard(data: dict):
                             <span>📄 Emitir Recibo (PDF)</span>
                         </a>
                         <a href="/gerar-contrato" class="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-medium text-xs rounded-lg transition-colors flex items-center space-x-1 shadow-md">
-                            <span>📑 Contrato (PDF)</span>
+                            <span>📑 Contrato Master (PDF)</span>
                         </a>
                         <a href="/gerar-vistoria" class="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white font-medium text-xs rounded-lg transition-colors flex items-center space-x-1 shadow-md">
                             <span>📋 Vistoria (PDF)</span>
@@ -1171,7 +1207,7 @@ def render_dashboard(data: dict):
                         <input type="text" name="cliente_telefone" value="{data['cliente_telefone']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
                     </div>
                     <div>
-                        <label class="block text-xs font-medium text-slate-400 mb-1">Ambiente</label>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Projeto Master</label>
                         <input type="text" name="cliente_ambiente" value="{data['cliente_ambiente']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
                     </div>
                     <div>
@@ -1345,6 +1381,22 @@ def login(username: str = Form(...), password: str = Form(...)):
 
     return render_dashboard(data=CURRENT_DATA)
 
+@app.post("/adicionar-ambiente", response_class=HTMLResponse)
+def adicionar_ambiente(novo_ambiente: str = Form(...)):
+    if "ambientes" not in CURRENT_DATA:
+        CURRENT_DATA["ambientes"] = []
+    if novo_ambiente and novo_ambiente not in CURRENT_DATA["ambientes"]:
+        CURRENT_DATA["ambientes"].append(novo_ambiente)
+        CURRENT_DATA["cliente_ambiente"] = " + ".join(CURRENT_DATA["ambientes"])
+    return RedirectResponse(url="/painel-get", status_code=303)
+
+@app.post("/remover-ambiente", response_class=HTMLResponse)
+def remover_ambiente(ambiente_nome: str = Form(...)):
+    if "ambientes" in CURRENT_DATA and ambiente_nome in CURRENT_DATA["ambientes"]:
+        CURRENT_DATA["ambientes"].remove(ambiente_nome)
+        CURRENT_DATA["cliente_ambiente"] = " + ".join(CURRENT_DATA["ambientes"]) if CURRENT_DATA["ambientes"] else "Geral"
+    return RedirectResponse(url="/painel-get", status_code=303)
+
 @app.post("/upload-imagem", response_class=HTMLResponse)
 async def upload_imagem(foto: UploadFile = File(...)):
     contents = await foto.read()
@@ -1469,7 +1521,7 @@ def novo_orcamento():
     CURRENT_DATA["status"] = "Em Negociação"
     CURRENT_DATA["cliente_nome"] = "Novo Cliente"
     CURRENT_DATA["cliente_telefone"] = ""
-    CURRENT_DATA["cliente_ambiente"] = "Ambiente Geral"
+    CURRENT_DATA["cliente_ambiente"] = "Cozinha Planejada"
     CURRENT_DATA["prazo_entrega"] = "20 dias úteis"
     CURRENT_DATA["data_entrega_prevista"] = (date.today() + timedelta(days=20)).strftime("%Y-%m-%d")
     CURRENT_DATA["entrada_valor"] = 0.0
@@ -1478,6 +1530,7 @@ def novo_orcamento():
     CURRENT_DATA["forma_pagamento"] = "PIX / Transferência"
     CURRENT_DATA["estoque_baixado"] = 0
     CURRENT_DATA["imagens"] = []
+    CURRENT_DATA["ambientes"] = ["Cozinha Planejada"]
     CURRENT_DATA["custo_materiais"] = 0.0
     CURRENT_DATA["dias_producao"] = 3
     CURRENT_DATA["valor_diaria"] = 180.0
@@ -1539,6 +1592,7 @@ def salvar_banco():
                     forma_pagamento = ?,
                     valor_recebido = ?,
                     imagens_json = ?,
+                    ambientes_json = ?,
                     items_json = ?
                 WHERE id = ?
             """, (
@@ -1562,13 +1616,14 @@ def salvar_banco():
                 CURRENT_DATA.get("forma_pagamento", "PIX"),
                 CURRENT_DATA.get("valor_recebido", 0.0),
                 json.dumps(CURRENT_DATA.get("imagens", [])),
+                json.dumps(CURRENT_DATA.get("ambientes", [])),
                 json.dumps(CURRENT_DATA["items"]),
                 CURRENT_DATA["orcamento_id"]
             ))
         else:
             cursor.execute("""
-                INSERT INTO orcamentos (criado_em, cliente_nome, cliente_telefone, cliente_ambiente, prazo_entrega, data_entrega_prevista, status, custo_materiais, custo_mao_obra, custo_frete_montagem, imposto_pct, comissao_pct, markup, preco_venda, lucro_liquido, entrada_valor, num_parcelas, forma_pagamento, valor_recebido, imagens_json, items_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO orcamentos (criado_em, cliente_nome, cliente_telefone, cliente_ambiente, prazo_entrega, data_entrega_prevista, status, custo_materiais, custo_mao_obra, custo_frete_montagem, imposto_pct, comissao_pct, markup, preco_venda, lucro_liquido, entrada_valor, num_parcelas, forma_pagamento, valor_recebido, imagens_json, ambientes_json, items_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 agora,
                 CURRENT_DATA["cliente_nome"],
@@ -1590,6 +1645,7 @@ def salvar_banco():
                 CURRENT_DATA.get("forma_pagamento", "PIX"),
                 CURRENT_DATA.get("valor_recebido", 0.0),
                 json.dumps(CURRENT_DATA.get("imagens", [])),
+                json.dumps(CURRENT_DATA.get("ambientes", [])),
                 json.dumps(CURRENT_DATA["items"])
             ))
             CURRENT_DATA["orcamento_id"] = cursor.lastrowid
@@ -1622,6 +1678,7 @@ def carregar_orcamento(orcamento_id: int = Form(...)):
                 CURRENT_DATA["valor_recebido"] = float(row["valor_recebido"] or 0.0)
                 CURRENT_DATA["estoque_baixado"] = int(row["estoque_baixado"] or 0)
                 CURRENT_DATA["imagens"] = json.loads(row["imagens_json"]) if row["imagens_json"] else []
+                CURRENT_DATA["ambientes"] = json.loads(row["ambientes_json"]) if row["ambientes_json"] else [row["cliente_ambiente"]]
             except Exception:
                 pass
             CURRENT_DATA["items"] = json.loads(row["items_json"]) if row["items_json"] else []
@@ -1696,6 +1753,7 @@ async def upload_xml(file: UploadFile = File(...)):
     items = []
     total_mat = 0.0
     precos = get_precos_config()
+    ambiente_ativo = CURRENT_DATA.get("ambientes", ["Geral"])[0]
 
     try:
         root = ET.fromstring(contents)
@@ -1717,6 +1775,7 @@ async def upload_xml(file: UploadFile = File(...)):
                 items.append({
                     "nome": nome[:45],
                     "tipo": tipo,
+                    "ambiente": ambiente_ativo,
                     "largura": largura,
                     "altura": altura,
                     "dimensoes": f"{int(largura)} x {int(altura)} x {int(prof)}" if largura > 0 else "-",
@@ -1726,17 +1785,17 @@ async def upload_xml(file: UploadFile = File(...)):
 
         if not items:
             items = [
-                {"nome": "Dobradiça Ecco Ø35mm Slowmotion", "tipo": "Ferragem (Dobradiça)", "largura": 0, "altura": 0, "dimensoes": "-", "qtd": 22, "valor": 22 * precos["dobradica"]},
-                {"nome": "Corrediça Telescópica 450mm", "tipo": "Ferragem (Corrediça)", "largura": 0, "altura": 0, "dimensoes": "450 mm", "qtd": 4, "valor": 4 * precos["corredica"]},
-                {"nome": "Lateral MDF Branco TX 18mm", "tipo": "Chapa MDF / Painel", "largura": 2200, "altura": 600, "dimensoes": "2200 x 600 x 18", "qtd": 2, "valor": 2 * (2.2 * 0.6 * precos["mdf_m2"])},
-                {"nome": "Fita de Borda PVC 22mm", "tipo": "Fita de Borda", "largura": 0, "altura": 0, "dimensoes": "-", "qtd": 15, "valor": 15 * precos["fita_borda_m"]}
+                {"nome": "Dobradiça Ecco Ø35mm Slowmotion", "tipo": "Ferragem (Dobradiça)", "ambiente": ambiente_ativo, "largura": 0, "altura": 0, "dimensoes": "-", "qtd": 22, "valor": 22 * precos["dobradica"]},
+                {"nome": "Corrediça Telescópica 450mm", "tipo": "Ferragem (Corrediça)", "ambiente": ambiente_ativo, "largura": 0, "altura": 0, "dimensoes": "450 mm", "qtd": 4, "valor": 4 * precos["corredica"]},
+                {"nome": "Lateral MDF Branco TX 18mm", "tipo": "Chapa MDF / Painel", "ambiente": ambiente_ativo, "largura": 2200, "altura": 600, "dimensoes": "2200 x 600 x 18", "qtd": 2, "valor": 2 * (2.2 * 0.6 * precos["mdf_m2"])},
+                {"nome": "Fita de Borda PVC 22mm", "tipo": "Fita de Borda", "ambiente": ambiente_ativo, "largura": 0, "altura": 0, "dimensoes": "-", "qtd": 15, "valor": 15 * precos["fita_borda_m"]}
             ]
             total_mat = sum(i["valor"] for i in items)
 
     except Exception:
         items = [
-            {"nome": "Dobradiça Ø35mm Reta Slowmotion", "tipo": "Ferragem (Dobradiça)", "largura": 0, "altura": 0, "dimensoes": "-", "qtd": 10, "valor": 10 * precos["dobradica"]},
-            {"nome": "Painel MDF Freijó 18mm", "tipo": "Chapa MDF / Painel", "largura": 1800, "altura": 800, "dimensoes": "1800 x 800 x 18", "qtd": 2, "valor": 2 * (1.8 * 0.8 * precos["mdf_m2"])}
+            {"nome": "Dobradiça Ø35mm Reta Slowmotion", "tipo": "Ferragem (Dobradiça)", "ambiente": ambiente_ativo, "largura": 0, "altura": 0, "dimensoes": "-", "qtd": 10, "valor": 10 * precos["dobradica"]},
+            {"nome": "Painel MDF Freijó 18mm", "tipo": "Chapa MDF / Painel", "ambiente": ambiente_ativo, "largura": 1800, "altura": 800, "dimensoes": "1800 x 800 x 18", "qtd": 2, "valor": 2 * (1.8 * 0.8 * precos["mdf_m2"])}
         ]
         total_mat = sum(i["valor"] for i in items)
 
@@ -1748,6 +1807,7 @@ async def upload_xml(file: UploadFile = File(...)):
 def gerar_pdf(id: int = None):
     empresa = get_empresa_config()
     imagens = []
+    ambientes_list = []
     if id:
         with get_db() as conn:
             cursor = conn.cursor()
@@ -1764,6 +1824,7 @@ def gerar_pdf(id: int = None):
                 n_parc = int(row["num_parcelas"] or 1)
                 forma_pgto = row["forma_pagamento"] or "PIX"
                 imagens = json.loads(row["imagens_json"]) if row["imagens_json"] else []
+                ambientes_list = json.loads(row["ambientes_json"]) if row["ambientes_json"] else [c_amb]
                 items = json.loads(row["items_json"]) if row["items_json"] else []
             else:
                 return Response(content="Orçamento não encontrado", status_code=404)
@@ -1779,6 +1840,7 @@ def gerar_pdf(id: int = None):
         n_parc = dre["n_parc"]
         forma_pgto = CURRENT_DATA.get("forma_pagamento", "PIX")
         imagens = CURRENT_DATA.get("imagens", [])
+        ambientes_list = CURRENT_DATA.get("ambientes", [c_amb])
         items = CURRENT_DATA["items"]
 
     v_parc = (pv - entrada) / n_parc if n_parc > 0 else 0.0
@@ -1798,7 +1860,7 @@ def gerar_pdf(id: int = None):
     cliente_data = [
         ["Cliente:", c_nome, "Data da Proposta:", date.today().strftime("%d/%m/%Y")],
         ["WhatsApp/Tel:", c_tel, "Prazo de Entrega:", c_prazo],
-        ["Ambiente/Projeto:", c_amb, "Status:", c_status]
+        ["Ambientes Inclusos:", ", ".join(ambientes_list), "Status:", c_status]
     ]
     cliente_table = Table(cliente_data, colWidths=[110, 160, 120, 150])
     cliente_table.setStyle(TableStyle([
@@ -1824,11 +1886,11 @@ def gerar_pdf(id: int = None):
     cond_texto = f"Entrada de R$ {entrada:,.2f} + {n_parc}x de R$ {v_parc:,.2f} ({forma_pgto})" if n_parc > 1 else f"À vista: R$ {pv:,.2f} ({forma_pgto})"
 
     dre_data = [
-        ["Ambiente / Projeto", f"{c_amb}"],
+        ["Ambientes do Projeto", f"{', '.join(ambientes_list)}"],
         ["Prazo de Fabricação e Instalação", f"{c_prazo}"],
         ["Condições de Pagamento", cond_texto],
         ["Garantia Estrutural e Ferragens", "12 meses contra defeitos de fabricação"],
-        ["VALOR TOTAL DO INVESTIMENTO", f"R$ {pv:,.2f}"]
+        ["VALOR TOTAL DO INVESTIMENTO (GLOBAL)", f"R$ {pv:,.2f}"]
     ]
     dre_table = Table(dre_data, colWidths=[240, 300])
     dre_table.setStyle(TableStyle([
@@ -1845,21 +1907,21 @@ def gerar_pdf(id: int = None):
     sum_title = ParagraphStyle(name='SumTitle', parent=styles['Heading2'], fontSize=12, textColor=colors.HexColor('#0284c7'), spaceAfter=6)
     elements.append(Paragraph("Especificação dos Módulos e Componentes", sum_title))
 
-    items = items or [{"nome": "Módulo Planejado", "dimensoes": "-", "qtd": 1}]
-    table_data = [["Descrição do Componente", "Dimensões Técnicas", "Qtd", "Tipo"]]
+    items = items or [{"nome": "Módulo Planejado", "dimensoes": "-", "qtd": 1, "ambiente": "Geral"}]
+    table_data = [["Descrição do Componente", "Ambiente", "Dimensões", "Qtd"]]
     for it in items:
         table_data.append([
             it.get("nome", "Peça"),
+            it.get("ambiente", "Geral"),
             it.get("dimensoes", "-"),
-            str(it.get("qtd", 1)),
-            it.get("tipo", "Módulo")
+            str(it.get("qtd", 1))
         ])
 
-    items_table = Table(table_data, colWidths=[230, 130, 50, 130])
+    items_table = Table(table_data, colWidths=[220, 130, 140, 50])
     items_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0284c7')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (2, 0), (2, -1), 'CENTER'),
+        ('ALIGN', (3, 0), (3, -1), 'CENTER'),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e2e8f0')),
@@ -1962,6 +2024,7 @@ def gerar_recibo(id: int = None):
 @app.get("/gerar-vistoria")
 def gerar_vistoria(id: int = None):
     empresa = get_empresa_config()
+    ambientes_list = []
     if id:
         with get_db() as conn:
             cursor = conn.cursor()
@@ -1971,6 +2034,7 @@ def gerar_vistoria(id: int = None):
                 c_nome = row["cliente_nome"]
                 c_tel = row["cliente_telefone"]
                 c_amb = row["cliente_ambiente"]
+                ambientes_list = json.loads(row["ambientes_json"]) if row["ambientes_json"] else [c_amb]
                 c_data = row["data_entrega_prevista"] or date.today().strftime("%Y-%m-%d")
             else:
                 return Response(content="Orçamento não encontrado", status_code=404)
@@ -1978,6 +2042,7 @@ def gerar_vistoria(id: int = None):
         c_nome = CURRENT_DATA['cliente_nome']
         c_tel = CURRENT_DATA['cliente_telefone']
         c_amb = CURRENT_DATA['cliente_ambiente']
+        ambientes_list = CURRENT_DATA.get("ambientes", [c_amb])
         c_data = CURRENT_DATA.get('data_entrega_prevista', date.today().strftime("%Y-%m-%d"))
 
     buffer = io.BytesIO()
@@ -1995,7 +2060,7 @@ def gerar_vistoria(id: int = None):
 
     meta_data = [
         ["Cliente:", c_nome, "Data da Vistoria:", date.today().strftime("%d/%m/%Y")],
-        ["WhatsApp/Tel:", c_tel, "Ambiente Montado:", c_amb]
+        ["WhatsApp/Tel:", c_tel, "Ambientes Montados:", ", ".join(ambientes_list)]
     ]
     meta_table = Table(meta_data, colWidths=[110, 160, 120, 150])
     meta_table.setStyle(TableStyle([
@@ -2032,7 +2097,7 @@ def gerar_vistoria(id: int = None):
 
     elements.append(Paragraph("<b>2. Declaração de Aceite e Quitação de Entrega</b>", section_title))
     p_aceite = """
-    Pelo presente instrumento, o <b>CONTRATANTE</b> declara que acompanhou a vistoria técnica final dos móveis sob medida instalados no ambiente supracitado, constatando que os serviços foram integralmente executados de acordo com o projeto contratado, encontrando-se em perfeito estado de funcionamento, acabamento e limpeza, dando por <b>RECEBIDA E APROVADA A OBRA</b>.
+    Pelo presente instrumento, o <b>CONTRATANTE</b> declara que acompanhou a vistoria técnica final dos móveis sob medida instalados nos ambientes supracitados, constatando que os serviços foram integralmente executados de acordo com o projeto contratado, encontrando-se em perfeito estado de funcionamento, acabamento e limpeza, dando por <b>RECEBIDA E APROVADA A OBRA</b>.
     """
     elements.append(Paragraph(p_aceite, body_style))
     elements.append(Spacer(1, 24))
@@ -2157,6 +2222,7 @@ def gerar_etiquetas(id: int = None):
 @app.get("/gerar-contrato")
 def gerar_contrato(id: int = None):
     empresa = get_empresa_config()
+    ambientes_list = []
     if id:
         with get_db() as conn:
             cursor = conn.cursor()
@@ -2166,6 +2232,7 @@ def gerar_contrato(id: int = None):
                 c_nome = row["cliente_nome"]
                 c_tel = row["cliente_telefone"]
                 c_amb = row["cliente_ambiente"]
+                ambientes_list = json.loads(row["ambientes_json"]) if row["ambientes_json"] else [c_amb]
                 c_prazo = row["prazo_entrega"]
                 pv = row["preco_venda"]
                 entrada = float(row["entrada_valor"] or 0.0)
@@ -2178,6 +2245,7 @@ def gerar_contrato(id: int = None):
         c_nome = CURRENT_DATA['cliente_nome']
         c_tel = CURRENT_DATA['cliente_telefone']
         c_amb = CURRENT_DATA['cliente_ambiente']
+        ambientes_list = CURRENT_DATA.get("ambientes", [c_amb])
         c_prazo = CURRENT_DATA['prazo_entrega']
         pv = dre["pv"]
         entrada = dre["entrada"]
@@ -2205,8 +2273,8 @@ def gerar_contrato(id: int = None):
     """
     elements.append(Paragraph(p_partes, body_style))
 
-    elements.append(Paragraph("<b>2. OBJETO DO CONTRATO</b>", clause_title))
-    p_obj = f"O presente contrato tem por objeto a fabricação, acabamento e instalação de móveis sob medida destinados ao ambiente: <b>{c_amb}</b>, em conformidade com o projeto executivo e relação de insumos aprovados."
+    elements.append(Paragraph("<b>2. OBJETO DO CONTRATO (PROJETO COMPLETO)</b>", clause_title))
+    p_obj = f"O presente contrato tem por objeto a fabricação, acabamento e instalação de móveis sob medida destinados aos seguintes ambientes: <b>{', '.join(ambientes_list)}</b>, em conformidade com o projeto executivo e relação de insumos aprovados."
     elements.append(Paragraph(p_obj, body_style))
 
     elements.append(Paragraph("<b>3. VALOR E FORMA DE PAGAMENTO</b>", clause_title))
@@ -2316,20 +2384,20 @@ def gerar_pdf_compras(id: int = None):
     elements.append(Spacer(1, 14))
 
     elements.append(Paragraph("2. Detalhamento de Peças do Plano de Corte", sum_title))
-    items_table_data = [["Descrição da Peça", "Dimensões (mm)", "Qtd", "Tipo"]]
-    for it in (items or [{"nome": "Sem itens", "dimensoes": "-", "qtd": 1, "tipo": "-"}]):
+    items_table_data = [["Descrição da Peça", "Ambiente", "Dimensões (mm)", "Qtd"]]
+    for it in (items or [{"nome": "Sem itens", "ambiente": "-", "dimensoes": "-", "qtd": 1}]):
         items_table_data.append([
             it.get("nome", "Peça"),
+            it.get("ambiente", "Geral"),
             it.get("dimensoes", "-"),
-            str(it.get("qtd", 1)),
-            it.get("tipo", "Insumo")
+            str(it.get("qtd", 1))
         ])
 
-    items_doc_table = Table(items_table_data, colWidths=[220, 120, 50, 150])
+    items_doc_table = Table(items_table_data, colWidths=[220, 130, 140, 50])
     items_doc_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#64748b')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (2, 0), (2, -1), 'CENTER'),
+        ('ALIGN', (3, 0), (3, -1), 'CENTER'),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e2e8f0')),
