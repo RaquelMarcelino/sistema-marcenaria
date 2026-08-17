@@ -73,6 +73,7 @@ def init_db():
                 valor_recebido REAL DEFAULT 0.0,
                 imagens_json TEXT,
                 ambientes_json TEXT,
+                observacoes_tecnicas TEXT DEFAULT '',
                 items_json TEXT
             )
         """)
@@ -86,7 +87,8 @@ def init_db():
             ("data_entrega_prevista", "TEXT"),
             ("valor_recebido", "REAL"),
             ("imagens_json", "TEXT"),
-            ("ambientes_json", "TEXT")
+            ("ambientes_json", "TEXT"),
+            ("observacoes_tecnicas", "TEXT")
         ]
         for col, tipo in colunas:
             try:
@@ -236,6 +238,7 @@ CURRENT_DATA = {
     "valor_recebido": 1000.0,
     "imagens": [],
     "ambientes": ["Cozinha Planejada"],
+    "observacoes_tecnicas": "Módulos com fita de borda dupla frontal. Gavetas com amortecimento slowmotion.",
     "custo_materiais": 0.0,
     "dias_producao": 3,
     "valor_diaria": 180.0,
@@ -306,7 +309,7 @@ def render_login_page(msg_erro=""):
         <div class="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-8 shadow-2xl space-y-6">
             <div class="text-center space-y-2">
                 <h1 class="text-2xl font-bold tracking-tight text-white">Marcenaria Pro SaaS</h1>
-                <p class="text-xs text-slate-400">Gestão de Orçamentos Promob, Multi-Ambientes & Produção DRE</p>
+                <p class="text-xs text-slate-400">Gestão de Orçamentos Promob, O.S. da Fábrica & Produção DRE</p>
             </div>
             {erro_tag}
             <form action="/painel" method="post" class="space-y-4">
@@ -423,6 +426,7 @@ def consolidar_compras_e_nesting(items: list):
             for _ in range(qtd):
                 pecas_corte.append({
                     "nome": it.get("nome", "Peça"),
+                    "ambiente": it.get("ambiente", "Geral"),
                     "largura": largura,
                     "altura": altura
                 })
@@ -575,7 +579,6 @@ def render_dashboard(data: dict):
     else:
         galeria_html = "<div class='py-6 text-center text-xs text-slate-500 col-span-full'>Nenhum render 3D ou foto anexada. Faça upload abaixo para enriquecer a proposta comercial em PDF.</div>"
 
-    # Ambientes Tags HTML
     ambientes_tags_html = ""
     for amb_nome in ambientes:
         ambientes_tags_html += f"""
@@ -707,11 +710,12 @@ def render_dashboard(data: dict):
                             <input type="hidden" name="orcamento_id" value="{h['id']}">
                             <button type="submit" class="px-2 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded text-[11px] font-semibold">Abrir</button>
                         </form>
-                        <a href="/gerar-pdf?id={h['id']}" class="px-1.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-[10px] font-semibold">Orç.</a>
-                        <a href="/gerar-contrato?id={h['id']}" class="px-1.5 py-1 bg-amber-700 hover:bg-amber-600 text-white rounded text-[10px] font-semibold">Contrato</a>
-                        <a href="/gerar-recibo?id={h['id']}" class="px-1.5 py-1 bg-blue-700 hover:bg-blue-600 text-white rounded text-[10px] font-semibold">Recibo</a>
-                        <a href="/gerar-vistoria?id={h['id']}" class="px-1.5 py-1 bg-purple-700 hover:bg-purple-600 text-white rounded text-[10px] font-semibold">Vistoria</a>
-                        <a href="/gerar-etiquetas?id={h['id']}" class="px-1.5 py-1 bg-teal-700 hover:bg-teal-600 text-white rounded text-[10px] font-semibold">Etiquetas</a>
+                        <a href="/gerar-pdf?id={h['id']}" class="px-1 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-[10px] font-semibold">Orç.</a>
+                        <a href="/gerar-contrato?id={h['id']}" class="px-1 py-1 bg-amber-700 hover:bg-amber-600 text-white rounded text-[10px] font-semibold">Contrato</a>
+                        <a href="/gerar-os?id={h['id']}" class="px-1 py-1 bg-blue-800 hover:bg-blue-700 text-white rounded text-[10px] font-semibold">O.S.</a>
+                        <a href="/gerar-recibo?id={h['id']}" class="px-1 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-[10px] font-semibold">Recibo</a>
+                        <a href="/gerar-vistoria?id={h['id']}" class="px-1 py-1 bg-purple-700 hover:bg-purple-600 text-white rounded text-[10px] font-semibold">Vistoria</a>
+                        <a href="/gerar-etiquetas?id={h['id']}" class="px-1 py-1 bg-teal-700 hover:bg-teal-600 text-white rounded text-[10px] font-semibold">Etiquetas</a>
                         <form action="/excluir-orcamento" method="post" class="inline" onsubmit="return confirm('Deseja excluir este orçamento?');">
                             <input type="hidden" name="orcamento_id" value="{h['id']}">
                             <button type="submit" class="px-1 py-1 bg-rose-700/60 hover:bg-rose-600 text-white rounded text-[10px]">✕</button>
@@ -840,7 +844,7 @@ def render_dashboard(data: dict):
     <!-- Personalização dos Dados da Sua Marcenaria -->
     <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
         <div class="flex justify-between items-center border-b border-slate-800 pb-3">
-            <h2 class="text-base font-semibold text-white">🏢 Dados da Sua Marcenaria (Contrato, Recibo e Cabeçalho do PDF)</h2>
+            <h2 class="text-base font-semibold text-white">🏢 Dados da Sua Marcenaria (Contrato, O.S., Recibo e Cabeçalho do PDF)</h2>
             <span class="text-xs text-slate-400">Configuração institucional da sua empresa</span>
         </div>
         <form action="/salvar-empresa" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1042,7 +1046,7 @@ def render_dashboard(data: dict):
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
                     <div>
                         <h2 class="text-base font-semibold text-white">🖼️ Galeria de Renders 3D & Fotos da Obra</h2>
-                        <p class="text-xs text-slate-400">Anexe imagens para constar no Orçamento e na Vistoria</p>
+                        <p class="text-xs text-slate-400">Anexe imagens para constar no Orçamento, O.S. e na Vistoria</p>
                     </div>
                     <form action="/upload-imagem" method="post" enctype="multipart/form-data" class="flex items-center gap-2">
                         <input type="file" name="foto" accept="image/*" required class="block w-full text-xs text-slate-400 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-200 hover:file:bg-slate-700 cursor-pointer">
@@ -1078,6 +1082,9 @@ def render_dashboard(data: dict):
                         <p class="text-xs text-amber-400">Acompanhe entradas, registre pagamentos e emita recibos oficiais</p>
                     </div>
                     <div class="flex flex-wrap gap-2">
+                        <a href="/gerar-os" class="px-3 py-1.5 bg-blue-800 hover:bg-blue-700 text-white font-medium text-xs rounded-lg transition-colors flex items-center space-x-1 shadow-md">
+                            <span>🛠️ O.S. Fábrica (PDF)</span>
+                        </a>
                         <a href="/gerar-recibo" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs rounded-lg transition-colors flex items-center space-x-1 shadow-md">
                             <span>📄 Emitir Recibo (PDF)</span>
                         </a>
@@ -1191,11 +1198,11 @@ def render_dashboard(data: dict):
                 </div>
             </div>
 
-            <!-- Dados do Cliente -->
+            <!-- Dados do Cliente & Instruções da O.S. -->
             <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
                 <div class="flex justify-between items-center border-b border-slate-800 pb-3">
-                    <h2 class="text-base font-semibold text-white">👤 Dados do Cliente & Proposta</h2>
-                    <span class="text-xs text-sky-400">Vinculado ao Cronograma, Contrato, Recibo, Vistoria e WhatsApp</span>
+                    <h2 class="text-base font-semibold text-white">👤 Dados do Cliente, O.S. & Proposta</h2>
+                    <span class="text-xs text-sky-400">Vinculado ao Cronograma, Contrato, O.S., Vistoria e WhatsApp</span>
                 </div>
                 <form action="/salvar-cliente" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
                     <div>
@@ -1211,7 +1218,7 @@ def render_dashboard(data: dict):
                         <input type="text" name="cliente_ambiente" value="{data['cliente_ambiente']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
                     </div>
                     <div>
-                        <label class="block text-xs font-medium text-slate-400 mb-1">Data Prevista Montagem</label>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Data Montagem</label>
                         <input type="date" name="data_entrega_prevista" value="{data.get('data_entrega_prevista', '')}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
                     </div>
                     <div>
@@ -1226,10 +1233,14 @@ def render_dashboard(data: dict):
                     </div>
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">Prazo Texto</label>
+                        <input type="text" name="prazo_entrega" value="{data['prazo_entrega']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                    </div>
+                    <div class="col-span-full">
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Instruções Técnicas da Fábrica (O.S. / Montadores)</label>
                         <div class="flex gap-2">
-                            <input type="text" name="prazo_entrega" value="{data['prazo_entrega']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
-                            <button type="submit" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold shrink-0">
-                                Salvar
+                            <input type="text" name="observacoes_tecnicas" value="{data.get('observacoes_tecnicas', '')}" placeholder="Ex: Detalhes de furação, recortes de tomadas, puxadores..." class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                            <button type="submit" class="px-6 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold shrink-0">
+                                Salvar Dados
                             </button>
                         </div>
                     </div>
@@ -1251,7 +1262,7 @@ def render_dashboard(data: dict):
                 </div>
 
                 <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col justify-between space-y-4 shadow-lg">
-                    <h2 class="text-base font-semibold text-white">Ações da Proposta</h2>
+                    <h2 class="text-base font-semibold text-white">Ações da Proposta & Produção</h2>
                     {markup_control}
                     
                     <div class="space-y-2">
@@ -1267,11 +1278,17 @@ def render_dashboard(data: dict):
                             <a href="/gerar-contrato" class="py-2 bg-amber-600 hover:bg-amber-500 text-white font-semibold text-center text-[11px] rounded-lg transition-colors flex items-center justify-center shadow-lg shadow-amber-600/20">
                                 <span>📑 Contrato</span>
                             </a>
+                            <a href="/gerar-os" class="py-2 bg-blue-800 hover:bg-blue-700 text-white font-semibold text-center text-[11px] rounded-lg transition-colors flex items-center justify-center shadow-lg shadow-blue-800/20">
+                                <span>🛠️ O.S. Fábrica</span>
+                            </a>
                             <a href="/gerar-recibo" class="py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-center text-[11px] rounded-lg transition-colors flex items-center justify-center shadow-lg shadow-blue-600/20">
                                 <span>🧾 Recibo</span>
                             </a>
                             <a href="/gerar-vistoria" class="py-2 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-center text-[11px] rounded-lg transition-colors flex items-center justify-center shadow-lg shadow-purple-600/20">
                                 <span>📋 Vistoria</span>
+                            </a>
+                            <a href="/gerar-etiquetas" class="py-2 bg-teal-600 hover:bg-teal-500 text-white font-semibold text-center text-[11px] rounded-lg transition-colors flex items-center justify-center shadow-lg shadow-teal-600/20">
+                                <span>🏷️ Etiquetas</span>
                             </a>
                         </div>
                         <a href="{zap_url}" target="_blank" class="w-full py-2 bg-green-600 hover:bg-green-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center space-x-1 shadow-lg shadow-green-600/20">
@@ -1286,7 +1303,7 @@ def render_dashboard(data: dict):
                 <div class="p-4 border-b border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-slate-850">
                     <div>
                         <h3 class="text-sm font-semibold text-white">📁 Histórico, Pedidos & Contas a Receber (Banco de Dados)</h3>
-                        <span class="text-xs text-slate-400">Pesquise por cliente, emita recibos e gerencie recebimentos</span>
+                        <span class="text-xs text-slate-400">Pesquise por cliente, emita O.S., recibos e gerencie recebimentos</span>
                     </div>
                     <div class="flex items-center space-x-2 w-full sm:w-auto">
                         <input type="text" id="campoBusca" onkeyup="filtrarTabela()" placeholder="🔍 Buscar cliente ou ambiente..." class="px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500 w-full sm:w-64">
@@ -1531,6 +1548,7 @@ def novo_orcamento():
     CURRENT_DATA["estoque_baixado"] = 0
     CURRENT_DATA["imagens"] = []
     CURRENT_DATA["ambientes"] = ["Cozinha Planejada"]
+    CURRENT_DATA["observacoes_tecnicas"] = ""
     CURRENT_DATA["custo_materiais"] = 0.0
     CURRENT_DATA["dias_producao"] = 3
     CURRENT_DATA["valor_diaria"] = 180.0
@@ -1593,6 +1611,7 @@ def salvar_banco():
                     valor_recebido = ?,
                     imagens_json = ?,
                     ambientes_json = ?,
+                    observacoes_tecnicas = ?,
                     items_json = ?
                 WHERE id = ?
             """, (
@@ -1617,13 +1636,14 @@ def salvar_banco():
                 CURRENT_DATA.get("valor_recebido", 0.0),
                 json.dumps(CURRENT_DATA.get("imagens", [])),
                 json.dumps(CURRENT_DATA.get("ambientes", [])),
+                CURRENT_DATA.get("observacoes_tecnicas", ""),
                 json.dumps(CURRENT_DATA["items"]),
                 CURRENT_DATA["orcamento_id"]
             ))
         else:
             cursor.execute("""
-                INSERT INTO orcamentos (criado_em, cliente_nome, cliente_telefone, cliente_ambiente, prazo_entrega, data_entrega_prevista, status, custo_materiais, custo_mao_obra, custo_frete_montagem, imposto_pct, comissao_pct, markup, preco_venda, lucro_liquido, entrada_valor, num_parcelas, forma_pagamento, valor_recebido, imagens_json, ambientes_json, items_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO orcamentos (criado_em, cliente_nome, cliente_telefone, cliente_ambiente, prazo_entrega, data_entrega_prevista, status, custo_materiais, custo_mao_obra, custo_frete_montagem, imposto_pct, comissao_pct, markup, preco_venda, lucro_liquido, entrada_valor, num_parcelas, forma_pagamento, valor_recebido, imagens_json, ambientes_json, observacoes_tecnicas, items_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 agora,
                 CURRENT_DATA["cliente_nome"],
@@ -1646,6 +1666,7 @@ def salvar_banco():
                 CURRENT_DATA.get("valor_recebido", 0.0),
                 json.dumps(CURRENT_DATA.get("imagens", [])),
                 json.dumps(CURRENT_DATA.get("ambientes", [])),
+                CURRENT_DATA.get("observacoes_tecnicas", ""),
                 json.dumps(CURRENT_DATA["items"])
             ))
             CURRENT_DATA["orcamento_id"] = cursor.lastrowid
@@ -1679,6 +1700,7 @@ def carregar_orcamento(orcamento_id: int = Form(...)):
                 CURRENT_DATA["estoque_baixado"] = int(row["estoque_baixado"] or 0)
                 CURRENT_DATA["imagens"] = json.loads(row["imagens_json"]) if row["imagens_json"] else []
                 CURRENT_DATA["ambientes"] = json.loads(row["ambientes_json"]) if row["ambientes_json"] else [row["cliente_ambiente"]]
+                CURRENT_DATA["observacoes_tecnicas"] = row["observacoes_tecnicas"] or ""
             except Exception:
                 pass
             CURRENT_DATA["items"] = json.loads(row["items_json"]) if row["items_json"] else []
@@ -1702,6 +1724,7 @@ def salvar_cliente(
     cliente_ambiente: str = Form(...),
     prazo_entrega: str = Form(...),
     data_entrega_prevista: str = Form(...),
+    observacoes_tecnicas: str = Form(""),
     status: str = Form("Em Negociação")
 ):
     CURRENT_DATA["cliente_nome"] = cliente_nome
@@ -1709,6 +1732,7 @@ def salvar_cliente(
     CURRENT_DATA["cliente_ambiente"] = cliente_ambiente
     CURRENT_DATA["prazo_entrega"] = prazo_entrega
     CURRENT_DATA["data_entrega_prevista"] = data_entrega_prevista
+    CURRENT_DATA["observacoes_tecnicas"] = observacoes_tecnicas
     CURRENT_DATA["status"] = status
     return RedirectResponse(url="/painel-get", status_code=303)
 
@@ -1802,6 +1826,134 @@ async def upload_xml(file: UploadFile = File(...)):
     CURRENT_DATA["items"] = items
     CURRENT_DATA["custo_materiais"] = total_mat
     return RedirectResponse(url="/painel-get", status_code=303)
+
+@app.get("/gerar-os")
+def gerar_os(id: int = None):
+    empresa = get_empresa_config()
+    ambientes_list = []
+    if id:
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (id,))
+            row = cursor.fetchone()
+            if row:
+                c_nome = row["cliente_nome"]
+                c_tel = row["cliente_telefone"]
+                c_amb = row["cliente_ambiente"]
+                orc_id = row["id"]
+                c_prazo = row["prazo_entrega"]
+                c_data = row["data_entrega_prevista"] or date.today().strftime("%Y-%m-%d")
+                obs = row["observacoes_tecnicas"] or "Sem observações especiais."
+                ambientes_list = json.loads(row["ambientes_json"]) if row["ambientes_json"] else [c_amb]
+                items = json.loads(row["items_json"]) if row["items_json"] else []
+            else:
+                return Response(content="Orçamento não encontrado", status_code=404)
+    else:
+        c_nome = CURRENT_DATA['cliente_nome']
+        c_tel = CURRENT_DATA['cliente_telefone']
+        c_amb = CURRENT_DATA['cliente_ambiente']
+        orc_id = CURRENT_DATA['orcamento_id'] or 1
+        c_prazo = CURRENT_DATA['prazo_entrega']
+        c_data = CURRENT_DATA.get('data_entrega_prevista', date.today().strftime("%Y-%m-%d"))
+        obs = CURRENT_DATA.get('observacoes_tecnicas', 'Sem observações especiais.')
+        ambientes_list = CURRENT_DATA.get("ambientes", [c_amb])
+        items = CURRENT_DATA["items"]
+
+    compras = consolidar_compras_e_nesting(items)
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+    styles = getSampleStyleSheet()
+    elements = []
+
+    title_style = ParagraphStyle(name='TitleStyle', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor('#0f172a'), spaceAfter=2)
+    sub_empresa = ParagraphStyle(name='SubEmpresa', parent=styles['Normal'], fontSize=9, textColor=colors.HexColor('#475569'), spaceAfter=10)
+    section_title = ParagraphStyle(name='SecTitle', parent=styles['Heading2'], fontSize=11, textColor=colors.HexColor('#0284c7'), spaceBefore=8, spaceAfter=4)
+    body_style = ParagraphStyle(name='BodyStyle', parent=styles['Normal'], fontSize=9, leading=13, textColor=colors.HexColor('#1e293b'))
+
+    elements.append(Paragraph(f"<b>{empresa['nome_empresa']}</b>", title_style))
+    elements.append(Paragraph(f"ORDEM DE SERVIÇO & FICHA TÉCNICA DE PRODUÇÃO - O.S. #{orc_id:04d}", sub_empresa))
+
+    meta_data = [
+        ["Cliente:", c_nome, "Data Emissão:", date.today().strftime("%d/%m/%Y")],
+        ["Telefone:", c_tel, "Data Prevista Montagem:", c_data],
+        ["Ambientes:", ", ".join(ambientes_list), "Prazo:", c_prazo]
+    ]
+    meta_table = Table(meta_data, colWidths=[110, 160, 120, 150])
+    meta_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#e0f2fe')),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#0369a1')),
+        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#93c5fd')),
+    ]))
+    elements.append(meta_table)
+    elements.append(Spacer(1, 8))
+
+    elements.append(Paragraph("<b>1. Separação de Ferragens & Insumos para Montagem</b>", section_title))
+    ferragens_data = [
+        ["Insumo / Ferragem", "Quantidade", "Status Separação Oficina"],
+        ["Dobradiças Slowmotion", f"{compras['dobradicas']} un", "[  ] Separado e Conferido"],
+        ["Corrediças Telescópicas", f"{compras['corredicas']} pares", "[  ] Separado e Conferido"],
+        ["Puxadores / Perfis", f"{compras['puxadores']} un", "[  ] Separado e Conferido"],
+        ["Fita de Borda PVC", f"{compras['fita_metros']} metros", "[  ] Separado e Conferido"],
+        ["Chapas MDF Estimadas", f"{compras['chapas_mdf']} chapas", "[  ] Cortado na Seccionadora"]
+    ]
+    ferragens_table = Table(ferragens_data, colWidths=[200, 140, 200])
+    ferragens_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0284c7')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
+    ]))
+    elements.append(ferragens_table)
+    elements.append(Spacer(1, 8))
+
+    elements.append(Paragraph("<b>2. Relação de Peças a Cortar & Fitamento</b>", section_title))
+    pecas_data = [["Peça / Descrição", "Ambiente", "Dimensões", "Qtd"]]
+    for it in (items or [{"nome": "Módulo Geral", "ambiente": "Geral", "dimensoes": "-", "qtd": 1}]):
+        pecas_data.append([
+            it.get("nome", "Peça"),
+            it.get("ambiente", "Geral"),
+            it.get("dimensoes", "-"),
+            str(it.get("qtd", 1))
+        ])
+
+    pecas_table = Table(pecas_data, colWidths=[220, 130, 140, 50])
+    pecas_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#334155')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (3, 0), (3, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e2e8f0')),
+    ]))
+    elements.append(pecas_table)
+    elements.append(Spacer(1, 8))
+
+    elements.append(Paragraph("<b>3. Observações Técnicas & Instruções da Oficina</b>", section_title))
+    elements.append(Paragraph(f"<b>Instruções:</b> {obs}", body_style))
+    elements.append(Spacer(1, 16))
+
+    sign_data = [
+        ["_____________________________________________", "_____________________________________________"],
+        ["Marceneiro Responsável (Oficina)", "Montador Responsável (Obra)"]
+    ]
+    sign_table = Table(sign_data, colWidths=[270, 270])
+    sign_table.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#0f172a')),
+        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+    ]))
+    elements.append(sign_table)
+
+    doc.build(elements)
+    buffer.seek(0)
+    nome_arquivo = f"ordem-servico-{c_nome.replace(' ', '_')}.pdf"
+    return Response(content=buffer.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"})
 
 @app.get("/gerar-pdf")
 def gerar_pdf(id: int = None):
@@ -2393,7 +2545,7 @@ def gerar_pdf_compras(id: int = None):
             str(it.get("qtd", 1))
         ])
 
-    items_doc_table = Table(items_table_data, colWidths=[220, 130, 140, 50])
+    items_doc_table = Table(items_table_data, colWidths=[220, 120, 50, 150])
     items_doc_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#64748b')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
