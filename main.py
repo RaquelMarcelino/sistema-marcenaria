@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Form, UploadFile, File, Response
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 import xml.etree.ElementTree as ET
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
@@ -7,27 +7,85 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 import io
 import urllib.parse
-from datetime import date
+import json
+import sqlite3
+from datetime import datetime, date
 
 app = FastAPI(title="Sistema Marcenaria & Promob")
+DB_PATH = "marcenaria.db"
 
-# Armazenamento simples com tabela de preços individuais de insumos
+def get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS configuracoes (
+                chave TEXT PRIMARY KEY,
+                valor TEXT
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS orcamentos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                criado_em TEXT,
+                cliente_nome TEXT,
+                cliente_telefone TEXT,
+                cliente_ambiente TEXT,
+                prazo_entrega TEXT,
+                total_custo REAL,
+                markup REAL,
+                preco_venda REAL,
+                lucro REAL,
+                items_json TEXT
+            )
+        """)
+        cursor.execute("SELECT valor FROM configuracoes WHERE chave = 'precos'")
+        if not cursor.fetchone():
+            default_precos = {
+                "mdf_m2": 65.0,
+                "dobradica": 18.50,
+                "corredica": 38.00,
+                "fita_borda_m": 3.20,
+                "puxador": 25.00,
+                "outros_insumos": 15.00
+            }
+            cursor.execute("INSERT INTO configuracoes (chave, valor) VALUES ('precos', ?)", (json.dumps(default_precos),))
+        conn.commit()
+
+init_db()
+
+def get_precos_config():
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT valor FROM configuracoes WHERE chave = 'precos'")
+        row = cursor.fetchone()
+        if row:
+            return json.loads(row["valor"])
+    return {
+        "mdf_m2": 65.0, "dobradica": 18.50, "corredica": 38.00,
+        "fita_borda_m": 3.20, "puxador": 25.00, "outros_insumos": 15.00
+    }
+
+def set_precos_config(precos: dict):
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("INSERT OR REPLACE INTO configuracoes (chave, valor) VALUES ('precos', ?)", (json.dumps(precos),))
+        conn.commit()
+
+# Sessão em memória para o rascunho de trabalho
 CURRENT_DATA = {
     "user": "admin@marcenaria.com",
+    "orcamento_id": None,
     "cliente_nome": "Cliente Exemplo",
     "cliente_telefone": "11999998888",
     "cliente_ambiente": "Cozinha Planejada",
     "prazo_entrega": "25 dias úteis",
     "total_custo": 0.0,
     "markup": 2.2,
-    "precos": {
-        "mdf_m2": 65.0,           # R$ por m² de corte MDF
-        "dobradica": 18.50,       # R$ unitário dobradiça com amortecedor
-        "corredica": 38.00,       # R$ por par de corrediça telescópica
-        "fita_borda_m": 3.20,     # R$ por metro fita de borda
-        "puxador": 25.00,         # R$ unitário puxador perfil
-        "outros_insumos": 15.00   # R$ unitário para itens genéricos
-    },
     "items": []
 }
 
@@ -89,9 +147,11 @@ def calcular_custo_item(nome: str, largura_mm: float, altura_mm: float, qtd: int
     total = custo_unit * qtd
     return total, tipo
 
-def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente_nome="Cliente Exemplo", cliente_telefone="11999998888", cliente_ambiente="Cozinha Planejada", prazo_entrega="25 dias úteis", precos=None):
+def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente_nome="Cliente Exemplo", cliente_telefone="11999998888", cliente_ambiente="Cozinha Planejada", prazo_entrega="25 dias úteis", precos=None, orcamento_id=None):
     items = items or []
-    precos = precos or CURRENT_DATA["precos"]
+    precos = precos or get_precos_config()
+    
+    # Listagem de Peças da Sessão Ativa
     rows_html = ""
     if items:
         for it in items:
@@ -121,6 +181,48 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente
     msg_zap = f"Olá {cliente_nome}! Segue o orçamento para o projeto {cliente_ambiente}: R$ {pv_sugerido:,.2f} com prazo de entrega de {prazo_entrega}."
     zap_url = f"https://api.whatsapp.com/send?phone=55{cliente_telefone}&text={urllib.parse.quote(msg_zap)}"
 
+    # Histórico de Orçamentos do Banco de Dados
+    historico_html = ""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, criado_em, cliente_nome, cliente_ambiente, preco_venda, total_custo, markup FROM orcamentos ORDER BY id DESC LIMIT 15")
+        historico_rows = cursor.fetchall()
+        
+        if historico_rows:
+            for h in historico_rows:
+                historico_html += f"""
+                <tr class="border-b border-slate-800 hover:bg-slate-800/40 text-xs">
+                    <td class="py-3 px-4 text-slate-400 font-mono">#{h['id']}</td>
+                    <td class="py-3 px-4 text-slate-300">{h['criado_em']}</td>
+                    <td class="py-3 px-4 text-white font-medium">{h['cliente_nome']}</td>
+                    <td class="py-3 px-4 text-slate-300">{h['cliente_ambiente']}</td>
+                    <td class="py-3 px-4 text-right text-sky-400 font-bold">R$ {h['preco_venda']:,.2f}</td>
+                    <td class="py-3 px-4 text-center">
+                        <div class="flex items-center justify-center space-x-2">
+                            <form action="/carregar-orcamento" method="post" class="inline">
+                                <input type="hidden" name="orcamento_id" value="{h['id']}">
+                                <button type="submit" class="px-2.5 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded text-[11px] font-semibold">Abrir</button>
+                            </form>
+                            <a href="/gerar-pdf?id={h['id']}" class="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-[11px] font-semibold">PDF</a>
+                            <form action="/excluir-orcamento" method="post" class="inline" onsubmit="return confirm('Deseja excluir este orçamento?');">
+                                <input type="hidden" name="orcamento_id" value="{h['id']}">
+                                <button type="submit" class="px-2 py-1 bg-rose-700/60 hover:bg-rose-600 text-white rounded text-[11px]">✕</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                """
+        else:
+            historico_html = """
+            <tr>
+                <td colspan="6" class="py-6 text-center text-xs text-slate-500">
+                    Nenhum orçamento salvo no histórico ainda. Salve o orçamento ativo abaixo.
+                </td>
+            </tr>
+            """
+
+    status_tag = f"<span class='text-xs bg-sky-950 border border-sky-700 text-sky-300 px-2.5 py-1 rounded-full'>Editando Orçamento #{orcamento_id}</span>" if orcamento_id else "<span class='text-xs bg-slate-800 border border-slate-700 text-slate-400 px-2.5 py-1 rounded-full'>Novo Orçamento em Rascunho</span>"
+
     return f"""
     <!DOCTYPE html>
     <html lang="pt-br">
@@ -135,8 +237,10 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente
             <div class="flex items-center space-x-3">
                 <div class="w-8 h-8 rounded-lg bg-sky-600 flex items-center justify-center font-bold text-white">M</div>
                 <span class="font-bold text-lg text-white tracking-wide">Marcenaria Pro</span>
+                {status_tag}
             </div>
             <div class="flex items-center space-x-4">
+                <a href="/novo-orcamento" class="text-xs bg-sky-600 hover:bg-sky-500 text-white font-medium px-3 py-1.5 rounded-lg transition-colors">+ Novo Orçamento</a>
                 <span class="text-xs text-slate-400">Usuário: <b class="text-sky-400">{user}</b></span>
                 <a href="/" class="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg text-slate-300 border border-slate-700">Sair</a>
             </div>
@@ -166,7 +270,7 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente
             <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
                 <div class="flex justify-between items-center border-b border-slate-800 pb-3">
                     <h2 class="text-base font-semibold text-white">👤 Dados do Cliente & Proposta</h2>
-                    <span class="text-xs text-sky-400">Vinculado ao PDF e WhatsApp</span>
+                    <span class="text-xs text-sky-400">Vinculado ao Banco, PDF e WhatsApp</span>
                 </div>
                 <form action="/salvar-cliente" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     <input type="hidden" name="user" value="{user}">
@@ -198,7 +302,7 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente
             <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
                 <div class="flex justify-between items-center border-b border-slate-800 pb-3">
                     <h2 class="text-base font-semibold text-white">⚙️ Tabela de Custos Unitários por Insumo</h2>
-                    <span class="text-xs text-slate-400">Preços base para fornecedores</span>
+                    <span class="text-xs text-slate-400">Gravado no Banco de Dados</span>
                 </div>
                 <form action="/salvar-precos" method="post" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                     <input type="hidden" name="user" value="{user}">
@@ -224,13 +328,13 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente
                     </div>
                     <div class="flex items-end">
                         <button type="submit" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-sky-400 border border-slate-700 rounded-lg text-xs font-semibold transition-colors">
-                            Atualizar Tabela
+                            Salvar Configuração
                         </button>
                     </div>
                 </form>
             </div>
 
-            <!-- Bloco de Upload + Markup + PDF + WhatsApp -->
+            <!-- Bloco de Upload + Markup + Salvar no Banco + PDF + WhatsApp -->
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4 shadow-lg">
                     <h2 class="text-base font-semibold text-white">Importar Projeto (XML Promob / Cutlist)</h2>
@@ -244,7 +348,7 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente
                 </div>
 
                 <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col justify-between space-y-4 shadow-lg">
-                    <h2 class="text-base font-semibold text-white">Ajustar Markup & Envio</h2>
+                    <h2 class="text-base font-semibold text-white">Markup & Gravação</h2>
                     <form action="/recalcular" method="post" class="flex items-center gap-3">
                         <input type="hidden" name="user" value="{user}">
                         <label class="text-xs text-slate-400 font-medium">Markup:</label>
@@ -255,13 +359,43 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente
                     </form>
                     
                     <div class="space-y-2">
-                        <a href="/gerar-pdf" class="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/20">
+                        <form action="/salvar-banco" method="post">
+                            <button type="submit" class="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center space-x-1 shadow-lg shadow-blue-600/20">
+                                <span>💾 Salvar no Histórico (Banco)</span>
+                            </button>
+                        </form>
+                        <a href="/gerar-pdf" class="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center space-x-1 shadow-lg shadow-emerald-600/20">
                             <span>📄 Baixar Orçamento em PDF</span>
                         </a>
-                        <a href="{zap_url}" target="_blank" class="w-full py-2 bg-green-600 hover:bg-green-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center space-x-2 shadow-lg shadow-green-600/20">
+                        <a href="{zap_url}" target="_blank" class="w-full py-2 bg-green-600 hover:bg-green-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center space-x-1 shadow-lg shadow-green-600/20">
                             <span>💬 Enviar pelo WhatsApp</span>
                         </a>
                     </div>
+                </div>
+            </div>
+
+            <!-- Tabela de Histórico de Orçamentos Salvos -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
+                <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-850">
+                    <h3 class="text-sm font-semibold text-white">📁 Histórico de Orçamentos Salvos (Banco de Dados)</h3>
+                    <span class="text-xs text-slate-400">Clique em 'Abrir' para recarregar qualquer projeto</span>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-slate-800/40 border-b border-slate-800 text-xs font-semibold text-slate-400 uppercase">
+                                <th class="py-3 px-4"># ID</th>
+                                <th class="py-3 px-4">Data/Hora</th>
+                                <th class="py-3 px-4">Cliente</th>
+                                <th class="py-3 px-4">Ambiente</th>
+                                <th class="py-3 px-4 text-right">Valor Venda</th>
+                                <th class="py-3 px-4 text-center">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {historico_html}
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
@@ -308,8 +442,118 @@ def login(username: str = Form(...), password: str = Form(...)):
         cliente_telefone=CURRENT_DATA["cliente_telefone"],
         cliente_ambiente=CURRENT_DATA["cliente_ambiente"],
         prazo_entrega=CURRENT_DATA["prazo_entrega"],
-        precos=CURRENT_DATA["precos"]
+        orcamento_id=CURRENT_DATA["orcamento_id"]
     )
+
+@app.get("/novo-orcamento", response_class=HTMLResponse)
+def novo_orcamento():
+    CURRENT_DATA["orcamento_id"] = None
+    CURRENT_DATA["cliente_nome"] = "Novo Cliente"
+    CURRENT_DATA["cliente_telefone"] = ""
+    CURRENT_DATA["cliente_ambiente"] = "Ambiente Geral"
+    CURRENT_DATA["prazo_entrega"] = "20 dias úteis"
+    CURRENT_DATA["total_custo"] = 0.0
+    CURRENT_DATA["markup"] = 2.2
+    CURRENT_DATA["items"] = []
+    return RedirectResponse(url="/painel-get", status_code=303)
+
+@app.get("/painel-get", response_class=HTMLResponse)
+def painel_get():
+    return render_dashboard(
+        user=CURRENT_DATA["user"],
+        items=CURRENT_DATA["items"],
+        total_custo=CURRENT_DATA["total_custo"],
+        markup=CURRENT_DATA["markup"],
+        cliente_nome=CURRENT_DATA["cliente_nome"],
+        cliente_telefone=CURRENT_DATA["cliente_telefone"],
+        cliente_ambiente=CURRENT_DATA["cliente_ambiente"],
+        prazo_entrega=CURRENT_DATA["prazo_entrega"],
+        orcamento_id=CURRENT_DATA["orcamento_id"]
+    )
+
+@app.post("/salvar-banco", response_class=HTMLResponse)
+def salvar_banco():
+    pv = CURRENT_DATA["total_custo"] * CURRENT_DATA["markup"]
+    lucro = pv - CURRENT_DATA["total_custo"]
+    agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+    
+    with get_db() as conn:
+        cursor = conn.cursor()
+        if CURRENT_DATA["orcamento_id"]:
+            cursor.execute("""
+                UPDATE orcamentos SET
+                    criado_em = ?,
+                    cliente_nome = ?,
+                    cliente_telefone = ?,
+                    cliente_ambiente = ?,
+                    prazo_entrega = ?,
+                    total_custo = ?,
+                    markup = ?,
+                    preco_venda = ?,
+                    lucro = ?,
+                    items_json = ?
+                WHERE id = ?
+            """, (
+                agora,
+                CURRENT_DATA["cliente_nome"],
+                CURRENT_DATA["cliente_telefone"],
+                CURRENT_DATA["cliente_ambiente"],
+                CURRENT_DATA["prazo_entrega"],
+                CURRENT_DATA["total_custo"],
+                CURRENT_DATA["markup"],
+                pv,
+                lucro,
+                json.dumps(CURRENT_DATA["items"]),
+                CURRENT_DATA["orcamento_id"]
+            ))
+        else:
+            cursor.execute("""
+                INSERT INTO orcamentos (criado_em, cliente_nome, cliente_telefone, cliente_ambiente, prazo_entrega, total_custo, markup, preco_venda, lucro, items_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                agora,
+                CURRENT_DATA["cliente_nome"],
+                CURRENT_DATA["cliente_telefone"],
+                CURRENT_DATA["cliente_ambiente"],
+                CURRENT_DATA["prazo_entrega"],
+                CURRENT_DATA["total_custo"],
+                CURRENT_DATA["markup"],
+                pv,
+                lucro,
+                json.dumps(CURRENT_DATA["items"])
+            ))
+            CURRENT_DATA["orcamento_id"] = cursor.lastrowid
+        conn.commit()
+
+    return RedirectResponse(url="/painel-get", status_code=303)
+
+@app.post("/carregar-orcamento", response_class=HTMLResponse)
+def carregar_orcamento(orcamento_id: int = Form(...)):
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (orcamento_id,))
+        row = cursor.fetchone()
+        if row:
+            CURRENT_DATA["orcamento_id"] = row["id"]
+            CURRENT_DATA["cliente_nome"] = row["cliente_nome"]
+            CURRENT_DATA["cliente_telefone"] = row["cliente_telefone"]
+            CURRENT_DATA["cliente_ambiente"] = row["cliente_ambiente"]
+            CURRENT_DATA["prazo_entrega"] = row["prazo_entrega"]
+            CURRENT_DATA["total_custo"] = row["total_custo"]
+            CURRENT_DATA["markup"] = row["markup"]
+            CURRENT_DATA["items"] = json.loads(row["items_json"]) if row["items_json"] else []
+
+    return RedirectResponse(url="/painel-get", status_code=303)
+
+@app.post("/excluir-orcamento", response_class=HTMLResponse)
+def excluir_orcamento(orcamento_id: int = Form(...)):
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM orcamentos WHERE id = ?", (orcamento_id,))
+        conn.commit()
+    if CURRENT_DATA["orcamento_id"] == orcamento_id:
+        CURRENT_DATA["orcamento_id"] = None
+    return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.post("/salvar-cliente", response_class=HTMLResponse)
 def salvar_cliente(
@@ -323,17 +567,7 @@ def salvar_cliente(
     CURRENT_DATA["cliente_telefone"] = cliente_telefone
     CURRENT_DATA["cliente_ambiente"] = cliente_ambiente
     CURRENT_DATA["prazo_entrega"] = prazo_entrega
-    return render_dashboard(
-        user=user, 
-        items=CURRENT_DATA["items"], 
-        total_custo=CURRENT_DATA["total_custo"], 
-        markup=CURRENT_DATA["markup"],
-        cliente_nome=cliente_nome,
-        cliente_telefone=cliente_telefone,
-        cliente_ambiente=cliente_ambiente,
-        prazo_entrega=prazo_entrega,
-        precos=CURRENT_DATA["precos"]
-    )
+    return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.post("/salvar-precos", response_class=HTMLResponse)
 def salvar_precos(
@@ -352,9 +586,9 @@ def salvar_precos(
         "puxador": puxador,
         "outros_insumos": 15.00
     }
-    CURRENT_DATA["precos"] = precos
+    set_precos_config(precos)
 
-    # Recalcular todos os itens atuais com a nova tabela de preços
+    # Recalcular itens ativos
     novo_total = 0.0
     for it in CURRENT_DATA["items"]:
         valor_item, tipo = calcular_custo_item(it["nome"], it.get("largura", 0), it.get("altura", 0), it["qtd"], precos)
@@ -363,40 +597,19 @@ def salvar_precos(
         novo_total += valor_item
 
     CURRENT_DATA["total_custo"] = novo_total
-
-    return render_dashboard(
-        user=user, 
-        items=CURRENT_DATA["items"], 
-        total_custo=novo_total, 
-        markup=CURRENT_DATA["markup"],
-        cliente_nome=CURRENT_DATA["cliente_nome"],
-        cliente_telefone=CURRENT_DATA["cliente_telefone"],
-        cliente_ambiente=CURRENT_DATA["cliente_ambiente"],
-        prazo_entrega=CURRENT_DATA["prazo_entrega"],
-        precos=precos
-    )
+    return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.post("/recalcular", response_class=HTMLResponse)
 def recalcular(user: str = Form("admin@marcenaria.com"), markup: float = Form(2.2)):
     CURRENT_DATA["markup"] = markup
-    return render_dashboard(
-        user=user, 
-        items=CURRENT_DATA["items"], 
-        total_custo=CURRENT_DATA["total_custo"], 
-        markup=markup,
-        cliente_nome=CURRENT_DATA["cliente_nome"],
-        cliente_telefone=CURRENT_DATA["cliente_telefone"],
-        cliente_ambiente=CURRENT_DATA["cliente_ambiente"],
-        prazo_entrega=CURRENT_DATA["prazo_entrega"],
-        precos=CURRENT_DATA["precos"]
-    )
+    return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.post("/upload-xml", response_class=HTMLResponse)
 async def upload_xml(user: str = Form("admin@marcenaria.com"), file: UploadFile = File(...)):
     contents = await file.read()
     items = []
     total_custo = 0.0
-    precos = CURRENT_DATA["precos"]
+    precos = get_precos_config()
 
     try:
         root = ET.fromstring(contents)
@@ -443,20 +656,39 @@ async def upload_xml(user: str = Form("admin@marcenaria.com"), file: UploadFile 
 
     CURRENT_DATA["items"] = items
     CURRENT_DATA["total_custo"] = total_custo
-    return render_dashboard(
-        user=user, 
-        items=items, 
-        total_custo=total_custo, 
-        markup=CURRENT_DATA["markup"],
-        cliente_nome=CURRENT_DATA["cliente_nome"],
-        cliente_telefone=CURRENT_DATA["cliente_telefone"],
-        cliente_ambiente=CURRENT_DATA["cliente_ambiente"],
-        prazo_entrega=CURRENT_DATA["prazo_entrega"],
-        precos=precos
-    )
+    return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.get("/gerar-pdf")
-def gerar_pdf():
+def gerar_pdf(id: int = None):
+    # Se passou ID, busca o orçamento específico do banco; se não, usa a sessão atual
+    if id:
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (id,))
+            row = cursor.fetchone()
+            if row:
+                c_nome = row["cliente_nome"]
+                c_tel = row["cliente_telefone"]
+                c_amb = row["cliente_ambiente"]
+                c_prazo = row["prazo_entrega"]
+                custo = row["total_custo"]
+                markup = row["markup"]
+                pv = row["preco_venda"]
+                lucro = row["lucro"]
+                items = json.loads(row["items_json"]) if row["items_json"] else []
+            else:
+                return Response(content="Orçamento não encontrado", status_code=404)
+    else:
+        c_nome = CURRENT_DATA['cliente_nome']
+        c_tel = CURRENT_DATA['cliente_telefone']
+        c_amb = CURRENT_DATA['cliente_ambiente']
+        c_prazo = CURRENT_DATA['prazo_entrega']
+        custo = CURRENT_DATA["total_custo"]
+        markup = CURRENT_DATA["markup"]
+        pv = custo * markup
+        lucro = pv - custo
+        items = CURRENT_DATA["items"]
+
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
     styles = getSampleStyleSheet()
@@ -469,9 +701,9 @@ def gerar_pdf():
 
     # Dados do Cliente
     cliente_data = [
-        ["Cliente:", CURRENT_DATA['cliente_nome'], "Data da Proposta:", date.today().strftime("%d/%m/%Y")],
-        ["WhatsApp/Tel:", CURRENT_DATA['cliente_telefone'], "Prazo de Entrega:", CURRENT_DATA['prazo_entrega']],
-        ["Ambiente/Projeto:", CURRENT_DATA['cliente_ambiente'], "Validade da Proposta:", "15 dias"]
+        ["Cliente:", c_nome, "Data da Proposta:", date.today().strftime("%d/%m/%Y")],
+        ["WhatsApp/Tel:", c_tel, "Prazo de Entrega:", c_prazo],
+        ["Ambiente/Projeto:", c_amb, "Validade da Proposta:", "15 dias"]
     ]
     cliente_table = Table(cliente_data, colWidths=[110, 160, 120, 150])
     cliente_table.setStyle(TableStyle([
@@ -486,11 +718,6 @@ def gerar_pdf():
     elements.append(Spacer(1, 14))
 
     # Tabela DRE
-    markup = CURRENT_DATA["markup"]
-    custo = CURRENT_DATA["total_custo"]
-    pv = custo * markup
-    lucro = pv - custo
-
     dre_data = [
         ["Custo Total de Materiais (XML Precificado)", f"R$ {custo:,.2f}"],
         ["Markup Aplicado", f"{markup:.1f}x"],
@@ -510,9 +737,7 @@ def gerar_pdf():
     elements.append(Spacer(1, 14))
 
     # Tabela de Peças
-    items = CURRENT_DATA["items"] or [
-        {"nome": "Item Geral de Marcenaria", "dimensoes": "-", "qtd": 1, "valor": custo}
-    ]
+    items = items or [{"nome": "Item Geral de Marcenaria", "dimensoes": "-", "qtd": 1, "valor": custo}]
     table_data = [["Item / Insumo Promob", "Dimensões (mm)", "Qtd", "Custo Total"]]
     for it in items:
         table_data.append([
@@ -536,4 +761,5 @@ def gerar_pdf():
 
     doc.build(elements)
     buffer.seek(0)
-    return Response(content=buffer.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename=orcamento-{CURRENT_DATA['cliente_nome'].replace(' ', '_')}.pdf"})
+    nome_arquivo = f"orcamento-{c_nome.replace(' ', '_')}.pdf"
+    return Response(content=buffer.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"})
