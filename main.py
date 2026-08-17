@@ -339,8 +339,8 @@ def render_pagina_captacao(sucesso=False):
     msg_sucesso = f"""
     <div class="bg-emerald-950/80 border border-emerald-600 p-6 rounded-2xl text-center space-y-3">
         <span class="text-4xl block">🎉</span>
-        <h2 class="text-xl font-bold text-white">Planta e Projeto Recebidos com Sucesso!</h2>
-        <p class="text-xs text-slate-300">Nossa equipe de projetistas da <b>{empresa['nome_empresa']}</b> já recebeu suas informações e entraremos em contato via WhatsApp nas próximas horas com a sua proposta inicial.</p>
+        <h2 class="text-xl font-bold text-white">Planta e Informações Enviadas com Sucesso!</h2>
+        <p class="text-xs text-slate-300">Nossa equipe de projetistas da <b>{empresa['nome_empresa']}</b> já recebeu sua solicitação e entraremos em contato via WhatsApp nas próximas horas com a sua proposta inicial.</p>
         <a href="https://api.whatsapp.com/send?phone=55{empresa['telefone_empresa'].replace('(', '').replace(')', '').replace('-', '').replace(' ', '')}" target="_blank" class="inline-block px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-xl shadow-lg transition-colors">
             Falar Conosco no WhatsApp
         </a>
@@ -351,7 +351,7 @@ def render_pagina_captacao(sucesso=False):
     <form action="/enviar-solicitacao-lead" method="post" enctype="multipart/form-data" class="space-y-4 bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-2xl shadow-2xl">
         <div class="space-y-1">
             <h2 class="text-lg font-bold text-white">Solicite seu Projeto 3D Sob Medida</h2>
-            <p class="text-xs text-slate-400">Preencha os dados e anexe a foto da sua planta baixa ou cômodo para fazermos o seu orçamento.</p>
+            <p class="text-xs text-slate-400">Preencha os dados e anexe a foto da sua planta baixa ou cômodo para fazermos o seu orçamento personalizado.</p>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -376,19 +376,33 @@ def render_pagina_captacao(sucesso=False):
             </div>
         </div>
 
+        <!-- Campo de Faixa de Investimento Pretendido -->
+        <div>
+            <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">💰 Faixa de Investimento Pretendida (R$)</label>
+            <select name="valor_investimento" required class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-sky-500">
+                <option value="Até R$ 10.000">Até R$ 10.000 (Ambiente único compacto)</option>
+                <option value="R$ 10.000 a R$ 20.000">R$ 10.000 a R$ 20.000 (Cozinha média ou dormitório)</option>
+                <option value="R$ 20.000 a R$ 35.000">R$ 20.000 a R$ 35.000 (2 a 3 ambientes completos)</option>
+                <option value="R$ 35.000 a R$ 60.000">R$ 35.000 a R$ 60.000 (Apartamento / Casa completa)</option>
+                <option value="Acima de R$ 60.000">Acima de R$ 60.000 (Alto padrão / Casa inteira)</option>
+                <option value="Ainda não definido / Quero orientação">Ainda não definido / Quero orientação técnica</option>
+            </select>
+            <span class="text-[11px] text-slate-500 block mt-1">Isso nos ajuda a sugerir as melhores ferragens e acabamentos de acordo com o seu orçamento.</span>
+        </div>
+
         <div>
             <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">📷 Anexe a Planta Baixa ou Foto do Ambiente</label>
             <input type="file" name="planta" accept="image/*" required class="block w-full text-xs text-slate-400 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-200 hover:file:bg-slate-700 cursor-pointer">
-            <span class="text-[11px] text-slate-500 block mt-1">Pode ser foto da planta no papel, PDF convertido em imagem ou foto do cômodo vazio.</span>
+            <span class="text-[11px] text-slate-500 block mt-1">Pode ser foto da planta no papel, projeto arquitetônico ou foto do cômodo vazio.</span>
         </div>
 
         <div>
             <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">O que você gostaria no projeto? (Opcional)</label>
-            <textarea name="descricao" rows="3" placeholder="Ex: Gosto de cores claras, gostaria de torre quente na cozinha e iluminação LED nos armários..." class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-sky-500"></textarea>
+            <textarea name="descricao" rows="3" placeholder="Ex: Gosto de cores amadeiradas, gostaria de iluminação LED e amortecedores em todas as portas..." class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-sky-500"></textarea>
         </div>
 
         <button type="submit" class="w-full py-3.5 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl text-sm transition-colors shadow-lg shadow-sky-600/30 flex items-center justify-center space-x-2">
-            <span>🚀 Enviar Planta & Solicitar Projeto Grátis</span>
+            <span>🚀 Enviar Planta & Solicitar Projeto</span>
         </button>
     </form>
     """ if not sucesso else ""
@@ -1380,9 +1394,9 @@ def render_dashboard(data: dict):
                         <input type="text" name="prazo_entrega" value="{data['prazo_entrega']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
                     </div>
                     <div class="col-span-full">
-                        <label class="block text-xs font-medium text-slate-400 mb-1">Instruções Técnicas da Fábrica (O.S. / Montadores)</label>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Instruções Técnicas da Fábrica (O.S. / Montadores / Lead)</label>
                         <div class="flex gap-2">
-                            <input type="text" name="observacoes_tecnicas" value="{data.get('observacoes_tecnicas', '')}" placeholder="Ex: Detalhes de furação, recortes de tomadas, puxadores..." class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                            <input type="text" name="observacoes_tecnicas" value="{data.get('observacoes_tecnicas', '')}" placeholder="Ex: Detalhes de furação, recortes de tomadas, puxadores ou dados do lead..." class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
                             <button type="submit" class="px-6 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold shrink-0">
                                 Salvar Dados
                             </button>
@@ -1533,6 +1547,7 @@ async def enviar_solicitacao_lead(
     whatsapp: str = Form(...),
     ambientes: str = Form(...),
     cidade: str = Form(...),
+    valor_investimento: str = Form("A definir"),
     descricao: str = Form(""),
     planta: UploadFile = File(...)
 ):
@@ -1544,7 +1559,9 @@ async def enviar_solicitacao_lead(
         img_b64 = base64.b64encode(contents).decode("utf-8")
         imagens_lead.append(img_b64)
 
-    obs_completa = f"Lead Instagram ({cidade}): {descricao}" if descricao else f"Lead Instagram ({cidade})"
+    obs_completa = f"Lead Instagram ({cidade}) | Investimento pretendido: {valor_investimento}"
+    if descricao:
+        obs_completa += f" | Detalhes: {descricao}"
 
     with get_db() as conn:
         cursor = conn.cursor()
