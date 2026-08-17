@@ -11,7 +11,7 @@ from datetime import date
 
 app = FastAPI(title="Sistema Marcenaria & Promob")
 
-# Armazenamento simples dos dados da sessão ativa
+# Armazenamento simples com tabela de preços individuais de insumos
 CURRENT_DATA = {
     "user": "admin@marcenaria.com",
     "cliente_nome": "Cliente Exemplo",
@@ -20,6 +20,14 @@ CURRENT_DATA = {
     "prazo_entrega": "25 dias úteis",
     "total_custo": 0.0,
     "markup": 2.2,
+    "precos": {
+        "mdf_m2": 65.0,           # R$ por m² de corte MDF
+        "dobradica": 18.50,       # R$ unitário dobradiça com amortecedor
+        "corredica": 38.00,       # R$ por par de corrediça telescópica
+        "fita_borda_m": 3.20,     # R$ por metro fita de borda
+        "puxador": 25.00,         # R$ unitário puxador perfil
+        "outros_insumos": 15.00   # R$ unitário para itens genéricos
+    },
     "items": []
 }
 
@@ -56,17 +64,46 @@ LOGIN_HTML = """
 </html>
 """
 
-def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente_nome="Cliente Exemplo", cliente_telefone="11999998888", cliente_ambiente="Cozinha Planejada", prazo_entrega="25 dias úteis"):
+def calcular_custo_item(nome: str, largura_mm: float, altura_mm: float, qtd: int, precos: dict):
+    n = nome.lower()
+    if any(k in n for k in ["dobradiça", "dobradica", "hinge"]):
+        custo_unit = precos.get("dobradica", 18.50)
+        tipo = "Ferragem (Dobradiça)"
+    elif any(k in n for k in ["corrediça", "corredica", "slide", "gaveta"]):
+        custo_unit = precos.get("corredica", 38.00)
+        tipo = "Ferragem (Corrediça)"
+    elif any(k in n for k in ["puxador", "handle", "perfil alumínio"]):
+        custo_unit = precos.get("puxador", 25.00)
+        tipo = "Acessório (Puxador)"
+    elif any(k in n for k in ["fita", "borda", "edge"]):
+        custo_unit = precos.get("fita_borda_m", 3.20) * 2.0
+        tipo = "Fita de Borda"
+    elif largura_mm > 0 and altura_mm > 0:
+        area_m2 = (largura_mm / 1000.0) * (altura_mm / 1000.0)
+        custo_unit = max(area_m2 * precos.get("mdf_m2", 65.0), 12.0)
+        tipo = "Chapa MDF / Painel"
+    else:
+        custo_unit = precos.get("outros_insumos", 15.00)
+        tipo = "Insumo Geral"
+
+    total = custo_unit * qtd
+    return total, tipo
+
+def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente_nome="Cliente Exemplo", cliente_telefone="11999998888", cliente_ambiente="Cozinha Planejada", prazo_entrega="25 dias úteis", precos=None):
     items = items or []
+    precos = precos or CURRENT_DATA["precos"]
     rows_html = ""
     if items:
         for it in items:
             rows_html += f"""
             <tr class="border-b border-slate-800 hover:bg-slate-850">
-                <td class="py-3 px-4 text-sm text-slate-200">{it.get('nome', 'Peça')}</td>
+                <td class="py-3 px-4 text-sm text-slate-200">
+                    <span class="font-medium">{it.get('nome', 'Peça')}</span>
+                    <span class="block text-[11px] text-sky-400">{it.get('tipo', 'Insumo')}</span>
+                </td>
                 <td class="py-3 px-4 text-sm text-center text-slate-400">{it.get('dimensoes', '-')}</td>
                 <td class="py-3 px-4 text-sm text-center text-slate-300">{it.get('qtd', 1)}</td>
-                <td class="py-3 px-4 text-sm text-right text-emerald-400 font-medium">R$ {it.get('valor', 0.0):.2f}</td>
+                <td class="py-3 px-4 text-sm text-right text-emerald-400 font-semibold">R$ {it.get('valor', 0.0):.2f}</td>
             </tr>
             """
     else:
@@ -81,8 +118,7 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente
     pv_sugerido = total_custo * markup if total_custo > 0 else 0.0
     lucro = pv_sugerido - total_custo if total_custo > 0 else 0.0
 
-    # Mensagem WhatsApp
-    msg_zap = f"Olá {cliente_nome}! Segue o orçamento para o ambiente {cliente_ambiente}: R$ {pv_sugerido:,.2f} com prazo de entrega de {prazo_entrega}."
+    msg_zap = f"Olá {cliente_nome}! Segue o orçamento para o projeto {cliente_ambiente}: R$ {pv_sugerido:,.2f} com prazo de entrega de {prazo_entrega}."
     zap_url = f"https://api.whatsapp.com/send?phone=55{cliente_telefone}&text={urllib.parse.quote(msg_zap)}"
 
     return f"""
@@ -110,27 +146,27 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente
             <!-- Cards de Resumo DRE -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
                 <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
-                    <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Custo Insumos (XML)</p>
+                    <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Custo Insumos (XML Precificado)</p>
                     <p class="text-2xl font-bold text-white">R$ {total_custo:,.2f}</p>
-                    <p class="text-xs text-slate-500">MDF, fitas e ferragens</p>
+                    <p class="text-xs text-slate-500">MDF, ferragens e fitas por valor unitário</p>
                 </div>
                 <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
                     <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Preço de Venda (Markup {markup:.1f}x)</p>
                     <p class="text-2xl font-bold text-sky-400">R$ {pv_sugerido:,.2f}</p>
-                    <p class="text-xs text-slate-500">Valor para o cliente</p>
+                    <p class="text-xs text-slate-500">Valor orçado para a proposta</p>
                 </div>
                 <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
                     <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Margem Bruta Estimada</p>
                     <p class="text-2xl font-bold text-emerald-400">R$ {lucro:,.2f}</p>
-                    <p class="text-xs text-slate-500">Resultado financeiro do projeto</p>
+                    <p class="text-xs text-slate-500">Lucro operacional projetado</p>
                 </div>
             </div>
 
-            <!-- Dados do Cliente e Projeto -->
+            <!-- Dados do Cliente -->
             <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
                 <div class="flex justify-between items-center border-b border-slate-800 pb-3">
                     <h2 class="text-base font-semibold text-white">👤 Dados do Cliente & Proposta</h2>
-                    <span class="text-xs text-sky-400">Dados vinculados ao PDF e WhatsApp</span>
+                    <span class="text-xs text-sky-400">Vinculado ao PDF e WhatsApp</span>
                 </div>
                 <form action="/salvar-cliente" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     <input type="hidden" name="user" value="{user}">
@@ -158,9 +194,44 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente
                 </form>
             </div>
 
-            <!-- Bloco de Ações: Upload + Markup + PDF + WhatsApp -->
+            <!-- Tabela de Precificação Individual de Insumos -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+                <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                    <h2 class="text-base font-semibold text-white">⚙️ Tabela de Custos Unitários por Insumo</h2>
+                    <span class="text-xs text-slate-400">Preços base para fornecedores</span>
+                </div>
+                <form action="/salvar-precos" method="post" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                    <input type="hidden" name="user" value="{user}">
+                    <div>
+                        <label class="block text-[11px] font-medium text-slate-400 mb-1">MDF (m²)</label>
+                        <input type="number" step="0.5" name="mdf_m2" value="{precos['mdf_m2']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Dobradiça (Un)</label>
+                        <input type="number" step="0.5" name="dobradica" value="{precos['dobradica']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Corrediça (Par)</label>
+                        <input type="number" step="0.5" name="corredica" value="{precos['corredica']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Fita Borda (m)</label>
+                        <input type="number" step="0.1" name="fita_borda_m" value="{precos['fita_borda_m']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Puxador (Un)</label>
+                        <input type="number" step="0.5" name="puxador" value="{precos['puxador']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                    </div>
+                    <div class="flex items-end">
+                        <button type="submit" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-sky-400 border border-slate-700 rounded-lg text-xs font-semibold transition-colors">
+                            Atualizar Tabela
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Bloco de Upload + Markup + PDF + WhatsApp -->
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <!-- Importador XML -->
                 <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4 shadow-lg">
                     <h2 class="text-base font-semibold text-white">Importar Projeto (XML Promob / Cutlist)</h2>
                     <form action="/upload-xml" method="post" enctype="multipart/form-data" class="flex flex-col sm:flex-row items-center gap-4">
@@ -172,7 +243,6 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente
                     </form>
                 </div>
 
-                <!-- Painel de Markup e Ações -->
                 <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col justify-between space-y-4 shadow-lg">
                     <h2 class="text-base font-semibold text-white">Ajustar Markup & Envio</h2>
                     <form action="/recalcular" method="post" class="flex items-center gap-3">
@@ -185,10 +255,10 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente
                     </form>
                     
                     <div class="space-y-2">
-                        <a href="/gerar-pdf" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/20">
+                        <a href="/gerar-pdf" class="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/20">
                             <span>📄 Baixar Orçamento em PDF</span>
                         </a>
-                        <a href="{zap_url}" target="_blank" class="w-full py-2.5 bg-green-600 hover:bg-green-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center space-x-2 shadow-lg shadow-green-600/20">
+                        <a href="{zap_url}" target="_blank" class="w-full py-2 bg-green-600 hover:bg-green-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center space-x-2 shadow-lg shadow-green-600/20">
                             <span>💬 Enviar pelo WhatsApp</span>
                         </a>
                     </div>
@@ -198,7 +268,7 @@ def render_dashboard(user: str, items=None, total_custo=0.0, markup=2.2, cliente
             <!-- Listagem de Peças -->
             <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
                 <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-850">
-                    <h3 class="text-sm font-semibold text-white">Listagem de Peças e Insumos do Projeto ({cliente_ambiente})</h3>
+                    <h3 class="text-sm font-semibold text-white">Listagem de Peças e Insumos ({cliente_ambiente})</h3>
                     <span class="text-xs text-slate-400">{len(items)} itens detectados</span>
                 </div>
                 <div class="overflow-x-auto">
@@ -237,7 +307,8 @@ def login(username: str = Form(...), password: str = Form(...)):
         cliente_nome=CURRENT_DATA["cliente_nome"],
         cliente_telefone=CURRENT_DATA["cliente_telefone"],
         cliente_ambiente=CURRENT_DATA["cliente_ambiente"],
-        prazo_entrega=CURRENT_DATA["prazo_entrega"]
+        prazo_entrega=CURRENT_DATA["prazo_entrega"],
+        precos=CURRENT_DATA["precos"]
     )
 
 @app.post("/salvar-cliente", response_class=HTMLResponse)
@@ -260,7 +331,49 @@ def salvar_cliente(
         cliente_nome=cliente_nome,
         cliente_telefone=cliente_telefone,
         cliente_ambiente=cliente_ambiente,
-        prazo_entrega=prazo_entrega
+        prazo_entrega=prazo_entrega,
+        precos=CURRENT_DATA["precos"]
+    )
+
+@app.post("/salvar-precos", response_class=HTMLResponse)
+def salvar_precos(
+    user: str = Form("admin@marcenaria.com"),
+    mdf_m2: float = Form(65.0),
+    dobradica: float = Form(18.50),
+    corredica: float = Form(38.00),
+    fita_borda_m: float = Form(3.20),
+    puxador: float = Form(25.00)
+):
+    precos = {
+        "mdf_m2": mdf_m2,
+        "dobradica": dobradica,
+        "corredica": corredica,
+        "fita_borda_m": fita_borda_m,
+        "puxador": puxador,
+        "outros_insumos": 15.00
+    }
+    CURRENT_DATA["precos"] = precos
+
+    # Recalcular todos os itens atuais com a nova tabela de preços
+    novo_total = 0.0
+    for it in CURRENT_DATA["items"]:
+        valor_item, tipo = calcular_custo_item(it["nome"], it.get("largura", 0), it.get("altura", 0), it["qtd"], precos)
+        it["valor"] = valor_item
+        it["tipo"] = tipo
+        novo_total += valor_item
+
+    CURRENT_DATA["total_custo"] = novo_total
+
+    return render_dashboard(
+        user=user, 
+        items=CURRENT_DATA["items"], 
+        total_custo=novo_total, 
+        markup=CURRENT_DATA["markup"],
+        cliente_nome=CURRENT_DATA["cliente_nome"],
+        cliente_telefone=CURRENT_DATA["cliente_telefone"],
+        cliente_ambiente=CURRENT_DATA["cliente_ambiente"],
+        prazo_entrega=CURRENT_DATA["prazo_entrega"],
+        precos=precos
     )
 
 @app.post("/recalcular", response_class=HTMLResponse)
@@ -274,7 +387,8 @@ def recalcular(user: str = Form("admin@marcenaria.com"), markup: float = Form(2.
         cliente_nome=CURRENT_DATA["cliente_nome"],
         cliente_telefone=CURRENT_DATA["cliente_telefone"],
         cliente_ambiente=CURRENT_DATA["cliente_ambiente"],
-        prazo_entrega=CURRENT_DATA["prazo_entrega"]
+        prazo_entrega=CURRENT_DATA["prazo_entrega"],
+        precos=CURRENT_DATA["precos"]
     )
 
 @app.post("/upload-xml", response_class=HTMLResponse)
@@ -282,43 +396,48 @@ async def upload_xml(user: str = Form("admin@marcenaria.com"), file: UploadFile 
     contents = await file.read()
     items = []
     total_custo = 0.0
+    precos = CURRENT_DATA["precos"]
 
     try:
         root = ET.fromstring(contents)
         for elem in root.iter():
             if elem.tag.lower() in ["item", "piece", "peca", "component", "material"]:
-                nome = elem.attrib.get("DESCRIPTION") or elem.attrib.get("nome") or elem.attrib.get("name") or elem.tag
-                largura = elem.attrib.get("WIDTH") or elem.attrib.get("largura") or "0"
-                altura = elem.attrib.get("HEIGHT") or elem.attrib.get("altura") or "0"
-                prof = elem.attrib.get("DEPTH") or elem.attrib.get("profundidade") or "0"
+                nome = str(elem.attrib.get("DESCRIPTION") or elem.attrib.get("nome") or elem.attrib.get("name") or elem.tag)
+                try:
+                    largura = float(elem.attrib.get("WIDTH") or elem.attrib.get("largura") or 0)
+                    altura = float(elem.attrib.get("HEIGHT") or elem.attrib.get("altura") or 0)
+                    prof = float(elem.attrib.get("DEPTH") or elem.attrib.get("profundidade") or 0)
+                except Exception:
+                    largura, altura, prof = 0, 0, 0
+
                 qtd = int(elem.attrib.get("QUANTITY") or elem.attrib.get("quantidade") or 1)
                 
-                custo_unit = 45.0
-                total_custo += custo_unit * qtd
+                custo_total_item, tipo = calcular_custo_item(nome, largura, altura, qtd, precos)
+                total_custo += custo_total_item
 
                 items.append({
-                    "nome": str(nome)[:40],
-                    "dimensoes": f"{largura} x {altura} x {prof}",
+                    "nome": nome[:45],
+                    "tipo": tipo,
+                    "largura": largura,
+                    "altura": altura,
+                    "dimensoes": f"{int(largura)} x {int(altura)} x {int(prof)}" if largura > 0 else "-",
                     "qtd": qtd,
-                    "valor": custo_unit * qtd
+                    "valor": custo_total_item
                 })
 
         if not items:
             items = [
-                {"nome": "Adesivo Tapa Furo em Poliestireno", "dimensoes": "69 x 34 x 69", "qtd": 2, "valor": 90.00},
-                {"nome": "Corrediça Telescópica 450mm - 35Kg", "dimensoes": "200 x 35 x 450", "qtd": 4, "valor": 180.00},
-                {"nome": "Div.Talheres p/ Gav.Telescópica", "dimensoes": "512 x 52 x 435", "qtd": 1, "valor": 45.00},
-                {"nome": "Dobradiça Ecco Ø35mm Reta Slowmotion", "dimensoes": "35 x 52 x 77", "qtd": 22, "valor": 990.00},
-                {"nome": "Dobradiça Ø35mm 90° p/ Canto Reto", "dimensoes": "112 x 52 x 21", "qtd": 2, "valor": 90.00},
-                {"nome": "Dobradiça Ø35mm Reta", "dimensoes": "35 x 52 x 77", "qtd": 12, "valor": 540.00}
+                {"nome": "Dobradiça Ecco Ø35mm Slowmotion", "tipo": "Ferragem (Dobradiça)", "largura": 0, "altura": 0, "dimensoes": "-", "qtd": 22, "valor": 22 * precos["dobradica"]},
+                {"nome": "Corrediça Telescópica 450mm", "tipo": "Ferragem (Corrediça)", "largura": 0, "altura": 0, "dimensoes": "450 mm", "qtd": 4, "valor": 4 * precos["corredica"]},
+                {"nome": "Lateral MDF Branco TX 18mm", "tipo": "Chapa MDF / Painel", "largura": 2200, "altura": 600, "dimensoes": "2200 x 600 x 18", "qtd": 2, "valor": 2 * (2.2 * 0.6 * precos["mdf_m2"])},
+                {"nome": "Fita de Borda PVC 22mm", "tipo": "Fita de Borda", "largura": 0, "altura": 0, "dimensoes": "-", "qtd": 15, "valor": 15 * precos["fita_borda_m"]}
             ]
             total_custo = sum(i["valor"] for i in items)
 
     except Exception:
         items = [
-            {"nome": "Chapa MDF Louro Freijó 18mm", "dimensoes": "2750 x 1830 x 18", "qtd": 3, "valor": 780.00},
-            {"nome": "Fita de Borda 22mm Amadeirada", "dimensoes": "-", "qtd": 2, "valor": 90.00},
-            {"nome": "Puxador Perfil Alumínio Preto", "dimensoes": "2000 mm", "qtd": 2, "valor": 160.00}
+            {"nome": "Dobradiça Ø35mm Reta Slowmotion", "tipo": "Ferragem (Dobradiça)", "largura": 0, "altura": 0, "dimensoes": "-", "qtd": 10, "valor": 10 * precos["dobradica"]},
+            {"nome": "Painel MDF Freijó 18mm", "tipo": "Chapa MDF / Painel", "largura": 1800, "altura": 800, "dimensoes": "1800 x 800 x 18", "qtd": 2, "valor": 2 * (1.8 * 0.8 * precos["mdf_m2"])}
         ]
         total_custo = sum(i["valor"] for i in items)
 
@@ -332,7 +451,8 @@ async def upload_xml(user: str = Form("admin@marcenaria.com"), file: UploadFile 
         cliente_nome=CURRENT_DATA["cliente_nome"],
         cliente_telefone=CURRENT_DATA["cliente_telefone"],
         cliente_ambiente=CURRENT_DATA["cliente_ambiente"],
-        prazo_entrega=CURRENT_DATA["prazo_entrega"]
+        prazo_entrega=CURRENT_DATA["prazo_entrega"],
+        precos=precos
     )
 
 @app.get("/gerar-pdf")
@@ -347,7 +467,7 @@ def gerar_pdf():
     elements.append(Paragraph("Marcenaria Pro - Proposta Comercial & Orçamento", title_style))
     elements.append(Spacer(1, 8))
 
-    # Dados do Cliente no PDF
+    # Dados do Cliente
     cliente_data = [
         ["Cliente:", CURRENT_DATA['cliente_nome'], "Data da Proposta:", date.today().strftime("%d/%m/%Y")],
         ["WhatsApp/Tel:", CURRENT_DATA['cliente_telefone'], "Prazo de Entrega:", CURRENT_DATA['prazo_entrega']],
@@ -365,17 +485,17 @@ def gerar_pdf():
     elements.append(cliente_table)
     elements.append(Spacer(1, 14))
 
-    # Tabela de Valores
+    # Tabela DRE
     markup = CURRENT_DATA["markup"]
     custo = CURRENT_DATA["total_custo"]
     pv = custo * markup
     lucro = pv - custo
 
     dre_data = [
-        ["Custo Total de Materiais (XML)", f"R$ {custo:,.2f}"],
+        ["Custo Total de Materiais (XML Precificado)", f"R$ {custo:,.2f}"],
         ["Markup Aplicado", f"{markup:.1f}x"],
         ["VALOR TOTAL DA PROPOSTA", f"R$ {pv:,.2f}"],
-        ["Margem Bruta Operacional", f"R$ {lucro:,.2f}"]
+        ["Margem Bruta Operacional Estimada", f"R$ {lucro:,.2f}"]
     ]
     dre_table = Table(dre_data, colWidths=[280, 260])
     dre_table.setStyle(TableStyle([
