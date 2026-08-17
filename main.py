@@ -9,6 +9,7 @@ import io
 import urllib.parse
 import json
 import sqlite3
+import math
 from datetime import datetime, date
 
 app = FastAPI(title="Sistema Marcenaria & Promob")
@@ -80,7 +81,6 @@ def set_precos_config(precos: dict):
         cursor.execute("INSERT OR REPLACE INTO configuracoes (chave, valor) VALUES ('precos', ?)", (json.dumps(precos),))
         conn.commit()
 
-# Sessão ativa de dados
 CURRENT_DATA = {
     "user": "admin@marcenaria.com",
     "orcamento_id": None,
@@ -184,10 +184,51 @@ def calcular_dre_completa(d: dict):
         "margem_liq_pct": margem_liq_pct
     }
 
+def consolidar_compras(items: list):
+    area_total_m2 = 0.0
+    dobradicas = 0
+    corredicas = 0
+    puxadores = 0
+    fita_metros = 0.0
+    outros = 0
+
+    for it in items:
+        tipo = it.get("tipo", "")
+        qtd = it.get("qtd", 1)
+        largura = it.get("largura", 0.0)
+        altura = it.get("altura", 0.0)
+
+        if "MDF" in tipo and largura > 0 and altura > 0:
+            area_total_m2 += (largura / 1000.0) * (altura / 1000.0) * qtd
+            fita_metros += (((largura + altura) * 2) / 1000.0) * qtd * 0.5
+        elif "Dobradiça" in tipo:
+            dobradicas += qtd
+        elif "Corrediça" in tipo:
+            corredicas += qtd
+        elif "Puxador" in tipo:
+            puxadores += qtd
+        elif "Fita" in tipo:
+            fita_metros += qtd * 10.0
+        else:
+            outros += qtd
+
+    chapas_mdf = math.ceil(area_total_m2 / 4.5) if area_total_m2 > 0 else (1 if items else 0)
+    
+    return {
+        "area_m2": area_total_m2,
+        "chapas_mdf": chapas_mdf,
+        "fita_metros": round(fita_metros, 1),
+        "dobradicas": dobradicas,
+        "corredicas": corredicas,
+        "puxadores": puxadores,
+        "outros": outros
+    }
+
 def render_dashboard(user: str, data: dict):
     dre = calcular_dre_completa(data)
     items = data.get("items", [])
     precos = get_precos_config()
+    compras = consolidar_compras(items)
     
     rows_html = ""
     if items:
@@ -215,7 +256,15 @@ def render_dashboard(user: str, data: dict):
     msg_zap = f"Olá {data['cliente_nome']}! Segue o orçamento para o projeto {data['cliente_ambiente']}: R$ {dre['pv']:,.2f} com prazo de entrega de {data['prazo_entrega']}."
     zap_url = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone']}&text={urllib.parse.quote(msg_zap)}"
 
-    # Histórico do Banco
+    msg_cotacao = f"*COTAÇÃO DE MATERIAIS - {data['cliente_ambiente']}*\n"
+    msg_cotacao += f"- Chapas MDF Estimadas: {compras['chapas_mdf']} un ({compras['area_m2']:.1f} m²)\n"
+    msg_cotacao += f"- Fita de Borda PVC: {compras['fita_metros']} metros\n"
+    msg_cotacao += f"- Dobradiças com amortecedor: {compras['dobradicas']} un\n"
+    msg_cotacao += f"- Corrediças Telescópicas: {compras['corredicas']} pares\n"
+    msg_cotacao += f"- Puxadores: {compras['puxadores']} un\n"
+    msg_cotacao += f"Favor informar valores e prazo de entrega."
+    zap_cotacao_url = f"https://api.whatsapp.com/send?text={urllib.parse.quote(msg_cotacao)}"
+
     historico_html = ""
     with get_db() as conn:
         cursor = conn.cursor()
@@ -233,12 +282,13 @@ def render_dashboard(user: str, data: dict):
                     <td class="py-3 px-4 text-right text-sky-400 font-bold">R$ {h['preco_venda']:,.2f}</td>
                     <td class="py-3 px-4 text-right text-emerald-400 font-semibold">R$ {h['lucro_liquido']:,.2f}</td>
                     <td class="py-3 px-4 text-center">
-                        <div class="flex items-center justify-center space-x-2">
+                        <div class="flex items-center justify-center space-x-1.5">
                             <form action="/carregar-orcamento" method="post" class="inline">
                                 <input type="hidden" name="orcamento_id" value="{h['id']}">
-                                <button type="submit" class="px-2.5 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded text-[11px] font-semibold">Abrir</button>
+                                <button type="submit" class="px-2 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded text-[11px] font-semibold">Abrir</button>
                             </form>
-                            <a href="/gerar-pdf?id={h['id']}" class="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-[11px] font-semibold">PDF</a>
+                            <a href="/gerar-pdf?id={h['id']}" class="px-2 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-[11px] font-semibold">PDF Cliente</a>
+                            <a href="/gerar-pdf-compras?id={h['id']}" class="px-2 py-1 bg-indigo-700 hover:bg-indigo-600 text-white rounded text-[11px] font-semibold">Compras</a>
                             <form action="/excluir-orcamento" method="post" class="inline" onsubmit="return confirm('Deseja excluir este orçamento?');">
                                 <input type="hidden" name="orcamento_id" value="{h['id']}">
                                 <button type="submit" class="px-2 py-1 bg-rose-700/60 hover:bg-rose-600 text-white rounded text-[11px]">✕</button>
@@ -282,7 +332,6 @@ def render_dashboard(user: str, data: dict):
         </header>
 
         <main class="max-w-7xl mx-auto p-6 space-y-6">
-            <!-- Cards de Resumo DRE Expandida -->
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
                     <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Custo Direto Total</p>
@@ -303,6 +352,56 @@ def render_dashboard(user: str, data: dict):
                     <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Margem Líquida Real</p>
                     <p class="text-xl font-bold text-emerald-400">R$ {dre['lucro_liquido']:,.2f}</p>
                     <p class="text-[11px] text-slate-500">Retorno limpo no caixa ({dre['margem_liq_pct']:.1f}%)</p>
+                </div>
+            </div>
+
+            <!-- Card Consolidado de Compras para Madeireira -->
+            <div class="bg-slate-900 border border-indigo-900/50 rounded-xl p-6 shadow-lg space-y-4">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
+                    <div>
+                        <h2 class="text-base font-semibold text-white">📦 Resumo de Compras para Fornecedores / Madeireira</h2>
+                        <p class="text-xs text-indigo-400">Totalizadores de materiais necessários para produzir o projeto</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <a href="/gerar-pdf-compras" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs rounded-lg transition-colors flex items-center space-x-1 shadow-md">
+                            <span>📄 PDF p/ Madeireira</span>
+                        </a>
+                        <a href="{zap_cotacao_url}" target="_blank" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs rounded-lg transition-colors flex items-center space-x-1 shadow-md">
+                            <span>💬 Cotar no Zap</span>
+                        </a>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-center">
+                    <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                        <p class="text-[11px] text-slate-400 uppercase">Chapas MDF</p>
+                        <p class="text-lg font-bold text-white">{compras['chapas_mdf']} <span class="text-xs font-normal text-slate-500">un</span></p>
+                        <p class="text-[10px] text-slate-500">{compras['area_m2']:.1f} m²</p>
+                    </div>
+                    <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                        <p class="text-[11px] text-slate-400 uppercase">Fita Borda</p>
+                        <p class="text-lg font-bold text-white">{compras['fita_metros']} <span class="text-xs font-normal text-slate-500">m</span></p>
+                        <p class="text-[10px] text-slate-500">PVC 22mm</p>
+                    </div>
+                    <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                        <p class="text-[11px] text-slate-400 uppercase">Dobradiças</p>
+                        <p class="text-lg font-bold text-sky-400">{compras['dobradicas']} <span class="text-xs font-normal text-slate-500">un</span></p>
+                        <p class="text-[10px] text-slate-500">Amortecedor</p>
+                    </div>
+                    <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                        <p class="text-[11px] text-slate-400 uppercase">Corrediças</p>
+                        <p class="text-lg font-bold text-sky-400">{compras['corredicas']} <span class="text-xs font-normal text-slate-500">pares</span></p>
+                        <p class="text-[10px] text-slate-500">Telescópicas</p>
+                    </div>
+                    <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                        <p class="text-[11px] text-slate-400 uppercase">Puxadores</p>
+                        <p class="text-lg font-bold text-white">{compras['puxadores']} <span class="text-xs font-normal text-slate-500">un</span></p>
+                        <p class="text-[10px] text-slate-500">Perfis/Pontos</p>
+                    </div>
+                    <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                        <p class="text-[11px] text-slate-400 uppercase">Outros Insumos</p>
+                        <p class="text-lg font-bold text-slate-300">{compras['outros']} <span class="text-xs font-normal text-slate-500">itens</span></p>
+                        <p class="text-[10px] text-slate-500">Parafusos/Tapas</p>
+                    </div>
                 </div>
             </div>
 
@@ -338,7 +437,7 @@ def render_dashboard(user: str, data: dict):
                 </form>
             </div>
 
-            <!-- Módulo Mão de Obra, Frete e Custos Operacionais -->
+            <!-- Custos Operacionais & Mão de Obra -->
             <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
                 <div class="flex justify-between items-center border-b border-slate-800 pb-3">
                     <h2 class="text-base font-semibold text-white">🔨 Mão de Obra & Custos Operacionais</h2>
@@ -347,7 +446,7 @@ def render_dashboard(user: str, data: dict):
                 <form action="/salvar-operacionais" method="post" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                     <input type="hidden" name="user" value="{user}">
                     <div>
-                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Dias de Fabricação</label>
+                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Dias Fabricação</label>
                         <input type="number" step="1" min="0" name="dias_producao" value="{data['dias_producao']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
                     </div>
                     <div>
@@ -441,10 +540,10 @@ def render_dashboard(user: str, data: dict):
                             </button>
                         </form>
                         <a href="/gerar-pdf" class="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center space-x-1 shadow-lg shadow-emerald-600/20">
-                            <span>📄 Baixar Orçamento em PDF</span>
+                            <span>📄 Baixar Orçamento do Cliente (PDF)</span>
                         </a>
                         <a href="{zap_url}" target="_blank" class="w-full py-2 bg-green-600 hover:bg-green-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center space-x-1 shadow-lg shadow-green-600/20">
-                            <span>💬 Enviar pelo WhatsApp</span>
+                            <span>💬 Enviar Orçamento no WhatsApp</span>
                         </a>
                     </div>
                 </div>
@@ -791,12 +890,10 @@ def gerar_pdf(id: int = None):
     styles = getSampleStyleSheet()
     elements = []
 
-    # Cabeçalho Principal
     title_style = ParagraphStyle(name='TitleStyle', parent=styles['Heading1'], fontSize=18, textColor=colors.HexColor('#0f172a'), spaceAfter=4)
     elements.append(Paragraph("Marcenaria Pro - Proposta Comercial & Orçamento DRE", title_style))
     elements.append(Spacer(1, 8))
 
-    # Dados do Cliente
     cliente_data = [
         ["Cliente:", c_nome, "Data da Proposta:", date.today().strftime("%d/%m/%Y")],
         ["WhatsApp/Tel:", c_tel, "Prazo de Entrega:", c_prazo],
@@ -814,7 +911,6 @@ def gerar_pdf(id: int = None):
     elements.append(cliente_table)
     elements.append(Spacer(1, 12))
 
-    # Tabela DRE Completa no PDF
     dre_data = [
         ["Custo de Materiais e Insumos (XML)", f"R$ {custo_mat:,.2f}"],
         ["Mão de Obra de Produção", f"R$ {custo_mo:,.2f}"],
@@ -838,7 +934,6 @@ def gerar_pdf(id: int = None):
     elements.append(dre_table)
     elements.append(Spacer(1, 12))
 
-    # Tabela de Peças
     items = items or [{"nome": "Item Geral de Marcenaria", "dimensoes": "-", "qtd": 1, "valor": custo_mat}]
     table_data = [["Item / Insumo Promob", "Dimensões (mm)", "Qtd", "Custo Est."]]
     for it in items:
@@ -863,5 +958,100 @@ def gerar_pdf(id: int = None):
 
     doc.build(elements)
     buffer.seek(0)
-    nome_arquivo = f"orcamento-{c_nome.replace(' ', '_')}.pdf"
+    nome_arquivo = f"proposta-{c_nome.replace(' ', '_')}.pdf"
+    return Response(content=buffer.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"})
+
+@app.get("/gerar-pdf-compras")
+def gerar_pdf_compras(id: int = None):
+    if id:
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (id,))
+            row = cursor.fetchone()
+            if row:
+                c_nome = row["cliente_nome"]
+                c_amb = row["cliente_ambiente"]
+                items = json.loads(row["items_json"]) if row["items_json"] else []
+            else:
+                return Response(content="Orçamento não encontrado", status_code=404)
+    else:
+        c_nome = CURRENT_DATA['cliente_nome']
+        c_amb = CURRENT_DATA['cliente_ambiente']
+        items = CURRENT_DATA["items"]
+
+    compras = consolidar_compras(items)
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+    styles = getSampleStyleSheet()
+    elements = []
+
+    title_style = ParagraphStyle(name='TitleStyle', parent=styles['Heading1'], fontSize=18, textColor=colors.HexColor('#1e1b4b'), spaceAfter=4)
+    elements.append(Paragraph("Marcenaria Pro - Lista de Compras & Cotação Fornecedor", title_style))
+    elements.append(Spacer(1, 8))
+
+    meta_data = [
+        ["Projeto / Ambiente:", c_amb, "Data de Emissão:", date.today().strftime("%d/%m/%Y")],
+        ["Identificação Interna:", f"Ref: {c_nome}", "Tipo:", "Cotação Direta / Madeireira"]
+    ]
+    meta_table = Table(meta_data, colWidths=[130, 160, 110, 140])
+    meta_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#e0e7ff')),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#1e1b4b')),
+        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#c7d2fe')),
+    ]))
+    elements.append(meta_table)
+    elements.append(Spacer(1, 14))
+
+    sum_title = ParagraphStyle(name='SumTitle', parent=styles['Heading2'], fontSize=13, textColor=colors.HexColor('#312e81'), spaceAfter=6)
+    elements.append(Paragraph("1. Resumo de Insumos a Comprar", sum_title))
+
+    sum_data = [
+        ["Item / Insumo Requerido", "Quantidade Consolidada", "Observações Técnicas"],
+        ["Chapas de MDF (Estimado)", f"{compras['chapas_mdf']} un", f"Área de corte aprox: {compras['area_m2']:.1f} m²"],
+        ["Fita de Borda PVC", f"{compras['fita_metros']} metros", "Espessura padrão 22mm"],
+        ["Dobradiças 35mm Slowmotion", f"{compras['dobradicas']} unidades", "Com amortecedor integrado"],
+        ["Corrediças Telescópicas", f"{compras['corredicas']} pares", "Extração total / reforçada"],
+        ["Puxadores / Perfis", f"{compras['puxadores']} unidades", "Conforme projeto aprovado"],
+        ["Insumos Gerais / Ferragens", f"{compras['outros']} itens", "Parafusos, cantoneiras e acabamentos"]
+    ]
+    sum_table = Table(sum_data, colWidths=[200, 140, 200])
+    sum_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4338ca')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f8fafc')),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
+    ]))
+    elements.append(sum_table)
+    elements.append(Spacer(1, 14))
+
+    elements.append(Paragraph("2. Detalhamento de Peças do Plano de Corte", sum_title))
+    items_table_data = [["Descrição da Peça", "Dimensões (mm)", "Qtd", "Tipo"]]
+    for it in (items or [{"nome": "Sem itens", "dimensoes": "-", "qtd": 1, "tipo": "-"}]):
+        items_table_data.append([
+            it.get("nome", "Peça"),
+            it.get("dimensoes", "-"),
+            str(it.get("qtd", 1)),
+            it.get("tipo", "Insumo")
+        ])
+
+    items_doc_table = Table(items_table_data, colWidths=[220, 120, 50, 150])
+    items_doc_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#64748b')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (2, 0), (2, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e2e8f0')),
+    ]))
+    elements.append(items_doc_table)
+
+    doc.build(elements)
+    buffer.seek(0)
+    nome_arquivo = f"lista-compras-{c_amb.replace(' ', '_')}.pdf"
     return Response(content=buffer.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"})
