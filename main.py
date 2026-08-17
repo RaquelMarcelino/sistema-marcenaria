@@ -24,6 +24,14 @@ def init_db():
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
+            CREATE TABLE IF NOT EXISTS usuarios (
+                email TEXT PRIMARY KEY,
+                senha TEXT,
+                nome TEXT,
+                perfil TEXT
+            )
+        """)
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS configuracoes (
                 chave TEXT PRIMARY KEY,
                 valor TEXT
@@ -48,6 +56,13 @@ def init_db():
                 items_json TEXT
             )
         """)
+        
+        # Usuários padrão
+        cursor.execute("SELECT email FROM usuarios WHERE email = 'admin@marcenaria.com'")
+        if not cursor.fetchone():
+            cursor.execute("INSERT INTO usuarios VALUES ('admin@marcenaria.com', '123456', 'Administrador', 'admin')")
+            cursor.execute("INSERT INTO usuarios VALUES ('vendedor@marcenaria.com', '123456', 'Vendedor da Loja', 'vendedor')")
+
         cursor.execute("SELECT valor FROM configuracoes WHERE chave = 'precos'")
         if not cursor.fetchone():
             default_precos = {
@@ -83,6 +98,8 @@ def set_precos_config(precos: dict):
 
 CURRENT_DATA = {
     "user": "admin@marcenaria.com",
+    "user_perfil": "admin",
+    "user_nome": "Administrador",
     "orcamento_id": None,
     "cliente_nome": "Cliente Exemplo",
     "cliente_telefone": "11999998888",
@@ -99,38 +116,46 @@ CURRENT_DATA = {
     "items": []
 }
 
-LOGIN_HTML = """
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Marcenaria SaaS - Login</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-slate-900 text-slate-100 flex items-center justify-center min-h-screen p-4 font-sans">
-    <div class="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-8 shadow-2xl space-y-6">
-        <div class="text-center space-y-2">
-            <h1 class="text-2xl font-bold tracking-tight text-white">Marcenaria Pro SaaS</h1>
-            <p class="text-xs text-slate-400">Gestão de Orçamentos Promob & Precificação DRE</p>
+def render_login_page(msg_erro=""):
+    erro_tag = f"<p class='text-rose-400 text-xs text-center bg-rose-950/60 border border-rose-800 p-2 rounded-lg'>{msg_erro}</p>" if msg_erro else ""
+    return f"""
+    <!DOCTYPE html>
+    <html lang="pt-br">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Marcenaria SaaS - Login</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+    </head>
+    <body class="bg-slate-900 text-slate-100 flex items-center justify-center min-h-screen p-4 font-sans">
+        <div class="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-8 shadow-2xl space-y-6">
+            <div class="text-center space-y-2">
+                <h1 class="text-2xl font-bold tracking-tight text-white">Marcenaria Pro SaaS</h1>
+                <p class="text-xs text-slate-400">Gestão de Orçamentos Promob & Precificação DRE</p>
+            </div>
+            {erro_tag}
+            <form action="/painel" method="post" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">E-mail</label>
+                    <input type="email" name="username" required value="admin@marcenaria.com" class="w-full px-4 py-2.5 bg-slate-900 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-sky-500 text-slate-200">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Senha</label>
+                    <input type="password" name="password" required value="123456" class="w-full px-4 py-2.5 bg-slate-900 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-sky-500 text-slate-200">
+                </div>
+                <button type="submit" class="w-full py-3 bg-sky-600 hover:bg-sky-500 text-white font-semibold rounded-lg text-sm transition-colors shadow-lg shadow-sky-600/30">
+                    Acessar Painel de Controle
+                </button>
+            </form>
+            <div class="border-t border-slate-700/60 pt-4 text-center">
+                <p class="text-[11px] text-slate-400">Contas de Acesso de Teste:</p>
+                <p class="text-[11px] text-sky-400">Admin: <b>admin@marcenaria.com</b> | Senha: <b>123456</b></p>
+                <p class="text-[11px] text-emerald-400">Vendedor: <b>vendedor@marcenaria.com</b> | Senha: <b>123456</b></p>
+            </div>
         </div>
-        <form action="/painel" method="post" class="space-y-4">
-            <div>
-                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">E-mail</label>
-                <input type="email" name="username" required value="admin@marcenaria.com" class="w-full px-4 py-2.5 bg-slate-900 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-sky-500 text-slate-200">
-            </div>
-            <div>
-                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Senha</label>
-                <input type="password" name="password" required value="123456" class="w-full px-4 py-2.5 bg-slate-900 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-sky-500 text-slate-200">
-            </div>
-            <button type="submit" class="w-full py-3 bg-sky-600 hover:bg-sky-500 text-white font-semibold rounded-lg text-sm transition-colors shadow-lg shadow-sky-600/30">
-                Acessar Painel de Controle
-            </button>
-        </form>
-    </div>
-</body>
-</html>
-"""
+    </body>
+    </html>
+    """
 
 def calcular_custo_item(nome: str, largura_mm: float, altura_mm: float, qtd: int, precos: dict):
     n = nome.lower()
@@ -224,15 +249,18 @@ def consolidar_compras(items: list):
         "outros": outros
     }
 
-def render_dashboard(user: str, data: dict):
+def render_dashboard(data: dict):
+    is_admin = (data.get("user_perfil") == "admin")
     dre = calcular_dre_completa(data)
     items = data.get("items", [])
     precos = get_precos_config()
     compras = consolidar_compras(items)
     
+    # Renderização condicional da tabela de peças (oculta valores em dinheiro se for vendedor)
     rows_html = ""
     if items:
         for it in items:
+            valor_col = f"<td class='py-3 px-4 text-sm text-right text-emerald-400 font-semibold'>R$ {it.get('valor', 0.0):.2f}</td>" if is_admin else "<td class='py-3 px-4 text-sm text-right text-slate-500'>—</td>"
             rows_html += f"""
             <tr class="border-b border-slate-800 hover:bg-slate-850">
                 <td class="py-3 px-4 text-sm text-slate-200">
@@ -241,7 +269,7 @@ def render_dashboard(user: str, data: dict):
                 </td>
                 <td class="py-3 px-4 text-sm text-center text-slate-400">{it.get('dimensoes', '-')}</td>
                 <td class="py-3 px-4 text-sm text-center text-slate-300">{it.get('qtd', 1)}</td>
-                <td class="py-3 px-4 text-sm text-right text-emerald-400 font-semibold">R$ {it.get('valor', 0.0):.2f}</td>
+                {valor_col}
             </tr>
             """
     else:
@@ -273,6 +301,7 @@ def render_dashboard(user: str, data: dict):
         
         if historico_rows:
             for h in historico_rows:
+                lucro_col = f"<td class='py-3 px-4 text-right text-emerald-400 font-semibold'>R$ {h['lucro_liquido']:,.2f}</td>" if is_admin else "<td class='py-3 px-4 text-right text-slate-500'>—</td>"
                 historico_html += f"""
                 <tr class="border-b border-slate-800 hover:bg-slate-800/40 text-xs">
                     <td class="py-3 px-4 text-slate-400 font-mono">#{h['id']}</td>
@@ -280,7 +309,7 @@ def render_dashboard(user: str, data: dict):
                     <td class="py-3 px-4 text-white font-medium">{h['cliente_nome']}</td>
                     <td class="py-3 px-4 text-slate-300">{h['cliente_ambiente']}</td>
                     <td class="py-3 px-4 text-right text-sky-400 font-bold">R$ {h['preco_venda']:,.2f}</td>
-                    <td class="py-3 px-4 text-right text-emerald-400 font-semibold">R$ {h['lucro_liquido']:,.2f}</td>
+                    {lucro_col}
                     <td class="py-3 px-4 text-center">
                         <div class="flex items-center justify-center space-x-1.5">
                             <form action="/carregar-orcamento" method="post" class="inline">
@@ -306,7 +335,189 @@ def render_dashboard(user: str, data: dict):
             </tr>
             """
 
+    # Lista de usuários do banco para painel admin
+    usuarios_html = ""
+    if is_admin:
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT email, nome, perfil FROM usuarios")
+            for u in cursor.fetchall():
+                badge = "<span class='text-[10px] bg-sky-950 text-sky-300 border border-sky-800 px-2 py-0.5 rounded'>Admin</span>" if u['perfil'] == 'admin' else "<span class='text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded'>Vendedor</span>"
+                usuarios_html += f"""
+                <li class="flex items-center justify-between py-2 border-b border-slate-800/80 text-xs">
+                    <div>
+                        <span class="font-semibold text-white">{u['nome']}</span>
+                        <span class="text-slate-400 block text-[11px]">{u['email']}</span>
+                    </div>
+                    {badge}
+                </li>
+                """
+
     status_tag = f"<span class='text-xs bg-sky-950 border border-sky-700 text-sky-300 px-2.5 py-1 rounded-full'>Editando Orçamento #{data['orcamento_id']}</span>" if data['orcamento_id'] else "<span class='text-xs bg-slate-800 border border-slate-700 text-slate-400 px-2.5 py-1 rounded-full'>Novo Orçamento em Rascunho</span>"
+    perfil_badge = "<span class='text-[11px] bg-blue-900/60 border border-blue-600 text-blue-300 px-2 py-0.5 rounded-full font-medium'>👑 Administrador</span>" if is_admin else "<span class='text-[11px] bg-emerald-900/60 border border-emerald-600 text-emerald-300 px-2 py-0.5 rounded-full font-medium'>💼 Vendedor</span>"
+
+    # Seção DRE Gerencial visível apenas para Admin
+    dre_cards = f"""
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
+            <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Custo Direto Total</p>
+            <p class="text-xl font-bold text-white">R$ {dre['custo_direto_total']:,.2f}</p>
+            <p class="text-[11px] text-slate-500">Mat: R$ {dre['custo_mat']:,.0f} | M.O: R$ {dre['custo_mo']:,.0f} | Frete/Mont: R$ {dre['custo_frete_mont']:,.0f}</p>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
+            <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Preço de Venda ({data['markup']:.1f}x)</p>
+            <p class="text-xl font-bold text-sky-400">R$ {dre['pv']:,.2f}</p>
+            <p class="text-[11px] text-slate-500">Proposta final para o cliente</p>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
+            <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Deduções (Imposto + Com.)</p>
+            <p class="text-xl font-bold text-rose-400">R$ {(dre['imposto_val'] + dre['comissao_val']):,.2f}</p>
+            <p class="text-[11px] text-slate-500">Imp. {data['imposto_pct']}% (R$ {dre['imposto_val']:,.0f}) | Com. {data['comissao_pct']}% (R$ {dre['comissao_val']:,.0f})</p>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
+            <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Margem Líquida Real</p>
+            <p class="text-xl font-bold text-emerald-400">R$ {dre['lucro_liquido']:,.2f}</p>
+            <p class="text-[11px] text-slate-500">Retorno limpo no caixa ({dre['margem_liq_pct']:.1f}%)</p>
+        </div>
+    </div>
+    """ if is_admin else f"""
+    <div class="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg flex justify-between items-center">
+        <div>
+            <p class="text-xs text-slate-400 uppercase font-semibold">Valor da Proposta Comercial</p>
+            <p class="text-3xl font-bold text-sky-400 mt-1">R$ {dre['pv']:,.2f}</p>
+            <p class="text-xs text-slate-500">Valor com prazo de entrega de {data['prazo_entrega']}</p>
+        </div>
+        <a href="/gerar-pdf" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-lg transition-colors">
+            📄 Baixar Proposta do Cliente
+        </a>
+    </div>
+    """
+
+    # Seções de configurações exclusivas do Administrador
+    admin_sections = f"""
+    <!-- Mão de Obra e Operacionais -->
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+        <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+            <h2 class="text-base font-semibold text-white">🔨 Mão de Obra & Custos Operacionais</h2>
+            <span class="text-xs text-slate-400">Visível apenas para Administrador</span>
+        </div>
+        <form action="/salvar-operacionais" method="post" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div>
+                <label class="block text-[11px] font-medium text-slate-400 mb-1">Dias Fabricação</label>
+                <input type="number" step="1" min="0" name="dias_producao" value="{data['dias_producao']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+            </div>
+            <div>
+                <label class="block text-[11px] font-medium text-slate-400 mb-1">Diária Marceneiro (R$)</label>
+                <input type="number" step="10" name="valor_diaria" value="{data['valor_diaria']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+            </div>
+            <div>
+                <label class="block text-[11px] font-medium text-slate-400 mb-1">Custo Frete (R$)</label>
+                <input type="number" step="10" name="custo_frete" value="{data['custo_frete']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+            </div>
+            <div>
+                <label class="block text-[11px] font-medium text-slate-400 mb-1">Montagem Cliente (R$)</label>
+                <input type="number" step="10" name="custo_montagem" value="{data['custo_montagem']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+            </div>
+            <div>
+                <label class="block text-[11px] font-medium text-slate-400 mb-1">Impostos (%)</label>
+                <input type="number" step="0.5" min="0" max="30" name="imposto_pct" value="{data['imposto_pct']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+            </div>
+            <div class="flex items-end">
+                <button type="submit" class="w-full py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold transition-colors">
+                    Atualizar DRE
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Tabela de Custos Unitários de Insumos -->
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+        <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+            <h2 class="text-base font-semibold text-white">⚙️ Tabela de Custos Unitários por Insumo</h2>
+            <span class="text-xs text-slate-400">Tabela Geral da Marcenaria</span>
+        </div>
+        <form action="/salvar-precos" method="post" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div>
+                <label class="block text-[11px] font-medium text-slate-400 mb-1">MDF (m²)</label>
+                <input type="number" step="0.5" name="mdf_m2" value="{precos['mdf_m2']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+            </div>
+            <div>
+                <label class="block text-[11px] font-medium text-slate-400 mb-1">Dobradiça (Un)</label>
+                <input type="number" step="0.5" name="dobradica" value="{precos['dobradica']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+            </div>
+            <div>
+                <label class="block text-[11px] font-medium text-slate-400 mb-1">Corrediça (Par)</label>
+                <input type="number" step="0.5" name="corredica" value="{precos['corredica']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+            </div>
+            <div>
+                <label class="block text-[11px] font-medium text-slate-400 mb-1">Fita Borda (m)</label>
+                <input type="number" step="0.1" name="fita_borda_m" value="{precos['fita_borda_m']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+            </div>
+            <div>
+                <label class="block text-[11px] font-medium text-slate-400 mb-1">Puxador (Un)</label>
+                <input type="number" step="0.5" name="puxador" value="{precos['puxador']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+            </div>
+            <div class="flex items-end">
+                <button type="submit" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-sky-400 border border-slate-700 rounded-lg text-xs font-semibold transition-colors">
+                    Salvar Config
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Gestão de Usuários da Equipe -->
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+        <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+            <h2 class="text-base font-semibold text-white">👥 Gestão de Equipe & Permissões</h2>
+            <span class="text-xs text-sky-400">Cadastre novos vendedores ou administradores</span>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <form action="/criar-usuario" method="post" class="lg:col-span-2 space-y-3 bg-slate-950 p-4 rounded-lg border border-slate-800">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-[11px] text-slate-400 mb-1">Nome Completo</label>
+                        <input type="text" name="nome" required placeholder="Ex: João Marceneiro" class="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] text-slate-400 mb-1">E-mail de Acesso</label>
+                        <input type="email" name="email" required placeholder="joao@marcenaria.com" class="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] text-slate-400 mb-1">Senha</label>
+                        <input type="password" name="senha" required placeholder="******" class="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] text-slate-400 mb-1">Nível de Permissão</label>
+                        <select name="perfil" class="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white">
+                            <option value="vendedor">Vendedor (Sem visualização de DRE e lucros)</option>
+                            <option value="admin">Administrador (Acesso completo)</option>
+                        </select>
+                    </div>
+                </div>
+                <button type="submit" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold">
+                    Adicionar Membro à Equipe
+                </button>
+            </form>
+            <div class="bg-slate-950 p-4 rounded-lg border border-slate-800">
+                <h3 class="text-xs font-semibold text-slate-300 uppercase mb-2">Usuários Cadastrados</h3>
+                <ul class="divide-y divide-slate-800">
+                    {usuarios_html}
+                </ul>
+            </div>
+        </div>
+    </div>
+    """ if is_admin else ""
+
+    # Painel de Markup e Ações
+    markup_control = f"""
+    <form action="/recalcular" method="post" class="flex items-center gap-3">
+        <label class="text-xs text-slate-400 font-medium">Markup:</label>
+        <input type="number" step="0.1" min="1.0" max="5.0" name="markup" value="{data['markup']}" class="w-20 px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-sm text-center text-white focus:outline-none focus:border-sky-500">
+        <button type="submit" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700">
+            Recalcular
+        </button>
+    </form>
+    """ if is_admin else "<p class='text-xs text-slate-400'>Margem e markup fixados pela diretoria.</p>"
 
     return f"""
     <!DOCTYPE html>
@@ -325,35 +536,15 @@ def render_dashboard(user: str, data: dict):
                 {status_tag}
             </div>
             <div class="flex items-center space-x-4">
+                {perfil_badge}
                 <a href="/novo-orcamento" class="text-xs bg-sky-600 hover:bg-sky-500 text-white font-medium px-3 py-1.5 rounded-lg transition-colors">+ Novo Orçamento</a>
-                <span class="text-xs text-slate-400">Usuário: <b class="text-sky-400">{user}</b></span>
+                <span class="text-xs text-slate-400">Usuário: <b class="text-sky-400">{data['user_nome']}</b></span>
                 <a href="/" class="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg text-slate-300 border border-slate-700">Sair</a>
             </div>
         </header>
 
         <main class="max-w-7xl mx-auto p-6 space-y-6">
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
-                    <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Custo Direto Total</p>
-                    <p class="text-xl font-bold text-white">R$ {dre['custo_direto_total']:,.2f}</p>
-                    <p class="text-[11px] text-slate-500">Mat: R$ {dre['custo_mat']:,.0f} | M.O: R$ {dre['custo_mo']:,.0f} | Frete/Mont: R$ {dre['custo_frete_mont']:,.0f}</p>
-                </div>
-                <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
-                    <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Preço de Venda ({data['markup']:.1f}x)</p>
-                    <p class="text-xl font-bold text-sky-400">R$ {dre['pv']:,.2f}</p>
-                    <p class="text-[11px] text-slate-500">Proposta final para o cliente</p>
-                </div>
-                <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
-                    <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Deduções (Imposto + Com.)</p>
-                    <p class="text-xl font-bold text-rose-400">R$ {(dre['imposto_val'] + dre['comissao_val']):,.2f}</p>
-                    <p class="text-[11px] text-slate-500">Imp. {data['imposto_pct']}% (R$ {dre['imposto_val']:,.0f}) | Com. {data['comissao_pct']}% (R$ {dre['comissao_val']:,.0f})</p>
-                </div>
-                <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
-                    <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Margem Líquida Real</p>
-                    <p class="text-xl font-bold text-emerald-400">R$ {dre['lucro_liquido']:,.2f}</p>
-                    <p class="text-[11px] text-slate-500">Retorno limpo no caixa ({dre['margem_liq_pct']:.1f}%)</p>
-                </div>
-            </div>
+            {dre_cards}
 
             <!-- Card Consolidado de Compras para Madeireira -->
             <div class="bg-slate-900 border border-indigo-900/50 rounded-xl p-6 shadow-lg space-y-4">
@@ -412,7 +603,6 @@ def render_dashboard(user: str, data: dict):
                     <span class="text-xs text-sky-400">Vinculado ao Banco, PDF e WhatsApp</span>
                 </div>
                 <form action="/salvar-cliente" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <input type="hidden" name="user" value="{user}">
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">Nome do Cliente</label>
                         <input type="text" name="cliente_nome" value="{data['cliente_nome']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
@@ -437,84 +627,13 @@ def render_dashboard(user: str, data: dict):
                 </form>
             </div>
 
-            <!-- Custos Operacionais & Mão de Obra -->
-            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
-                <div class="flex justify-between items-center border-b border-slate-800 pb-3">
-                    <h2 class="text-base font-semibold text-white">🔨 Mão de Obra & Custos Operacionais</h2>
-                    <span class="text-xs text-slate-400">Impacta diretamente a DRE</span>
-                </div>
-                <form action="/salvar-operacionais" method="post" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                    <input type="hidden" name="user" value="{user}">
-                    <div>
-                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Dias Fabricação</label>
-                        <input type="number" step="1" min="0" name="dias_producao" value="{data['dias_producao']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
-                    </div>
-                    <div>
-                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Diária Marceneiro (R$)</label>
-                        <input type="number" step="10" name="valor_diaria" value="{data['valor_diaria']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
-                    </div>
-                    <div>
-                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Custo Frete (R$)</label>
-                        <input type="number" step="10" name="custo_frete" value="{data['custo_frete']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
-                    </div>
-                    <div>
-                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Montagem Cliente (R$)</label>
-                        <input type="number" step="10" name="custo_montagem" value="{data['custo_montagem']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
-                    </div>
-                    <div>
-                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Impostos (%)</label>
-                        <input type="number" step="0.5" min="0" max="30" name="imposto_pct" value="{data['imposto_pct']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
-                    </div>
-                    <div class="flex items-end">
-                        <button type="submit" class="w-full py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold transition-colors">
-                            Atualizar DRE
-                        </button>
-                    </div>
-                </form>
-            </div>
-
-            <!-- Tabela de Custos Unitários de Insumos -->
-            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
-                <div class="flex justify-between items-center border-b border-slate-800 pb-3">
-                    <h2 class="text-base font-semibold text-white">⚙️ Tabela de Custos Unitários por Insumo</h2>
-                    <span class="text-xs text-slate-400">Preços base para materiais</span>
-                </div>
-                <form action="/salvar-precos" method="post" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                    <input type="hidden" name="user" value="{user}">
-                    <div>
-                        <label class="block text-[11px] font-medium text-slate-400 mb-1">MDF (m²)</label>
-                        <input type="number" step="0.5" name="mdf_m2" value="{precos['mdf_m2']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
-                    </div>
-                    <div>
-                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Dobradiça (Un)</label>
-                        <input type="number" step="0.5" name="dobradica" value="{precos['dobradica']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
-                    </div>
-                    <div>
-                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Corrediça (Par)</label>
-                        <input type="number" step="0.5" name="corredica" value="{precos['corredica']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
-                    </div>
-                    <div>
-                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Fita Borda (m)</label>
-                        <input type="number" step="0.1" name="fita_borda_m" value="{precos['fita_borda_m']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
-                    </div>
-                    <div>
-                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Puxador (Un)</label>
-                        <input type="number" step="0.5" name="puxador" value="{precos['puxador']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
-                    </div>
-                    <div class="flex items-end">
-                        <button type="submit" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-sky-400 border border-slate-700 rounded-lg text-xs font-semibold transition-colors">
-                            Salvar Config
-                        </button>
-                    </div>
-                </form>
-            </div>
+            {admin_sections}
 
             <!-- Upload + Markup + Salvar no Banco + PDF + WhatsApp -->
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4 shadow-lg">
                     <h2 class="text-base font-semibold text-white">Importar Projeto (XML Promob / Cutlist)</h2>
                     <form action="/upload-xml" method="post" enctype="multipart/form-data" class="flex flex-col sm:flex-row items-center gap-4">
-                        <input type="hidden" name="user" value="{user}">
                         <input type="file" name="file" accept=".xml,.txt" required class="block w-full text-xs text-slate-400 file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-200 hover:file:bg-slate-700 cursor-pointer">
                         <button type="submit" class="w-full sm:w-auto px-6 py-2.5 bg-sky-600 hover:bg-sky-500 text-white font-medium rounded-lg text-sm transition-colors shrink-0">
                             Processar e Orçar
@@ -523,15 +642,8 @@ def render_dashboard(user: str, data: dict):
                 </div>
 
                 <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col justify-between space-y-4 shadow-lg">
-                    <h2 class="text-base font-semibold text-white">Markup & Gravação</h2>
-                    <form action="/recalcular" method="post" class="flex items-center gap-3">
-                        <input type="hidden" name="user" value="{user}">
-                        <label class="text-xs text-slate-400 font-medium">Markup:</label>
-                        <input type="number" step="0.1" min="1.0" max="5.0" name="markup" value="{data['markup']}" class="w-20 px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-sm text-center text-white focus:outline-none focus:border-sky-500">
-                        <button type="submit" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700">
-                            Recalcular
-                        </button>
-                    </form>
+                    <h2 class="text-base font-semibold text-white">Ações da Proposta</h2>
+                    {markup_control}
                     
                     <div class="space-y-2">
                         <form action="/salvar-banco" method="post">
@@ -549,7 +661,7 @@ def render_dashboard(user: str, data: dict):
                 </div>
             </div>
 
-            <!-- Tabela de Histórico de Orçamentos Salvos -->
+            <!-- Histórico de Orçamentos -->
             <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
                 <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-850">
                     <h3 class="text-sm font-semibold text-white">📁 Histórico de Orçamentos Salvos (Banco de Dados)</h3>
@@ -604,12 +716,32 @@ def render_dashboard(user: str, data: dict):
 
 @app.get("/", response_class=HTMLResponse)
 def home():
-    return LOGIN_HTML
+    return render_login_page()
 
 @app.post("/painel", response_class=HTMLResponse)
 def login(username: str = Form(...), password: str = Form(...)):
-    CURRENT_DATA["user"] = username
-    return render_dashboard(user=username, data=CURRENT_DATA)
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM usuarios WHERE email = ? AND senha = ?", (username, password))
+        user_row = cursor.fetchone()
+        
+        if not user_row:
+            return render_login_page("E-mail ou senha incorretos. Tente novamente.")
+
+        CURRENT_DATA["user"] = user_row["email"]
+        CURRENT_DATA["user_nome"] = user_row["nome"]
+        CURRENT_DATA["user_perfil"] = user_row["perfil"]
+
+    return render_dashboard(data=CURRENT_DATA)
+
+@app.post("/criar-usuario", response_class=HTMLResponse)
+def criar_usuario(nome: str = Form(...), email: str = Form(...), senha: str = Form(...), perfil: str = Form(...)):
+    if CURRENT_DATA.get("user_perfil") == "admin":
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT OR REPLACE INTO usuarios (email, senha, nome, perfil) VALUES (?, ?, ?, ?)", (email, senha, nome, perfil))
+            conn.commit()
+    return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.get("/novo-orcamento", response_class=HTMLResponse)
 def novo_orcamento():
@@ -631,22 +763,22 @@ def novo_orcamento():
 
 @app.get("/painel-get", response_class=HTMLResponse)
 def painel_get():
-    return render_dashboard(user=CURRENT_DATA["user"], data=CURRENT_DATA)
+    return render_dashboard(data=CURRENT_DATA)
 
 @app.post("/salvar-operacionais", response_class=HTMLResponse)
 def salvar_operacionais(
-    user: str = Form("admin@marcenaria.com"),
     dias_producao: int = Form(3),
     valor_diaria: float = Form(180.0),
     custo_frete: float = Form(250.0),
     custo_montagem: float = Form(350.0),
     imposto_pct: float = Form(6.0)
 ):
-    CURRENT_DATA["dias_producao"] = dias_producao
-    CURRENT_DATA["valor_diaria"] = valor_diaria
-    CURRENT_DATA["custo_frete"] = custo_frete
-    CURRENT_DATA["custo_montagem"] = custo_montagem
-    CURRENT_DATA["imposto_pct"] = imposto_pct
+    if CURRENT_DATA.get("user_perfil") == "admin":
+        CURRENT_DATA["dias_producao"] = dias_producao
+        CURRENT_DATA["valor_diaria"] = valor_diaria
+        CURRENT_DATA["custo_frete"] = custo_frete
+        CURRENT_DATA["custo_montagem"] = custo_montagem
+        CURRENT_DATA["imposto_pct"] = imposto_pct
     return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.post("/salvar-banco", response_class=HTMLResponse)
@@ -748,7 +880,6 @@ def excluir_orcamento(orcamento_id: int = Form(...)):
 
 @app.post("/salvar-cliente", response_class=HTMLResponse)
 def salvar_cliente(
-    user: str = Form("admin@marcenaria.com"),
     cliente_nome: str = Form(...),
     cliente_telefone: str = Form(...),
     cliente_ambiente: str = Form(...),
@@ -762,40 +893,41 @@ def salvar_cliente(
 
 @app.post("/salvar-precos", response_class=HTMLResponse)
 def salvar_precos(
-    user: str = Form("admin@marcenaria.com"),
     mdf_m2: float = Form(65.0),
     dobradica: float = Form(18.50),
     corredica: float = Form(38.00),
     fita_borda_m: float = Form(3.20),
     puxador: float = Form(25.00)
 ):
-    precos = {
-        "mdf_m2": mdf_m2,
-        "dobradica": dobradica,
-        "corredica": corredica,
-        "fita_borda_m": fita_borda_m,
-        "puxador": puxador,
-        "outros_insumos": 15.00
-    }
-    set_precos_config(precos)
+    if CURRENT_DATA.get("user_perfil") == "admin":
+        precos = {
+            "mdf_m2": mdf_m2,
+            "dobradica": dobradica,
+            "corredica": corredica,
+            "fita_borda_m": fita_borda_m,
+            "puxador": puxador,
+            "outros_insumos": 15.00
+        }
+        set_precos_config(precos)
 
-    novo_mat = 0.0
-    for it in CURRENT_DATA["items"]:
-        valor_item, tipo = calcular_custo_item(it["nome"], it.get("largura", 0), it.get("altura", 0), it["qtd"], precos)
-        it["valor"] = valor_item
-        it["tipo"] = tipo
-        novo_mat += valor_item
+        novo_mat = 0.0
+        for it in CURRENT_DATA["items"]:
+            valor_item, tipo = calcular_custo_item(it["nome"], it.get("largura", 0), it.get("altura", 0), it["qtd"], precos)
+            it["valor"] = valor_item
+            it["tipo"] = tipo
+            novo_mat += valor_item
 
-    CURRENT_DATA["custo_materiais"] = novo_mat
+        CURRENT_DATA["custo_materiais"] = novo_mat
     return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.post("/recalcular", response_class=HTMLResponse)
-def recalcular(user: str = Form("admin@marcenaria.com"), markup: float = Form(2.2)):
-    CURRENT_DATA["markup"] = markup
+def recalcular(markup: float = Form(2.2)):
+    if CURRENT_DATA.get("user_perfil") == "admin":
+        CURRENT_DATA["markup"] = markup
     return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.post("/upload-xml", response_class=HTMLResponse)
-async def upload_xml(user: str = Form("admin@marcenaria.com"), file: UploadFile = File(...)):
+async def upload_xml(file: UploadFile = File(...)):
     contents = await file.read()
     items = []
     total_mat = 0.0
@@ -891,7 +1023,7 @@ def gerar_pdf(id: int = None):
     elements = []
 
     title_style = ParagraphStyle(name='TitleStyle', parent=styles['Heading1'], fontSize=18, textColor=colors.HexColor('#0f172a'), spaceAfter=4)
-    elements.append(Paragraph("Marcenaria Pro - Proposta Comercial & Orçamento DRE", title_style))
+    elements.append(Paragraph("Marcenaria Pro - Proposta Comercial de Móveis Sob Medida", title_style))
     elements.append(Spacer(1, 8))
 
     cliente_data = [
@@ -911,45 +1043,43 @@ def gerar_pdf(id: int = None):
     elements.append(cliente_table)
     elements.append(Spacer(1, 12))
 
+    # Tabela Comercial Limpa para o Cliente
     dre_data = [
-        ["Custo de Materiais e Insumos (XML)", f"R$ {custo_mat:,.2f}"],
-        ["Mão de Obra de Produção", f"R$ {custo_mo:,.2f}"],
-        ["Frete e Equipe de Montagem", f"R$ {custo_frete_mont:,.2f}"],
-        ["CUSTO DIRETO TOTAL", f"R$ {custo_direto:,.2f}"],
-        ["Markup Aplicado", f"{markup:.1f}x"],
-        ["VALOR TOTAL DA PROPOSTA", f"R$ {pv:,.2f}"],
-        ["Margem Líquida Real Projetada", f"R$ {lucro:,.2f}"]
+        ["Ambiente / Projeto", f"{c_amb}"],
+        ["Prazo de Fabricação e Instalação", f"{c_prazo}"],
+        ["Garantia Estrutural e Ferragens", "12 meses contra defeitos de fabricação"],
+        ["VALOR TOTAL DO INVESTIMENTO", f"R$ {pv:,.2f}"]
     ]
-    dre_table = Table(dre_data, colWidths=[280, 260])
+    dre_table = Table(dre_data, colWidths=[240, 300])
     dre_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 3), colors.HexColor('#f8fafc')),
-        ('BACKGROUND', (0, 3), (-1, 3), colors.HexColor('#e2e8f0')),
-        ('BACKGROUND', (0, 5), (-1, 5), colors.HexColor('#dbeafe')),
-        ('BACKGROUND', (0, 6), (-1, 6), colors.HexColor('#dcfce7')),
+        ('BACKGROUND', (0, 0), (-1, 2), colors.HexColor('#f8fafc')),
+        ('BACKGROUND', (0, 3), (-1, 3), colors.HexColor('#dbeafe')),
         ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#0f172a')),
         ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
     ]))
     elements.append(dre_table)
-    elements.append(Spacer(1, 12))
+    elements.append(Spacer(1, 14))
 
-    items = items or [{"nome": "Item Geral de Marcenaria", "dimensoes": "-", "qtd": 1, "valor": custo_mat}]
-    table_data = [["Item / Insumo Promob", "Dimensões (mm)", "Qtd", "Custo Est."]]
+    sum_title = ParagraphStyle(name='SumTitle', parent=styles['Heading2'], fontSize=12, textColor=colors.HexColor('#0284c7'), spaceAfter=6)
+    elements.append(Paragraph("Especificação dos Módulos e Componentes", sum_title))
+
+    items = items or [{"nome": "Módulo Planejado", "dimensoes": "-", "qtd": 1}]
+    table_data = [["Descrição do Componente", "Dimensões Técnicas", "Qtd", "Tipo"]]
     for it in items:
         table_data.append([
             it.get("nome", "Peça"),
             it.get("dimensoes", "-"),
             str(it.get("qtd", 1)),
-            f"R$ {it.get('valor', 0.0):,.2f}"
+            it.get("tipo", "Módulo")
         ])
 
-    items_table = Table(table_data, colWidths=[240, 140, 50, 110])
+    items_table = Table(table_data, colWidths=[230, 130, 50, 130])
     items_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0284c7')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
         ('ALIGN', (2, 0), (2, -1), 'CENTER'),
-        ('ALIGN', (3, 0), (3, -1), 'RIGHT'),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e2e8f0')),
