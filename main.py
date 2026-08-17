@@ -507,7 +507,6 @@ def render_dashboard(data: dict):
         </div>
         """
 
-    # Cronograma e Histórico de Produção com Contagem Regressiva de Dias
     hoje = date.today()
     cronograma_cards_html = ""
     historico_html = ""
@@ -594,13 +593,14 @@ def render_dashboard(data: dict):
                             <input type="hidden" name="orcamento_id" value="{h['id']}">
                             <button type="submit" class="px-2 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded text-[11px] font-semibold">Abrir</button>
                         </form>
-                        <a href="/gerar-pdf?id={h['id']}" class="px-2 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-[11px] font-semibold">Orç.</a>
-                        <a href="/gerar-contrato?id={h['id']}" class="px-2 py-1 bg-amber-700 hover:bg-amber-600 text-white rounded text-[11px] font-semibold">Contrato</a>
-                        <a href="/gerar-etiquetas?id={h['id']}" class="px-2 py-1 bg-teal-700 hover:bg-teal-600 text-white rounded text-[11px] font-semibold">Etiquetas</a>
-                        <a href="/gerar-pdf-compras?id={h['id']}" class="px-2 py-1 bg-indigo-700 hover:bg-indigo-600 text-white rounded text-[11px] font-semibold">Compras</a>
+                        <a href="/gerar-pdf?id={h['id']}" class="px-1.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-[10px] font-semibold">Orç.</a>
+                        <a href="/gerar-contrato?id={h['id']}" class="px-1.5 py-1 bg-amber-700 hover:bg-amber-600 text-white rounded text-[10px] font-semibold">Contrato</a>
+                        <a href="/gerar-vistoria?id={h['id']}" class="px-1.5 py-1 bg-purple-700 hover:bg-purple-600 text-white rounded text-[10px] font-semibold">Vistoria</a>
+                        <a href="/gerar-etiquetas?id={h['id']}" class="px-1.5 py-1 bg-teal-700 hover:bg-teal-600 text-white rounded text-[10px] font-semibold">Etiquetas</a>
+                        <a href="/gerar-pdf-compras?id={h['id']}" class="px-1.5 py-1 bg-indigo-700 hover:bg-indigo-600 text-white rounded text-[10px] font-semibold">Compras</a>
                         <form action="/excluir-orcamento" method="post" class="inline" onsubmit="return confirm('Deseja excluir este orçamento?');">
                             <input type="hidden" name="orcamento_id" value="{h['id']}">
-                            <button type="submit" class="px-1.5 py-1 bg-rose-700/60 hover:bg-rose-600 text-white rounded text-[11px]">✕</button>
+                            <button type="submit" class="px-1 py-1 bg-rose-700/60 hover:bg-rose-600 text-white rounded text-[10px]">✕</button>
                         </form>
                     </div>
                 </td>
@@ -929,6 +929,9 @@ def render_dashboard(data: dict):
                         <a href="/gerar-contrato" class="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-medium text-xs rounded-lg transition-colors flex items-center space-x-1 shadow-md">
                             <span>📑 Emitir Contrato (PDF)</span>
                         </a>
+                        <a href="/gerar-vistoria" class="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white font-medium text-xs rounded-lg transition-colors flex items-center space-x-1 shadow-md">
+                            <span>📋 Termo de Vistoria (PDF)</span>
+                        </a>
                     </div>
                 </div>
                 <form action="/salvar-pagamento" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1033,7 +1036,7 @@ def render_dashboard(data: dict):
             <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
                 <div class="flex justify-between items-center border-b border-slate-800 pb-3">
                     <h2 class="text-base font-semibold text-white">👤 Dados do Cliente & Proposta</h2>
-                    <span class="text-xs text-sky-400">Vinculado ao Cronograma, Contrato, Banco, PDF e WhatsApp</span>
+                    <span class="text-xs text-sky-400">Vinculado ao Cronograma, Contrato, Vistoria, Banco e WhatsApp</span>
                 </div>
                 <form action="/salvar-cliente" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
                     <div>
@@ -1098,12 +1101,15 @@ def render_dashboard(data: dict):
                                 <span>💾 Salvar no Histórico (Banco)</span>
                             </button>
                         </form>
-                        <div class="grid grid-cols-3 gap-1.5">
+                        <div class="grid grid-cols-2 gap-1.5">
                             <a href="/gerar-pdf" class="py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-center text-[11px] rounded-lg transition-colors flex items-center justify-center shadow-lg shadow-emerald-600/20">
                                 <span>📄 Orçamento</span>
                             </a>
                             <a href="/gerar-contrato" class="py-2 bg-amber-600 hover:bg-amber-500 text-white font-semibold text-center text-[11px] rounded-lg transition-colors flex items-center justify-center shadow-lg shadow-amber-600/20">
                                 <span>📑 Contrato</span>
+                            </a>
+                            <a href="/gerar-vistoria" class="py-2 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-center text-[11px] rounded-lg transition-colors flex items-center justify-center shadow-lg shadow-purple-600/20">
+                                <span>📋 Vistoria</span>
                             </a>
                             <a href="/gerar-etiquetas" class="py-2 bg-teal-600 hover:bg-teal-500 text-white font-semibold text-center text-[11px] rounded-lg transition-colors flex items-center justify-center shadow-lg shadow-teal-600/20">
                                 <span>🏷️ Etiquetas</span>
@@ -1700,6 +1706,102 @@ def gerar_pdf(id: int = None):
     doc.build(elements)
     buffer.seek(0)
     nome_arquivo = f"proposta-{c_nome.replace(' ', '_')}.pdf"
+    return Response(content=buffer.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"})
+
+@app.get("/gerar-vistoria")
+def gerar_vistoria(id: int = None):
+    empresa = get_empresa_config()
+    if id:
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (id,))
+            row = cursor.fetchone()
+            if row:
+                c_nome = row["cliente_nome"]
+                c_tel = row["cliente_telefone"]
+                c_amb = row["cliente_ambiente"]
+                c_data = row["data_entrega_prevista"] or date.today().strftime("%Y-%m-%d")
+            else:
+                return Response(content="Orçamento não encontrado", status_code=404)
+    else:
+        c_nome = CURRENT_DATA['cliente_nome']
+        c_tel = CURRENT_DATA['cliente_telefone']
+        c_amb = CURRENT_DATA['cliente_ambiente']
+        c_data = CURRENT_DATA.get('data_entrega_prevista', date.today().strftime("%Y-%m-%d"))
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+    styles = getSampleStyleSheet()
+    elements = []
+
+    title_style = ParagraphStyle(name='TitleStyle', parent=styles['Heading1'], fontSize=15, alignment=1, textColor=colors.HexColor('#0f172a'), spaceAfter=2)
+    sub_empresa = ParagraphStyle(name='SubEmpresa', parent=styles['Normal'], fontSize=9, alignment=1, textColor=colors.HexColor('#475569'), spaceAfter=12)
+    body_style = ParagraphStyle(name='BodyStyle', parent=styles['Normal'], fontSize=9, leading=13, textColor=colors.HexColor('#1e293b'))
+    section_title = ParagraphStyle(name='SecTitle', parent=styles['Heading2'], fontSize=11, textColor=colors.HexColor('#6b21a8'), spaceBefore=8, spaceAfter=4)
+
+    elements.append(Paragraph(f"<b>{empresa['nome_empresa']}</b>", title_style))
+    elements.append(Paragraph("TERMO DE VISTORIA, ENTREGA E ACEITE FINAL DE MONTAGEM", sub_empresa))
+
+    meta_data = [
+        ["Cliente:", c_nome, "Data da Vistoria:", date.today().strftime("%d/%m/%Y")],
+        ["WhatsApp/Tel:", c_tel, "Ambiente Montado:", c_amb]
+    ]
+    meta_table = Table(meta_data, colWidths=[110, 160, 120, 150])
+    meta_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f3e8ff')),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#581c87')),
+        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#d8b4fe')),
+    ]))
+    elements.append(meta_table)
+    elements.append(Spacer(1, 10))
+
+    elements.append(Paragraph("<b>1. Checklist de Vistoria de Campo e Qualidade</b>", section_title))
+    
+    check_data = [
+        ["Item de Verificação Técnica", "Status de Inspeção", "Rubrica Cliente / Observações"],
+        ["Alinhamento e folgas de portas e gavetas", "[  ] Conforme  [  ] Ajustado", "Sem atritos estruturais"],
+        ["Amortecedores (Slowmotion) e Corrediças", "[  ] Conforme  [  ] Ajustado", "Abertura e fechamento suaves"],
+        ["Acabamento de fitas de borda e tapa-furos", "[  ] Conforme  [  ] Ajustado", "Refilamento perfeito"],
+        ["Fixações em alvenaria e prumo dos módulos", "[  ] Conforme  [  ] Ajustado", "Fixação reforçada"],
+        ["Limpeza geral e ausência de riscos nos painéis", "[  ] Conforme  [  ] Ajustado", "Higienizado para entrega"]
+    ]
+    check_table = Table(check_data, colWidths=[240, 130, 170])
+    check_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#7e22ce')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
+    ]))
+    elements.append(check_table)
+    elements.append(Spacer(1, 10))
+
+    elements.append(Paragraph("<b>2. Declaração de Aceite e Quitação de Entrega</b>", section_title))
+    p_aceite = """
+    Pelo presente instrumento, o <b>CONTRATANTE</b> declara que acompanhou a vistoria técnica final dos móveis sob medida instalados no ambiente supracitado, constatando que os serviços foram integralmente executados de acordo com o projeto contratado, encontrando-se em perfeito estado de funcionamento, acabamento e limpeza, dando por <b>RECEBIDA E APROVADA A OBRA</b>.
+    """
+    elements.append(Paragraph(p_aceite, body_style))
+    elements.append(Spacer(1, 24))
+
+    sign_data = [
+        ["_____________________________________________", "_____________________________________________"],
+        [f"<b>{empresa['nome_empresa']}</b>\nResponsável Técnico / Montador", f"<b>{c_nome}</b>\nAssinatura do Cliente (Aceite)"]
+    ]
+    sign_table = Table(sign_data, colWidths=[270, 270])
+    sign_table.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#0f172a')),
+        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+    ]))
+    elements.append(sign_table)
+
+    doc.build(elements)
+    buffer.seek(0)
+    nome_arquivo = f"termo-vistoria-{c_nome.replace(' ', '_')}.pdf"
     return Response(content=buffer.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"})
 
 @app.get("/gerar-etiquetas")
