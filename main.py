@@ -10,7 +10,7 @@ import urllib.parse
 import json
 import sqlite3
 import math
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 
 app = FastAPI(title="Sistema Marcenaria & Promob")
 DB_PATH = "marcenaria.db"
@@ -38,6 +38,15 @@ def init_db():
             )
         """)
         cursor.execute("""
+            CREATE TABLE IF NOT EXISTS estoque (
+                codigo TEXT PRIMARY KEY,
+                descricao TEXT,
+                quantidade REAL,
+                qtd_minima REAL,
+                unidade TEXT
+            )
+        """)
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS orcamentos (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 criado_em TEXT,
@@ -57,17 +66,30 @@ def init_db():
                 entrada_valor REAL DEFAULT 0.0,
                 num_parcelas INTEGER DEFAULT 1,
                 forma_pagamento TEXT DEFAULT 'PIX / Transferência',
+                estoque_baixado INTEGER DEFAULT 0,
                 items_json TEXT
             )
         """)
         
         # Migrações caso colunas não existam em bancos anteriores
-        colunas = ["status", "entrada_valor", "num_parcelas", "forma_pagamento"]
+        colunas = ["status", "entrada_valor", "num_parcelas", "forma_pagamento", "estoque_baixado"]
         for col in colunas:
             try:
                 cursor.execute(f"ALTER TABLE orcamentos ADD COLUMN {col} TEXT")
             except Exception:
                 pass
+
+        # Inicialização do Estoque Padrão
+        cursor.execute("SELECT codigo FROM estoque WHERE codigo = 'mdf'")
+        if not cursor.fetchone():
+            itens_padrao = [
+                ('mdf', 'Chapas de MDF 18mm / 15mm', 15.0, 5.0, 'chapas'),
+                ('fita', 'Fita de Borda PVC 22mm', 250.0, 50.0, 'metros'),
+                ('dobradica', 'Dobradiças com Amortecedor 35mm', 80.0, 20.0, 'unidades'),
+                ('corredica', 'Corrediças Telescópicas 450mm', 24.0, 6.0, 'pares'),
+                ('puxador', 'Puxadores Perfil Alumínio / Pontos', 30.0, 10.0, 'unidades')
+            ]
+            cursor.executemany("INSERT INTO estoque VALUES (?, ?, ?, ?, ?)", itens_padrao)
 
         cursor.execute("SELECT email FROM usuarios WHERE email = 'admin@marcenaria.com'")
         if not cursor.fetchone():
@@ -137,6 +159,12 @@ def set_empresa_config(dados: dict):
         cursor.execute("INSERT OR REPLACE INTO configuracoes (chave, valor) VALUES ('dados_empresa', ?)", (json.dumps(dados),))
         conn.commit()
 
+def get_estoque_atual():
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM estoque")
+        return cursor.fetchall()
+
 CURRENT_DATA = {
     "user": "admin@marcenaria.com",
     "user_perfil": "admin",
@@ -150,6 +178,7 @@ CURRENT_DATA = {
     "entrada_valor": 1000.0,
     "num_parcelas": 3,
     "forma_pagamento": "Entrada + Cartão de Crédito",
+    "estoque_baixado": 0,
     "custo_materiais": 0.0,
     "dias_producao": 3,
     "valor_diaria": 180.0,
@@ -176,7 +205,7 @@ def render_login_page(msg_erro=""):
         <div class="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-8 shadow-2xl space-y-6">
             <div class="text-center space-y-2">
                 <h1 class="text-2xl font-bold tracking-tight text-white">Marcenaria Pro SaaS</h1>
-                <p class="text-xs text-slate-400">Gestão de Orçamentos Promob, Plano de Corte & Contratos</p>
+                <p class="text-xs text-slate-400">Gestão de Orçamentos Promob, Estoque & Produção DRE</p>
             </div>
             {erro_tag}
             <form action="/painel" method="post" class="space-y-4">
@@ -242,7 +271,6 @@ def calcular_dre_completa(d: dict):
     lucro_liquido = pv - (custo_direto_total + imposto_val + comissao_val) if pv > 0 else 0.0
     margem_liq_pct = (lucro_liquido / pv * 100.0) if pv > 0 else 0.0
     
-    # Cálculo do parcelamento
     entrada = min(float(d.get("entrada_valor", 0.0)), pv)
     saldo_restante = max(pv - entrada, 0.0)
     n_parc = max(int(d.get("num_parcelas", 1)), 1)
@@ -366,6 +394,7 @@ def render_dashboard(data: dict):
     precos = get_precos_config()
     empresa = get_empresa_config()
     compras = consolidar_compras_e_nesting(items)
+    estoque = get_estoque_atual()
     
     rows_html = ""
     if items:
@@ -422,6 +451,28 @@ def render_dashboard(data: dict):
     else:
         svg_chapas_html = "<div class='py-8 text-center text-xs text-slate-500'>Importe um projeto XML para renderizar os diagramas de corte.</div>"
 
+    # Seção de Cards de Estoque com Alertas de Reposição
+    estoque_cards_html = ""
+    for est in estoque:
+        is_baixo = est['quantidade'] <= est['qtd_minima']
+        borda_cor = "border-rose-700/60 bg-rose-950/20" if is_baixo else "border-slate-800 bg-slate-950"
+        tag_status = "<span class='text-[10px] text-rose-400 font-bold'>⚠️ Repor Estoque</span>" if is_baixo else "<span class='text-[10px] text-emerald-400'>✓ Regular</span>"
+        estoque_cards_html += f"""
+        <div class="p-3.5 rounded-xl border {borda_cor} flex flex-col justify-between space-y-2">
+            <div class="flex justify-between items-start">
+                <span class="text-[11px] font-semibold text-slate-300">{est['descricao']}</span>
+                {tag_status}
+            </div>
+            <div class="flex justify-between items-end">
+                <div>
+                    <span class="text-2xl font-bold text-white">{est['quantidade']:,.0f}</span>
+                    <span class="text-xs text-slate-400"> {est['unidade']}</span>
+                </div>
+                <span class="text-[10px] text-slate-500">Mín: {est['qtd_minima']:,.0f}</span>
+            </div>
+        </div>
+        """
+
     condicoes_zap = f"Entrada de R$ {dre['entrada']:,.2f} + {dre['n_parc']}x de R$ {dre['valor_parcela']:,.2f}" if dre['n_parc'] > 1 else f"R$ {dre['pv']:,.2f} à vista"
     msg_zap = f"Olá {data['cliente_nome']}! Segue a proposta da {empresa['nome_empresa']} para o projeto {data['cliente_ambiente']}: Total de R$ {dre['pv']:,.2f} ({condicoes_zap}) com entrega em {data['prazo_entrega']}."
     zap_url = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone']}&text={urllib.parse.quote(msg_zap)}"
@@ -436,17 +487,26 @@ def render_dashboard(data: dict):
     msg_cotacao += f"Favor enviar cotação e disponibilidade."
     zap_cotacao_url = f"https://api.whatsapp.com/send?text={urllib.parse.quote(msg_cotacao)}"
 
+    # Histórico do Banco com Dropdown de Status e Baixa de Estoque
     historico_html = ""
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, criado_em, cliente_nome, cliente_ambiente, preco_venda, lucro_liquido, status FROM orcamentos ORDER BY id DESC LIMIT 20")
+        cursor.execute("SELECT id, criado_em, cliente_nome, cliente_ambiente, preco_venda, lucro_liquido, status, estoque_baixado FROM orcamentos ORDER BY id DESC LIMIT 20")
         historico_rows = cursor.fetchall()
         
         if historico_rows:
             for h in historico_rows:
                 lucro_col = f"<td class='py-3 px-4 text-right text-emerald-400 font-semibold'>R$ {h['lucro_liquido']:,.2f}</td>" if is_admin else "<td class='py-3 px-4 text-right text-slate-500'>—</td>"
                 current_st = h['status'] or 'Em Negociação'
+                baixado = int(h['estoque_baixado'] or 0)
                 
+                btn_baixa = "<span class='text-[10px] text-emerald-400 font-medium px-2 py-0.5 bg-emerald-950/60 rounded border border-emerald-800'>Estoque Baixado</span>" if baixado else f"""
+                <form action="/dar-baixa-estoque" method="post" class="inline" onsubmit="return confirm('Confirmar baixa automática dos materiais no estoque?');">
+                    <input type="hidden" name="orcamento_id" value="{h['id']}">
+                    <button type="submit" class="px-2 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-[10px] font-semibold">Baixar Estoque</button>
+                </form>
+                """
+
                 historico_html += f"""
                 <tr class="border-b border-slate-800 hover:bg-slate-800/40 text-xs">
                     <td class="py-3 px-4 text-slate-400 font-mono">#{h['id']}</td>
@@ -468,6 +528,9 @@ def render_dashboard(data: dict):
                         </form>
                     </td>
                     <td class="py-3 px-4 text-center">
+                        {btn_baixa}
+                    </td>
+                    <td class="py-3 px-4 text-center">
                         <div class="flex items-center justify-center space-x-1">
                             <form action="/carregar-orcamento" method="post" class="inline">
                                 <input type="hidden" name="orcamento_id" value="{h['id']}">
@@ -487,7 +550,7 @@ def render_dashboard(data: dict):
         else:
             historico_html = """
             <tr>
-                <td colspan="8" class="py-6 text-center text-xs text-slate-500">
+                <td colspan="9" class="py-6 text-center text-xs text-slate-500">
                     Nenhum orçamento salvo no histórico ainda. Salve o orçamento ativo abaixo.
                 </td>
             </tr>
@@ -555,6 +618,41 @@ def render_dashboard(data: dict):
     """
 
     admin_sections = f"""
+    <!-- Módulo de Controle de Estoque & Entrada de Mercadorias -->
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
+            <div>
+                <h2 class="text-base font-semibold text-white">📦 Controle de Estoque & Insumos da Marcenaria</h2>
+                <p class="text-xs text-slate-400">Saldos atuais de materiais com alerta automático de reposição</p>
+            </div>
+            <span class="text-xs text-indigo-400 font-medium">Baixa automática vinculada à produção</span>
+        </div>
+        
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            {estoque_cards_html}
+        </div>
+
+        <form action="/adicionar-estoque" method="post" class="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-wrap items-end gap-3">
+            <div class="flex-1 min-w-[180px]">
+                <label class="block text-[11px] font-medium text-slate-400 mb-1">Insumo / Material p/ Entrada</label>
+                <select name="codigo" class="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white">
+                    <option value="mdf">Chapas de MDF (Chapas)</option>
+                    <option value="fita">Fita de Borda PVC (Metros)</option>
+                    <option value="dobradica">Dobradiças com Amortecedor (Un)</option>
+                    <option value="corredica">Corrediças Telescópicas (Pares)</option>
+                    <option value="puxador">Puxadores (Un)</option>
+                </select>
+            </div>
+            <div class="w-32">
+                <label class="block text-[11px] font-medium text-slate-400 mb-1">Qtd Comprada</label>
+                <input type="number" step="1" min="1" name="quantidade" required value="10" class="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white">
+            </div>
+            <button type="submit" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shrink-0">
+                + Dar Entrada no Estoque
+            </button>
+        </form>
+    </div>
+
     <!-- Personalização dos Dados da Sua Marcenaria -->
     <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
         <div class="flex justify-between items-center border-b border-slate-800 pb-3">
@@ -927,11 +1025,11 @@ def render_dashboard(data: dict):
                 </div>
             </div>
 
-            <!-- Histórico de Orçamentos com Status Dinâmico -->
+            <!-- Histórico de Orçamentos com Status Dinâmico e Baixa de Estoque -->
             <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
                 <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-850">
-                    <h3 class="text-sm font-semibold text-white">📁 Histórico & Funil de Pedidos (Banco de Dados)</h3>
-                    <span class="text-xs text-slate-400">Altere o status para acompanhar a produção</span>
+                    <h3 class="text-sm font-semibold text-white">📁 Histórico, Pedidos & Produção (Banco de Dados)</h3>
+                    <span class="text-xs text-slate-400">Gerencie status e execute baixas automáticas de estoque</span>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="w-full text-left border-collapse">
@@ -944,6 +1042,7 @@ def render_dashboard(data: dict):
                                 <th class="py-3 px-4 text-right">Valor Venda</th>
                                 <th class="py-3 px-4 text-right">Lucro Líquido</th>
                                 <th class="py-3 px-4 text-center">Status do Pedido</th>
+                                <th class="py-3 px-4 text-center">Estoque</th>
                                 <th class="py-3 px-4 text-center">Ações</th>
                             </tr>
                         </thead>
@@ -1013,6 +1112,37 @@ def salvar_empresa(nome_empresa: str = Form(...), cnpj: str = Form(...), telefon
         set_empresa_config(dados)
     return RedirectResponse(url="/painel-get", status_code=303)
 
+@app.post("/adicionar-estoque", response_class=HTMLResponse)
+def adicionar_estoque(codigo: str = Form(...), quantidade: float = Form(...)):
+    if CURRENT_DATA.get("user_perfil") == "admin":
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE estoque SET quantidade = quantidade + ? WHERE codigo = ?", (quantidade, codigo))
+            conn.commit()
+    return RedirectResponse(url="/painel-get", status_code=303)
+
+@app.post("/dar-baixa-estoque", response_class=HTMLResponse)
+def dar_baixa_estoque(orcamento_id: int = Form(...)):
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT items_json, estoque_baixado FROM orcamentos WHERE id = ?", (orcamento_id,))
+        row = cursor.fetchone()
+        if row and not row["estoque_baixado"]:
+            items = json.loads(row["items_json"]) if row["items_json"] else []
+            compras = consolidar_compras_e_nesting(items)
+            
+            # Baixa nas quantidades correspondentes
+            cursor.execute("UPDATE estoque SET quantidade = MAX(quantidade - ?, 0) WHERE codigo = 'mdf'", (compras["chapas_mdf"],))
+            cursor.execute("UPDATE estoque SET quantidade = MAX(quantidade - ?, 0) WHERE codigo = 'fita'", (compras["fita_metros"],))
+            cursor.execute("UPDATE estoque SET quantidade = MAX(quantidade - ?, 0) WHERE codigo = 'dobradica'", (compras["dobradicas"],))
+            cursor.execute("UPDATE estoque SET quantidade = MAX(quantidade - ?, 0) WHERE codigo = 'corredica'", (compras["corredicas"],))
+            cursor.execute("UPDATE estoque SET quantidade = MAX(quantidade - ?, 0) WHERE codigo = 'puxador'", (compras["puxadores"],))
+            
+            cursor.execute("UPDATE orcamentos SET estoque_baixado = 1 WHERE id = ?", (orcamento_id,))
+            conn.commit()
+            
+    return RedirectResponse(url="/painel-get", status_code=303)
+
 @app.post("/salvar-pagamento", response_class=HTMLResponse)
 def salvar_pagamento(entrada_valor: float = Form(0.0), num_parcelas: int = Form(1), forma_pagamento: str = Form("PIX")):
     CURRENT_DATA["entrada_valor"] = entrada_valor
@@ -1050,6 +1180,7 @@ def novo_orcamento():
     CURRENT_DATA["entrada_valor"] = 0.0
     CURRENT_DATA["num_parcelas"] = 1
     CURRENT_DATA["forma_pagamento"] = "PIX / Transferência"
+    CURRENT_DATA["estoque_baixado"] = 0
     CURRENT_DATA["custo_materiais"] = 0.0
     CURRENT_DATA["dias_producao"] = 3
     CURRENT_DATA["valor_diaria"] = 180.0
@@ -1181,6 +1312,7 @@ def carregar_orcamento(orcamento_id: int = Form(...)):
                 CURRENT_DATA["entrada_valor"] = float(row["entrada_valor"] or 0.0)
                 CURRENT_DATA["num_parcelas"] = int(row["num_parcelas"] or 1)
                 CURRENT_DATA["forma_pagamento"] = row["forma_pagamento"] or "PIX"
+                CURRENT_DATA["estoque_baixado"] = int(row["estoque_baixado"] or 0)
             except Exception:
                 pass
             CURRENT_DATA["items"] = json.loads(row["items_json"]) if row["items_json"] else []
@@ -1460,7 +1592,6 @@ def gerar_contrato(id: int = None):
     elements.append(Paragraph("<b>INSTRUMENTO PARTICULAR DE PRESTAÇÃO DE SERVIÇOS DE MARCENARIA</b>", title_style))
     elements.append(Spacer(1, 4))
 
-    # Identificação das Partes
     elements.append(Paragraph("<b>1. IDENTIFICAÇÃO DAS PARTES CONTRATANTES</b>", clause_title))
     p_partes = f"""
     <b>CONTRATADA:</b> {empresa['nome_empresa']}, inscrita no CNPJ sob o nº {empresa['cnpj']}, contato {empresa['telefone_empresa']}.<br/>
@@ -1468,34 +1599,28 @@ def gerar_contrato(id: int = None):
     """
     elements.append(Paragraph(p_partes, body_style))
 
-    # Objeto do Contrato
     elements.append(Paragraph("<b>2. OBJETO DO CONTRATO</b>", clause_title))
     p_obj = f"O presente contrato tem por objeto a fabricação, acabamento e instalação de móveis sob medida destinados ao ambiente: <b>{c_amb}</b>, em conformidade com o projeto executivo e relação de insumos aprovados."
     elements.append(Paragraph(p_obj, body_style))
 
-    # Preço e Pagamento
     elements.append(Paragraph("<b>3. VALOR E FORMA DE PAGAMENTO</b>", clause_title))
     cond_extenso = f"Entrada no valor de <b>R$ {entrada:,.2f}</b> mais <b>{n_parc} parcela(s)</b> de <b>R$ {v_parc:,.2f}</b> através de {forma_pgto}." if n_parc > 1 else f"Pagamento à vista no valor de <b>R$ {pv:,.2f}</b> via {forma_pgto}."
     p_preco = f"Pela execução integral dos serviços descritos, o CONTRATANTE pagará à CONTRATADA o valor total de <b>R$ {pv:,.2f}</b>, nas seguintes condições: {cond_extenso}"
     elements.append(Paragraph(p_preco, body_style))
 
-    # Prazo de Entrega e Montagem
     elements.append(Paragraph("<b>4. PRAZO DE FABRICAÇÃO E INSTALAÇÃO</b>", clause_title))
     p_prazo = f"A CONTRATADA compromete-se a entregar e finalizar a montagem dos móveis no prazo estimado de <b>{c_prazo}</b>, contados a partir da aprovação final das medidas no local e confirmação do pagamento inicial."
     elements.append(Paragraph(p_prazo, body_style))
 
-    # Garantia
     elements.append(Paragraph("<b>5. TERMO DE GARANTIA</b>", clause_title))
     p_garantia = "A CONTRATADA concede a garantia de <b>12 (doze) meses</b> a contar da data de entrega, cobrindo eventuais defeitos de fabricação e montagem de ferragens estruturais, não cobrindo danos ocasionados por umidade excessiva, mau uso ou intervenções de terceiros."
     elements.append(Paragraph(p_garantia, body_style))
     elements.append(Spacer(1, 16))
 
-    # Data e Local
-    data_extenso = date.today().strftime("%d de %B de %Y")
-    elements.append(Paragraph(f"São Paulo, {data_extenso}.", body_style))
+    data_extenso = date.today().strftime("%d/%m/%Y")
+    elements.append(Paragraph(f"Data de formalização: {data_extenso}.", body_style))
     elements.append(Spacer(1, 24))
 
-    # Assinaturas
     sign_data = [
         ["_____________________________________________", "_____________________________________________"],
         [f"<b>{empresa['nome_empresa']}</b>\nCONTRATADA (CNPJ: {empresa['cnpj']})", f"<b>{c_nome}</b>\nCONTRATANTE"]
