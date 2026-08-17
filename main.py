@@ -58,13 +58,11 @@ def init_db():
             )
         """)
         
-        # Migração simples se a coluna status não existir em bancos antigos
         try:
             cursor.execute("ALTER TABLE orcamentos ADD COLUMN status TEXT DEFAULT 'Em Negociação'")
         except Exception:
             pass
 
-        # Usuários padrão
         cursor.execute("SELECT email FROM usuarios WHERE email = 'admin@marcenaria.com'")
         if not cursor.fetchone():
             cursor.execute("INSERT INTO usuarios VALUES ('admin@marcenaria.com', '123456', 'Administrador', 'admin')")
@@ -169,7 +167,7 @@ def render_login_page(msg_erro=""):
         <div class="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-8 shadow-2xl space-y-6">
             <div class="text-center space-y-2">
                 <h1 class="text-2xl font-bold tracking-tight text-white">Marcenaria Pro SaaS</h1>
-                <p class="text-xs text-slate-400">Gestão de Orçamentos Promob & Precificação DRE</p>
+                <p class="text-xs text-slate-400">Gestão de Orçamentos Promob & Plano de Corte DRE</p>
             </div>
             {erro_tag}
             <form action="/painel" method="post" class="space-y-4">
@@ -247,7 +245,12 @@ def calcular_dre_completa(d: dict):
         "margem_liq_pct": margem_liq_pct
     }
 
-def consolidar_compras(items: list):
+def consolidar_compras_e_nesting(items: list):
+    CHAPA_LARGURA = 2750.0
+    CHAPA_ALTURA = 1830.0
+    AREA_CHAPA_M2 = (CHAPA_LARGURA / 1000.0) * (CHAPA_ALTURA / 1000.0) # ~5.03 m²
+    
+    pecas_corte = []
     area_total_m2 = 0.0
     dobradicas = 0
     corredicas = 0
@@ -258,12 +261,19 @@ def consolidar_compras(items: list):
     for it in items:
         tipo = it.get("tipo", "")
         qtd = it.get("qtd", 1)
-        largura = it.get("largura", 0.0)
-        altura = it.get("altura", 0.0)
+        largura = float(it.get("largura", 0.0))
+        altura = float(it.get("altura", 0.0))
 
         if "MDF" in tipo and largura > 0 and altura > 0:
-            area_total_m2 += (largura / 1000.0) * (altura / 1000.0) * qtd
+            area_item = (largura / 1000.0) * (altura / 1000.0) * qtd
+            area_total_m2 += area_item
             fita_metros += (((largura + altura) * 2) / 1000.0) * qtd * 0.5
+            for _ in range(qtd):
+                pecas_corte.append({
+                    "nome": it.get("nome", "Peça"),
+                    "largura": largura,
+                    "altura": altura
+                })
         elif "Dobradiça" in tipo:
             dobradicas += qtd
         elif "Corrediça" in tipo:
@@ -275,30 +285,65 @@ def consolidar_compras(items: list):
         else:
             outros += qtd
 
-    chapas_mdf = math.ceil(area_total_m2 / 4.5) if area_total_m2 > 0 else (1 if items else 0)
+    # Algoritmo de Nesting (Disposição das Peças nas Chapas 2750 x 1830 mm)
+    chapas = []
+    pecas_ordenadas = sorted(pecas_corte, key=lambda p: p["largura"] * p["altura"], reverse=True)
     
+    for p in pecas_ordenadas:
+        w = min(p["largura"], CHAPA_LARGURA)
+        h = min(p["altura"], CHAPA_ALTURA)
+        colocada = False
+        
+        for ch in chapas:
+            # Tenta encaixar no shelf atual
+            if ch["cur_x"] + w <= CHAPA_LARGURA and ch["cur_y"] + h <= CHAPA_ALTURA:
+                ch["pecas"].append({
+                    "nome": p["nome"], "x": ch["cur_x"], "y": ch["cur_y"], "w": w, "h": h
+                })
+                ch["cur_x"] += w + 10 # 10mm de espessura de serra
+                ch["row_max_h"] = max(ch["row_max_h"], h)
+                ch["area_utilizada"] += (w / 1000.0) * (h / 1000.0)
+                colocada = True
+                break
+            # Quebra para a próxima linha da chapa
+            elif ch["cur_y"] + ch["row_max_h"] + h <= CHAPA_ALTURA and w <= CHAPA_LARGURA:
+                ch["cur_y"] += ch["row_max_h"] + 10
+                ch["cur_x"] = 0.0
+                ch["row_max_h"] = h
+                ch["pecas"].append({
+                    "nome": p["nome"], "x": ch["cur_x"], "y": ch["cur_y"], "w": w, "h": h
+                })
+                ch["cur_x"] += w + 10
+                ch["area_utilizada"] += (w / 1000.0) * (h / 1000.0)
+                colocada = True
+                break
+        
+        if not colocada:
+            # Cria uma nova chapa
+            nova_chapa = {
+                "id": len(chapas) + 1,
+                "cur_x": w + 10,
+                "cur_y": 0.0,
+                "row_max_h": h,
+                "area_utilizada": (w / 1000.0) * (h / 1000.0),
+                "pecas": [{
+                    "nome": p["nome"], "x": 0.0, "y": 0.0, "w": w, "h": h
+                }]
+            }
+            chapas.append(nova_chapa)
+
+    total_chapas = max(len(chapas), 1 if items else 0)
+
     return {
         "area_m2": area_total_m2,
-        "chapas_mdf": chapas_mdf,
+        "chapas_mdf": total_chapas,
         "fita_metros": round(fita_metros, 1),
         "dobradicas": dobradicas,
         "corredicas": corredicas,
         "puxadores": puxadores,
-        "outros": outros
+        "outros": outros,
+        "chapas_nesting": chapas
     }
-
-def get_badge_status(status_str: str):
-    st = status_str or "Em Negociação"
-    if st == "Aprovado":
-        return "<span class='px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950 text-emerald-300 border border-emerald-800'>🟢 Aprovado</span>"
-    elif st == "Em Produção":
-        return "<span class='px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-950 text-blue-300 border border-blue-800'>🔵 Em Produção</span>"
-    elif st == "Entregue":
-        return "<span class='px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-950 text-purple-300 border border-purple-800'>🟣 Entregue</span>"
-    elif st == "Cancelado":
-        return "<span class='px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-950 text-rose-300 border border-rose-800'>🔴 Cancelado</span>"
-    else:
-        return "<span class='px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-950 text-amber-300 border border-amber-800'>🟡 Em Negociação</span>"
 
 def render_dashboard(data: dict):
     is_admin = (data.get("user_perfil") == "admin")
@@ -306,7 +351,7 @@ def render_dashboard(data: dict):
     items = data.get("items", [])
     precos = get_precos_config()
     empresa = get_empresa_config()
-    compras = consolidar_compras(items)
+    compras = consolidar_compras_e_nesting(items)
     
     rows_html = ""
     if items:
@@ -332,6 +377,39 @@ def render_dashboard(data: dict):
         </tr>
         """
 
+    # Geração dos Gráficos SVG das Chapas de MDF (Plano de Corte 2D)
+    svg_chapas_html = ""
+    if compras["chapas_nesting"]:
+        for ch in compras["chapas_nesting"]:
+            aproveitamento = min((ch["area_utilizada"] / 5.03) * 100.0, 100.0)
+            rects_svg = ""
+            for p in ch["pecas"]:
+                # Escala para caber no SVG (2750mm x 1830mm -> 550px x 366px)
+                sx = (p["x"] / 2750.0) * 550.0
+                sy = (p["y"] / 1830.0) * 366.0
+                sw = max((p["w"] / 2750.0) * 550.0, 4)
+                sh = max((p["h"] / 1830.0) * 366.0, 4)
+                rects_svg += f"""
+                <rect x="{sx:.1f}" y="{sy:.1f}" width="{sw:.1f}" height="{sh:.1f}" fill="#0284c7" stroke="#0f172a" stroke-width="1" rx="2" opacity="0.9"/>
+                <text x="{sx + 4:.1f}" y="{sy + 14:.1f}" fill="#ffffff" font-size="9" font-family="sans-serif" font-weight="bold">{p['nome'][:16]} ({int(p['w'])}x{int(p['h'])})</text>
+                """
+
+            svg_chapas_html += f"""
+            <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
+                <div class="flex justify-between items-center text-xs">
+                    <span class="font-bold text-white">Chapa #{ch['id']} (2750 x 1830 mm)</span>
+                    <span class="text-emerald-400 font-semibold">Aproveitamento: {aproveitamento:.1f}% ({ch['area_utilizada']:.2f} m²)</span>
+                </div>
+                <div class="w-full bg-slate-900 border border-dashed border-slate-700 rounded-lg p-2 overflow-x-auto flex justify-center">
+                    <svg viewBox="0 0 550 366" class="w-full max-w-[550px] h-[220px] bg-slate-800/80 rounded border border-slate-700">
+                        {rects_svg}
+                    </svg>
+                </div>
+            </div>
+            """
+    else:
+        svg_chapas_html = "<div class='py-8 text-center text-xs text-slate-500'>Importe um projeto XML com peças de MDF para renderizar os diagramas do plano de corte.</div>"
+
     msg_zap = f"Olá {data['cliente_nome']}! Segue o orçamento da {empresa['nome_empresa']} para o projeto {data['cliente_ambiente']}: R$ {dre['pv']:,.2f} com prazo de entrega de {data['prazo_entrega']}."
     zap_url = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone']}&text={urllib.parse.quote(msg_zap)}"
 
@@ -345,7 +423,6 @@ def render_dashboard(data: dict):
     msg_cotacao += f"Favor informar valores e prazo de entrega."
     zap_cotacao_url = f"https://api.whatsapp.com/send?text={urllib.parse.quote(msg_cotacao)}"
 
-    # Histórico do Banco com Dropdown de Status
     historico_html = ""
     with get_db() as conn:
         cursor = conn.cursor()
@@ -690,6 +767,20 @@ def render_dashboard(data: dict):
                 </div>
             </div>
 
+            <!-- Módulo Visual de Plano de Corte Gráfico (2D Nesting) -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+                <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                    <div>
+                        <h2 class="text-base font-semibold text-white">📐 Diagrama Visual de Plano de Corte (Nesting)</h2>
+                        <p class="text-xs text-slate-400">Distribuição automatizada das peças nas chapas padrão 2750 x 1830 mm</p>
+                    </div>
+                    <span class="text-xs text-sky-400 font-semibold">{compras['chapas_mdf']} chapa(s) necessária(s)</span>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {svg_chapas_html}
+                </div>
+            </div>
+
             <!-- Dados do Cliente -->
             <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
                 <div class="flex justify-between items-center border-b border-slate-800 pb-3">
@@ -765,7 +856,7 @@ def render_dashboard(data: dict):
                 </div>
             </div>
 
-            <!-- Histórico de Orçamentos com Status Dinâmico -->
+            <!-- Histórico de Orçamentos -->
             <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
                 <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-850">
                     <h3 class="text-sm font-semibold text-white">📁 Histórico & Funil de Pedidos (Banco de Dados)</h3>
@@ -1147,7 +1238,6 @@ def gerar_pdf(id: int = None):
     styles = getSampleStyleSheet()
     elements = []
 
-    # Cabeçalho com os Dados da Empresa
     title_style = ParagraphStyle(name='TitleStyle', parent=styles['Heading1'], fontSize=18, textColor=colors.HexColor('#0f172a'), spaceAfter=2)
     sub_empresa = ParagraphStyle(name='SubEmpresa', parent=styles['Normal'], fontSize=9, textColor=colors.HexColor('#475569'), spaceAfter=10)
     
@@ -1155,7 +1245,6 @@ def gerar_pdf(id: int = None):
     elements.append(Paragraph(f"CNPJ: {empresa['cnpj']} | Contato: {empresa['telefone_empresa']} | PIX: {empresa['pix']}", sub_empresa))
     elements.append(Spacer(1, 4))
 
-    # Dados do Cliente e Projeto
     cliente_data = [
         ["Cliente:", c_nome, "Data da Proposta:", date.today().strftime("%d/%m/%Y")],
         ["WhatsApp/Tel:", c_tel, "Prazo de Entrega:", c_prazo],
@@ -1173,7 +1262,6 @@ def gerar_pdf(id: int = None):
     elements.append(cliente_table)
     elements.append(Spacer(1, 12))
 
-    # Tabela Comercial Limpa para o Cliente
     dre_data = [
         ["Ambiente / Projeto", f"{c_amb}"],
         ["Prazo de Fabricação e Instalação", f"{c_prazo}"],
@@ -1240,7 +1328,7 @@ def gerar_pdf_compras(id: int = None):
         c_amb = CURRENT_DATA['cliente_ambiente']
         items = CURRENT_DATA["items"]
 
-    compras = consolidar_compras(items)
+    compras = consolidar_compras_e_nesting(items)
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
@@ -1248,7 +1336,7 @@ def gerar_pdf_compras(id: int = None):
     elements = []
 
     title_style = ParagraphStyle(name='TitleStyle', parent=styles['Heading1'], fontSize=18, textColor=colors.HexColor('#1e1b4b'), spaceAfter=4)
-    elements.append(Paragraph(f"{empresa['nome_empresa']} - Cotação Fornecedor", title_style))
+    elements.append(Paragraph(f"{empresa['nome_empresa']} - Cotação Fornecedor & Plano de Corte", title_style))
     elements.append(Spacer(1, 8))
 
     meta_data = [
