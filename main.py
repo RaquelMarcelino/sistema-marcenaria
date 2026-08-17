@@ -309,7 +309,7 @@ def render_login_page(msg_erro=""):
         <div class="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-8 shadow-2xl space-y-6">
             <div class="text-center space-y-2">
                 <h1 class="text-2xl font-bold tracking-tight text-white">Marcenaria Pro SaaS</h1>
-                <p class="text-xs text-slate-400">Gestão de Orçamentos Promob, O.S. da Fábrica & Produção DRE</p>
+                <p class="text-xs text-slate-400">Gestão de Orçamentos Promob, Notificações & Produção DRE</p>
             </div>
             {erro_tag}
             <form action="/painel" method="post" class="space-y-4">
@@ -612,6 +612,21 @@ def render_dashboard(data: dict):
         </div>
         """
 
+    # Mensagens Prontas de WhatsApp
+    cond_texto_zap = f"Entrada de R$ {dre['entrada']:,.2f} + {dre['n_parc']}x de R$ {dre['valor_parcela']:,.2f}" if dre['n_parc'] > 1 else f"R$ {dre['pv']:,.2f} à vista"
+    
+    msg_proposta = f"Olá {data['cliente_nome']}! Segue a proposta da {empresa['nome_empresa']} para o projeto {data['cliente_ambiente']}: Total de R$ {dre['pv']:,.2f} ({cond_texto_zap}) com entrega em {data['prazo_entrega']}."
+    url_proposta = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone']}&text={urllib.parse.quote(msg_proposta)}"
+
+    msg_producao = f"Olá {data['cliente_nome']}! Temos boas notícias: o seu projeto ({data['cliente_ambiente']}) já entrou em processo de fabricação e corte em nossa marcenaria! Previsão de montagem para {data.get('data_entrega_prevista', data['prazo_entrega'])}."
+    url_producao = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone']}&text={urllib.parse.quote(msg_producao)}"
+
+    msg_montagem = f"Olá {data['cliente_nome']}! Nossos montadores estão confirmados para realizar a instalação do projeto ({data['cliente_ambiente']}) a partir de {data.get('data_entrega_prevista', 'breve')}. Qualquer dúvida estamos à disposição!"
+    url_montagem = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone']}&text={urllib.parse.quote(msg_montagem)}"
+
+    msg_cobranca = f"Olá {data['cliente_nome']}! Passando para lembrar sobre o saldo pendente de R$ {dre['saldo_devedor']:,.2f} referente ao projeto ({data['cliente_ambiente']}). Chave PIX: {empresa['pix']}."
+    url_cobranca = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone']}&text={urllib.parse.quote(msg_cobranca)}"
+
     hoje = date.today()
     cronograma_cards_html = ""
     historico_html = ""
@@ -729,10 +744,6 @@ def render_dashboard(data: dict):
             historico_html = "<tr><td colspan='10' class='py-6 text-center text-xs text-slate-500'>Nenhum orçamento salvo no histórico ainda.</td></tr>"
 
     cronograma_cards_html = cronograma_cards_html or "<div class='py-6 text-center text-xs text-slate-500 col-span-full'>Nenhum projeto em produção no momento. Passe orçamentos para 'Em Produção' ou 'Aprovado' para ver o cronograma.</div>"
-
-    condicoes_zap = f"Entrada de R$ {dre['entrada']:,.2f} + {dre['n_parc']}x de R$ {dre['valor_parcela']:,.2f}" if dre['n_parc'] > 1 else f"R$ {dre['pv']:,.2f} à vista"
-    msg_zap = f"Olá {data['cliente_nome']}! Segue a proposta da {empresa['nome_empresa']} para o projeto {data['cliente_ambiente']}: Total de R$ {dre['pv']:,.2f} ({condicoes_zap}) com entrega em {data['prazo_entrega']}."
-    zap_url = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone']}&text={urllib.parse.quote(msg_zap)}"
 
     msg_cotacao = f"*COTAÇÃO DE MATERIAIS - {empresa['nome_empresa']}*\n"
     msg_cotacao += f"Projeto: {data['cliente_ambiente']}\n"
@@ -1022,6 +1033,47 @@ def render_dashboard(data: dict):
         <main class="max-w-7xl mx-auto p-6 space-y-6">
             {dre_cards}
 
+            <!-- Central de Notificações WhatsApp -->
+            <div class="bg-slate-900 border border-emerald-900/60 rounded-xl p-6 shadow-lg space-y-3">
+                <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                    <div>
+                        <h2 class="text-base font-semibold text-white">📲 Central de Notificações & Mensagens WhatsApp</h2>
+                        <p class="text-xs text-emerald-400">Dispare atualizações automáticas direto no WhatsApp do cliente com 1 clique</p>
+                    </div>
+                    <span class="text-xs text-slate-400">Cliente: <b class="text-white">{data['cliente_nome']}</b> ({data['cliente_telefone']})</span>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+                    <a href="{url_proposta}" target="_blank" class="p-3 bg-slate-950 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-700 rounded-xl text-left transition-colors group flex flex-col justify-between">
+                        <div>
+                            <span class="text-xs font-bold text-white group-hover:text-emerald-400 block">📄 Enviar Orçamento</span>
+                            <span class="text-[11px] text-slate-400 leading-tight block mt-1">Resumo de valor total, entrada e prazos negociados.</span>
+                        </div>
+                        <span class="text-[10px] text-emerald-500 font-semibold mt-3">Disparar no WhatsApp →</span>
+                    </a>
+                    <a href="{url_producao}" target="_blank" class="p-3 bg-slate-950 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-700 rounded-xl text-left transition-colors group flex flex-col justify-between">
+                        <div>
+                            <span class="text-xs font-bold text-white group-hover:text-emerald-400 block">🛠️ Início da Produção</span>
+                            <span class="text-[11px] text-slate-400 leading-tight block mt-1">Notifica que as chapas entraram na linha de corte.</span>
+                        </div>
+                        <span class="text-[10px] text-emerald-500 font-semibold mt-3">Disparar no WhatsApp →</span>
+                    </a>
+                    <a href="{url_montagem}" target="_blank" class="p-3 bg-slate-950 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-700 rounded-xl text-left transition-colors group flex flex-col justify-between">
+                        <div>
+                            <span class="text-xs font-bold text-white group-hover:text-emerald-400 block">🚚 Agendar Montagem</span>
+                            <span class="text-[11px] text-slate-400 leading-tight block mt-1">Confirma a data de chegada da equipe na obra.</span>
+                        </div>
+                        <span class="text-[10px] text-emerald-500 font-semibold mt-3">Disparar no WhatsApp →</span>
+                    </a>
+                    <a href="{url_cobranca}" target="_blank" class="p-3 bg-slate-950 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-700 rounded-xl text-left transition-colors group flex flex-col justify-between">
+                        <div>
+                            <span class="text-xs font-bold text-white group-hover:text-emerald-400 block">💳 Saldo / Chave PIX</span>
+                            <span class="text-[11px] text-slate-400 leading-tight block mt-1">Envia lembrete do saldo devedor e chave PIX da loja.</span>
+                        </div>
+                        <span class="text-[10px] text-emerald-500 font-semibold mt-3">Disparar no WhatsApp →</span>
+                    </a>
+                </div>
+            </div>
+
             <!-- Gestão Multi-Ambientes (Casa Completa) -->
             <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
@@ -1291,9 +1343,6 @@ def render_dashboard(data: dict):
                                 <span>🏷️ Etiquetas</span>
                             </a>
                         </div>
-                        <a href="{zap_url}" target="_blank" class="w-full py-2 bg-green-600 hover:bg-green-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center space-x-1 shadow-lg shadow-green-600/20">
-                            <span>💬 Enviar Proposta no WhatsApp</span>
-                        </a>
                     </div>
                 </div>
             </div>
@@ -2545,7 +2594,7 @@ def gerar_pdf_compras(id: int = None):
             str(it.get("qtd", 1))
         ])
 
-    items_doc_table = Table(items_table_data, colWidths=[220, 120, 50, 150])
+    items_doc_table = Table(items_table_data, colWidths=[220, 130, 140, 50])
     items_doc_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#64748b')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
