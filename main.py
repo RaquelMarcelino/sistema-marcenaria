@@ -18,7 +18,7 @@ from datetime import datetime, date, timedelta
 from typing import List
 
 app = FastAPI(title="MVI Móveis Planejados - Master SaaS")
-DB_PATH = "mvi_production_v13.db"
+DB_PATH = "mvi_production_v14.db"
 
 # ==============================================================================
 # 1. TRATAMENTO DE ERROS GLOBAL
@@ -62,7 +62,8 @@ def init_db():
             perfil TEXT,
             empresa_id INTEGER,
             token_primeiro_acesso TEXT DEFAULT '',
-            primeiro_acesso_concluido INTEGER DEFAULT 1
+            primeiro_acesso_concluido INTEGER DEFAULT 1,
+            ativo INTEGER DEFAULT 1
         )
     """)
 
@@ -82,6 +83,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS orcamentos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             empresa_id INTEGER DEFAULT 1,
+            vendedor_email TEXT DEFAULT '',
             criado_em TEXT,
             cliente_nome TEXT,
             cliente_cpf TEXT DEFAULT '',
@@ -126,7 +128,8 @@ def init_db():
             lucro_liquido REAL DEFAULT 0,
             entrada_valor REAL DEFAULT 0,
             num_parcelas INTEGER DEFAULT 1,
-            forma_pagamento TEXT DEFAULT 'PIX',
+            modalidade_pagamento TEXT DEFAULT 'PIX',
+            forma_pagamento TEXT DEFAULT 'PIX à Vista',
             estoque_baixado INTEGER DEFAULT 0,
             valor_recebido REAL DEFAULT 0,
             imagens_json TEXT DEFAULT '[]',
@@ -151,8 +154,8 @@ def init_db():
             VALUES (1, 'mvi', 'MVI Móveis Planejados', '00.000.000/0001-00', '(11) 98888-7777', 'financeiro@mvi.com.br', ?, 'MVI2026')
         """, (json.dumps(precos_iniciais),))
         
-        cursor.execute("INSERT OR REPLACE INTO usuarios VALUES ('admin@mvi.com', '123456', 'Administrador Geral MVI', 'admin', 1, '', 1)")
-        cursor.execute("INSERT OR REPLACE INTO usuarios VALUES ('vendedor@mvi.com', '123456', 'Vendedor MVI', 'vendedor', 1, '', 1)")
+        cursor.execute("INSERT OR REPLACE INTO usuarios VALUES ('admin@mvi.com', '123456', 'Administrador Geral MVI', 'admin', 1, '', 1, 1)")
+        cursor.execute("INSERT OR REPLACE INTO usuarios VALUES ('vendedor@mvi.com', '123456', 'Vendedor MVI', 'vendedor', 1, '', 1, 1)")
         
         itens_estoque = [
             (1, 'mdf', 'Chapas de MDF (Duratex/Arauco/Guararapes)', 0.0, 0.0, 'chapas'),
@@ -496,13 +499,20 @@ def render_dashboard_view():
         perfil = "Administrador" if u["perfil"] == "admin" else "Vendedor"
         token = u["token_primeiro_acesso"]
         concluido = u["primeiro_acesso_concluido"]
+        ativo = u["ativo"] if "ativo" in u.keys() else 1
         
         status_acesso = f"""
         <div class="flex items-center gap-2">
-            <span class='text-emerald-400 font-bold'>✓ Ativo</span>
+            <span class='{"text-emerald-400" if ativo else "text-rose-400"} font-bold'>{"✓ Ativo" if ativo else "🚫 Acesso Bloqueado"}</span>
             <form action="/redefinir-senha-funcionario" method="post" class="inline">
                 <input type="hidden" name="email_funcionario" value="{u['email']}">
-                <button type="submit" class="px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded text-[10px]">🔄 Resetar Senha</button>
+                <button type="submit" class="px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded text-[10px]">🔄 Reset Senha</button>
+            </form>
+            <form action="/alternar-status-funcionario" method="post" class="inline">
+                <input type="hidden" name="email_funcionario" value="{u['email']}">
+                <button type="submit" class="px-2 py-1 {'bg-rose-500/20 text-rose-300 border-rose-500/40' if ativo else 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'} border rounded text-[10px] font-bold">
+                    {'🚫 Bloquear' if ativo else '✓ Reativar'}
+                </button>
             </form>
         </div>
         """ if concluido else f"""
@@ -523,14 +533,13 @@ def render_dashboard_view():
         """
 
     admin_tabs_menu = """
-    <button onclick="mudarAba('aba-equipe')" id="btn-aba-equipe" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 shrink-0">👥 Equipe & Convites</button>
+    <button onclick="mudarAba('aba-equipe')" id="btn-aba-equipe" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 shrink-0">👥 Equipe & Desligamentos</button>
     <button onclick="mudarAba('aba-config')" id="btn-aba-config" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 shrink-0">🔑 Chave Mestra & Empresa</button>
     """ if is_admin else ""
 
     lucro_card = f"""<div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow"><p class="text-[11px] font-semibold text-slate-400 uppercase">Lucro Líquido</p><p class="text-xl font-bold text-emerald-400">R$ {met['lucro']:,.2f}</p></div>""" if is_admin else ""
     th_lucro = "<th class='py-3 px-4 text-right'>Lucro</th>" if is_admin else ""
 
-    # Select de clientes/projetos para a Ficha Cadastral
     options_leads = "<option value='0'>➕ Cadastrar Novo Cliente / Orçamento Manual</option>"
     for h in leads:
         options_leads += f"<option value='{h['id']}'>#{h['id']} - {h['cliente_nome']} ({h['cliente_ambiente']})</option>"
@@ -566,8 +575,9 @@ def render_dashboard_view():
         <div class="max-w-7xl mx-auto flex items-center gap-2 overflow-x-auto">
             <button onclick="mudarAba('aba-leads')" id="btn-aba-leads" class="tab-btn active px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 shrink-0">🏠 Painel de Fechamentos</button>
             <button onclick="mudarAba('aba-promob')" id="btn-aba-promob" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 shrink-0">🚀 Integrador Promob</button>
-            <button onclick="mudarAba('aba-cadastro-contrato')" id="btn-aba-cadastro-contrato" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 shrink-0">📋 Ficha Cadastral do Cliente & CEP</button>
-            <button onclick="mudarAba('aba-adendo')" id="btn-aba-adendo" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 shrink-0">➕ Anexo de Termo Aditivo</button>
+            <button onclick="mudarAba('aba-cadastro-contrato')" id="btn-aba-cadastro-contrato" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 shrink-0">📋 Ficha Cadastral & CEP</button>
+            <button onclick="mudarAba('aba-pagamentos')" id="btn-aba-pagamentos" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 shrink-0">💳 Formas de Pagamento & Parcelas</button>
+            <button onclick="mudarAba('aba-adendo')" id="btn-aba-adendo" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 shrink-0">➕ Anexo Termo Aditivo</button>
             {admin_tabs_menu}
         </div>
     </nav>
@@ -686,7 +696,7 @@ def render_dashboard_view():
                                 <label class="block text-slate-400 mb-1">RG e Órgão Emissor</label>
                                 <div class="flex gap-1">
                                     <input type="text" name="cliente_rg" required placeholder="RG" class="w-2/3 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                                    <input type="text" name="cliente_rg_emissor" required placeholder="SSP/SP" class="w-1/3 px-2 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                                    <input type="text" name="cliente_rg_emissor" placeholder="SSP/SP" class="w-1/3 px-2 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
                                 </div>
                             </div>
                             <div>
@@ -718,7 +728,7 @@ def render_dashboard_view():
 
                     <!-- 2. ENDEREÇOS COM BUSCA DE CEP AUTOMÁTICA -->
                     <div class="space-y-3 pt-2">
-                        <h3 class="text-xs font-bold text-amber-400 uppercase tracking-wide">2. Endereço Postal & Endereço de Entrega da Obra (Busca Automática por CEP)</h3>
+                        <h3 class="text-xs font-bold text-amber-400 uppercase tracking-wide">2. Endereço Postal & Endereço de Entrega da Obra (Busca por CEP)</h3>
                         
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <!-- Endereço Postal -->
@@ -792,16 +802,23 @@ def render_dashboard_view():
                             </div>
                             <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
                                 <div class="sm:col-span-3">
-                                    <label class="block text-slate-400 mb-1">Forma de Pagamento</label>
-                                    <input type="text" name="forma_pagamento" value="Entrada no PIX + 5x no Cartão" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                                    <label class="block text-slate-400 mb-1">Modalidade / Condição</label>
+                                    <select name="forma_pagamento" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                                        <option value="PIX à Vista">PIX à Vista (com desconto)</option>
+                                        <option value="Cartão de Débito">Cartão de Débito</option>
+                                        <option value="Cartão de Crédito até 12x">Cartão de Crédito até 12x</option>
+                                        <option value="Boleto Bancário até 24x">Boleto Bancário até 24x</option>
+                                        <option value="Entrada PIX + Saldo no Cartão">Entrada PIX + Saldo no Cartão</option>
+                                        <option value="Entrada PIX + Saldo no Boleto">Entrada PIX + Saldo no Boleto</option>
+                                    </select>
                                 </div>
                                 <div>
                                     <label class="block text-slate-400 mb-1">Valor Entrada (R$)</label>
                                     <input type="number" step="100" name="entrada_valor" value="5000" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
                                 </div>
                                 <div>
-                                    <label class="block text-slate-400 mb-1">Parcelas</label>
-                                    <input type="number" name="num_parcelas" value="5" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                                    <label class="block text-slate-400 mb-1">Nº Parcelas (Até 24x)</label>
+                                    <input type="number" min="1" max="24" name="num_parcelas" value="12" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
                                 </div>
                                 <div>
                                     <label class="block text-slate-400 mb-1">Desconto (%)</label>
@@ -817,6 +834,45 @@ def render_dashboard_view():
                         </button>
                     </div>
                 </form>
+            </div>
+        </div>
+
+        <!-- ABA FORMAS DE PAGAMENTO & SIMULADOR DE PARCELAS -->
+        <div id="aba-pagamentos" class="tab-content space-y-6">
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow space-y-6">
+                <div>
+                    <h2 class="text-base font-bold text-white">💳 Central de Pagamentos & Simulador de Parcelamento</h2>
+                    <p class="text-xs text-slate-400">Configure as condições de pagamento do cliente com opções de PIX, Débito, Cartão de Crédito (até 12x) e Boleto Bancário (até 24x).</p>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+                    <div class="p-5 bg-slate-950 border border-slate-800 rounded-2xl space-y-2">
+                        <span class="text-2xl block">⚡</span>
+                        <h3 class="font-bold text-white text-sm">PIX à Vista</h3>
+                        <p class="text-slate-400">Chave PIX da Empresa: <b class="text-amber-400">{empresa.get('pix', '')}</b></p>
+                        <p class="text-[11px] text-emerald-400">Desconto padrão à vista aplicável</p>
+                    </div>
+
+                    <div class="p-5 bg-slate-950 border border-slate-800 rounded-2xl space-y-2">
+                        <span class="text-2xl block">💳</span>
+                        <h3 class="font-bold text-white text-sm">Cartão de Débito</h3>
+                        <p class="text-slate-400">Liquidação imediata via link ou máquina na entrega da medição técnica.</p>
+                    </div>
+
+                    <div class="p-5 bg-slate-950 border border-slate-800 rounded-2xl space-y-2">
+                        <span class="text-2xl block">🔢</span>
+                        <h3 class="font-bold text-white text-sm">Cartão de Crédito (até 12x)</h3>
+                        <p class="text-slate-400">Parcelamento em até 12 parcelas fixas no cartão do cliente.</p>
+                        <span class="text-[11px] bg-amber-950 text-amber-300 px-2 py-0.5 rounded">1x até 12x</span>
+                    </div>
+
+                    <div class="p-5 bg-slate-950 border border-slate-800 rounded-2xl space-y-2">
+                        <span class="text-2xl block">📄</span>
+                        <h3 class="font-bold text-white text-sm">Boleto Bancário (até 24x)</h3>
+                        <p class="text-slate-400">Financiamento programado de fábrica em até 24 vezes mediante análise cadastral.</p>
+                        <span class="text-[11px] bg-sky-950 text-sky-300 px-2 py-0.5 rounded">1x até 24x</span>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -854,7 +910,7 @@ def render_dashboard_view():
 
         {admin_tabs_menu}
 
-        <!-- ABA EQUIPE -->
+        <!-- ABA EQUIPE (ADMIN) -->
         <div id="aba-equipe" class="tab-content space-y-6">
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow space-y-4">
@@ -896,7 +952,7 @@ def render_dashboard_view():
             </div>
         </div>
 
-        <!-- ABA CONFIG -->
+        <!-- ABA CONFIG (ADMIN) -->
         <div id="aba-config" class="tab-content space-y-6">
             <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow space-y-4">
                 <h2 class="text-base font-semibold text-white">Configuração da Empresa & Chave Mestra</h2>
@@ -1150,7 +1206,7 @@ def render_sucesso(empresa, estimativa, zap_url):
         <div class="bg-slate-950 p-5 rounded-2xl border border-amber-500/30 inline-block text-center space-y-1 my-2">
             <p class="text-xs text-slate-400">Estimativa Preliminar:</p>
             <p class="text-3xl font-black text-amber-400">R$ {estimativa:,.2f}</p>
-            <p class="text-[11px] text-slate-400">Entrada + Parcelamento em até 12x</p>
+            <p class="text-[11px] text-slate-400">Entrada + Parcelamento em até 12x ou Boleto em 24x</p>
         </div>
 
         <p class="text-xs text-slate-300">
@@ -1351,8 +1407,9 @@ def render_assinatura_online(orc, empresa):
 </html>"""
 
 # ==============================================================================
-# 5. ROTAS DE CADASTRO, AUTORIZAÇÃO E AÇÕES
+# 5. FASTAPI ROUTES (DECLARADAS NO FINAL PARA EVITAR 'NOT FOUND')
 # ==============================================================================
+
 @app.get("/", response_class=HTMLResponse)
 @app.get("/login", response_class=HTMLResponse)
 def root_route():
@@ -1370,6 +1427,9 @@ def login_route(username: str = Form(...), password: str = Form(...)):
     if not user:
         return render_login("E-mail ou senha incorretos. Tente novamente.")
 
+    if "ativo" in user.keys() and not user["ativo"]:
+        return render_login("❌ Este usuário foi desativado pela administração da marcenaria.")
+
     CURRENT_SESSION["user_email"] = user["email"]
     CURRENT_SESSION["user_nome"] = user["nome"]
     CURRENT_SESSION["user_perfil"] = user["perfil"]
@@ -1384,7 +1444,7 @@ def painel_get_route():
 
 @app.get("/solicitar-orcamento", response_class=HTMLResponse)
 @app.get("/solicitar-orcamento/{slug}", response_class=HTMLResponse)
-def captacao_get_route(slug: str = "mvi"):
+def captacao_view(slug: str = "mvi"):
     empresa = get_empresa_dados(1)
     return render_form_captacao(empresa)
 
@@ -1491,7 +1551,7 @@ def salvar_dados_completos_cliente(
     ref_tel_2: str = Form(""),
     descricao_manual: str = Form(""),
     desconto_pct: float = Form(0.0),
-    forma_pagamento: str = Form("Entrada + Cartão"),
+    forma_pagamento: str = Form("Cartão de Crédito até 12x"),
     entrada_valor: float = Form(0.0),
     num_parcelas: int = Form(1)
 ):
@@ -1500,7 +1560,6 @@ def salvar_dados_completos_cliente(
     cursor = conn.cursor()
 
     if orcamento_id == 0:
-        # Criação de um novo cliente/projeto do zero
         agora = datetime.now().strftime("%d/%m/%Y %H:%M")
         pv_base = entrada_valor * 2.5 if entrada_valor > 0 else 15000.0
         pv_final = pv_base * (1.0 - (desconto_pct / 100.0))
@@ -1569,48 +1628,26 @@ def salvar_dados_completos_cliente(
     return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.post("/salvar-adendo", response_class=HTMLResponse)
-def salvar_adendo(
-    orcamento_id: int = Form(...),
-    adendo_descricao: str = Form(...),
-    adendo_valor: float = Form(0.0)
-):
+def salvar_adendo(orcamento_id: int = Form(...), adendo_descricao: str = Form(...), adendo_valor: float = Form(0.0)):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE orcamentos SET
-            adendo_descricao = ?,
-            adendo_valor = ?,
-            status = 'Contrato com Adendo Adicionado'
-        WHERE id = ?
-    """, (adendo_descricao, adendo_valor, orcamento_id))
+    cursor.execute("UPDATE orcamentos SET adendo_descricao = ?, adendo_valor = ?, status = 'Adendo Adicionado' WHERE id = ?", (adendo_descricao, adendo_valor, orcamento_id))
     conn.commit()
     conn.close()
     return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.post("/autorizar-com-chave", response_class=HTMLResponse)
-def autorizar_com_chave(
-    orcamento_id: int = Form(...),
-    chave_digitada: str = Form(...),
-    tipo_acao: str = Form(...)
-):
-    empresa = get_empresa_dados(CURRENT_SESSION.get("empresa_id", 1))
-    chave_oficial = empresa.get("chave_mestra", "MVI2026")
-    
-    if chave_digitada.strip() != chave_oficial.strip():
-        return HTMLResponse("""
-        <div style="background:#0f172a; color:#f8fafc; font-family:sans-serif; text-align:center; padding:50px; min-height:100vh;">
-            <h1 style="color:#ef4444; font-size:26px;">❌ Chave Mestra Incorreta</h1>
-            <p style="color:#94a3b8; font-size:14px; margin-top:10px;">Apenas o Administrador possui a chave de liberação.</p>
-            <a href="/painel" style="display:inline-block; margin-top:20px; padding:10px 25px; background:#f59e0b; color:#0f172a; font-weight:bold; border-radius:10px; text-decoration:none;">Voltar ao Painel</a>
-        </div>
-        """, status_code=403)
+def autorizar_com_chave(orcamento_id: int = Form(...), chave_digitada: str = Form(...), tipo_acao: str = Form(...)):
+    empresa = get_empresa_dados(1)
+    if chave_digitada.strip() != empresa.get("chave_mestra", "MVI2026"):
+        return HTMLResponse("<script>alert('Chave Incorreta!'); history.back();</script>", status_code=403)
 
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     if tipo_acao == "desconto":
-        cursor.execute("UPDATE orcamentos SET desconto_autorizado = 1, status = 'Desconto Autorizado pela Diretoria' WHERE id = ?", (orcamento_id,))
+        cursor.execute("UPDATE orcamentos SET desconto_autorizado = 1, status = 'Desconto Autorizado' WHERE id = ?", (orcamento_id,))
     elif tipo_acao == "financeiro":
-        cursor.execute("UPDATE orcamentos SET liberado_financeiro = 1, status = 'Liberado para Financeiro & Fábrica' WHERE id = ?", (orcamento_id,))
+        cursor.execute("UPDATE orcamentos SET liberado_financeiro = 1, status = 'Liberado para Financeiro' WHERE id = ?", (orcamento_id,))
     conn.commit()
     conn.close()
     return RedirectResponse(url="/painel-get", status_code=303)
@@ -1623,53 +1660,28 @@ def assinar_contrato_view(orcamento_id: int):
     cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (orcamento_id,))
     orc = cursor.fetchone()
     conn.close()
-    
-    if not orc:
-        return HTMLResponse("Contrato não encontrado.", status_code=404)
-        
-    empresa = get_empresa_dados(orc["empresa_id"])
-    return render_assinatura_online(orc, empresa)
+    if not orc: return HTMLResponse("Not Found", status_code=404)
+    return render_assinatura_online(orc, get_empresa_dados(1))
 
 @app.post("/confirmar-assinatura", response_class=HTMLResponse)
 def confirmar_assinatura(orcamento_id: int = Form(...), assinatura_base64: str = Form(...)):
-    agora = datetime.now().strftime("%d/%m/%Y às %H:%M:%S")
+    agora = datetime.now().strftime("%d/%m/%Y %H:%M")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE orcamentos SET
-            contrato_assinado = 1,
-            assinatura_data = ?,
-            assinatura_img = ?,
-            status = 'Contrato Assinado Digitalmente'
-        WHERE id = ?
-    """, (agora, assinatura_base64, orcamento_id))
+    cursor.execute("UPDATE orcamentos SET contrato_assinado = 1, assinatura_data = ?, assinatura_img = ?, status = 'Contrato Assinado Digitalmente' WHERE id = ?", (agora, assinatura_base64, orcamento_id))
     conn.commit()
     conn.close()
-    return HTMLResponse(f"""
-    <div style="background:#0f172a; color:#f8fafc; font-family:sans-serif; text-align:center; padding:50px; min-height:100vh;">
-        <h1 style="color:#10b981; font-size:28px;">🎉 Contrato Assinado Digitalmente com Sucesso!</h1>
-        <p style="color:#94a3b8; font-size:14px; margin-top:10px;">Protocolado no sistema da MVI Móveis Planejados em {agora}.</p>
-    </div>
-    """)
+    return HTMLResponse("<div style='text-align:center; padding:50px; background:#0f172a; color:#10b981; min-height:100vh;'><h1>🎉 Contrato Assinado!</h1></div>")
 
 @app.post("/criar-usuario", response_class=HTMLResponse)
 def criar_usuario_com_convite(request: Request, nome: str = Form(...), email: str = Form(...), perfil: str = Form(...), telefone: str = Form("")):
-    if CURRENT_SESSION.get("user_perfil") != "admin":
-        return RedirectResponse(url="/painel-get", status_code=303)
-        
-    token_convite = secrets.token_urlsafe(16)
+    token = secrets.token_urlsafe(16)
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("""
-        INSERT OR REPLACE INTO usuarios (email, senha, nome, perfil, empresa_id, token_primeiro_acesso, primeiro_acesso_concluido)
-        VALUES (?, '', ?, ?, 1, ?, 0)
-    """, (email.strip().lower(), nome, perfil, token_convite))
+    cursor.execute("INSERT OR REPLACE INTO usuarios (email, senha, nome, perfil, empresa_id, token_primeiro_acesso, primeiro_acesso_concluido, ativo) VALUES (?, '', ?, ?, 1, ?, 0, 1)", (email, nome, perfil, token))
     conn.commit()
     conn.close()
-
-    base_url = str(request.base_url).rstrip("/")
-    link_primeiro_acesso = f"{base_url}/primeiro-acesso/{token_convite}"
-    return render_convite_gerado(nome, email, perfil, telefone, link_primeiro_acesso)
+    return render_convite_gerado(nome, email, perfil, telefone, f"{str(request.base_url).rstrip('/')}/primeiro-acesso/{token}")
 
 @app.get("/primeiro-acesso/{token}", response_class=HTMLResponse)
 def tela_primeiro_acesso(token: str):
@@ -1679,59 +1691,55 @@ def tela_primeiro_acesso(token: str):
     cursor.execute("SELECT * FROM usuarios WHERE token_primeiro_acesso = ?", (token,))
     user = cursor.fetchone()
     conn.close()
-
-    if not user:
-        return HTMLResponse("Link inválido ou já utilizado.", status_code=404)
+    if not user: return HTMLResponse("Link inválido ou já utilizado.", status_code=404)
     return render_tela_nova_senha(user, token)
 
 @app.post("/salvar-nova-senha", response_class=HTMLResponse)
 def salvar_nova_senha(token: str = Form(...), nova_senha: str = Form(...), confirma_senha: str = Form(...)):
-    if nova_senha != confirma_senha or len(nova_senha) < 6:
-        return HTMLResponse("<script>alert('As senhas não coincidem ou possuem menos de 6 caracteres!'); history.back();</script>")
-
+    if nova_senha != confirma_senha: return HTMLResponse("<script>alert('Senhas diferentes!'); history.back();</script>")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("UPDATE usuarios SET senha = ?, token_primeiro_acesso = '', primeiro_acesso_concluido = 1 WHERE token_primeiro_acesso = ?", (nova_senha, token))
+    cursor.execute("UPDATE usuarios SET senha = ?, token_primeiro_acesso = '', primeiro_acesso_concluido = 1, ativo = 1 WHERE token_primeiro_acesso = ?", (nova_senha, token))
     conn.commit()
     conn.close()
-
-    return HTMLResponse("""
-    <div style="background:#0f172a; color:#f8fafc; font-family:sans-serif; text-align:center; padding:50px; min-height:100vh;">
-        <h1 style="color:#10b981; font-size:28px;">🎉 Senha Criada com Sucesso!</h1>
-        <p style="color:#94a3b8; font-size:14px; margin-top:10px;">Sua conta foi ativada. Você já pode acessar o painel.</p>
-        <a href="/" style="display:inline-block; margin-top:20px; padding:12px 30px; background:#f59e0b; color:#0f172a; font-weight:bold; border-radius:10px; text-decoration:none;">Acessar o Painel Agora</a>
-    </div>
-    """)
+    return RedirectResponse(url="/", status_code=303)
 
 @app.post("/redefinir-senha-funcionario", response_class=HTMLResponse)
 def redefinir_senha_funcionario(request: Request, email_funcionario: str = Form(...)):
     if CURRENT_SESSION.get("user_perfil") != "admin":
         return RedirectResponse(url="/painel-get", status_code=303)
         
-    novo_token = secrets.token_urlsafe(16)
+    token = secrets.token_urlsafe(16)
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE usuarios SET
-            token_primeiro_acesso = ?,
-            primeiro_acesso_concluido = 0
-        WHERE email = ?
-    """, (novo_token, email_funcionario))
+    cursor.execute("UPDATE usuarios SET token_primeiro_acesso = ?, primeiro_acesso_concluido = 0 WHERE email = ?", (token, email_funcionario))
     conn.commit()
     conn.close()
+    return render_convite_gerado("Funcionário", email_funcionario, "Reset", "", f"{str(request.base_url).rstrip('/')}/primeiro-acesso/{token}")
 
-    base_url = str(request.base_url).rstrip("/")
-    link_reset = f"{base_url}/primeiro-acesso/{novo_token}"
-    return render_convite_gerado("Funcionário MVI", email_funcionario, "Redefinição de Senha", "", link_reset)
-
-@app.post("/salvar-empresa", response_class=HTMLResponse)
-def update_empresa(nome_empresa: str = Form(...), cnpj: str = Form(...), telefone: str = Form(...), pix: str = Form(...), chave_mestra: str = Form("MVI2026")):
+@app.post("/alternar-status-funcionario", response_class=HTMLResponse)
+def alternar_status_funcionario(email_funcionario: str = Form(...)):
     if CURRENT_SESSION.get("user_perfil") != "admin":
         return RedirectResponse(url="/painel-get", status_code=303)
-        
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT ativo FROM usuarios WHERE email = ?", (email_funcionario,))
+    user = cursor.fetchone()
+    
+    if user:
+        novo_status = 0 if user["ativo"] else 1
+        cursor.execute("UPDATE usuarios SET ativo = ? WHERE email = ?", (novo_status, email_funcionario))
+        conn.commit()
+    conn.close()
+    return RedirectResponse(url="/painel-get", status_code=303)
+
+@app.post("/salvar-empresa", response_class=HTMLResponse)
+def update_empresa(nome_empresa: str = Form(...), cnpj: str = Form(...), telefone: str = Form(...), chave_mestra: str = Form("MVI2026")):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("UPDATE empresas SET nome_empresa = ?, cnpj = ?, telefone = ?, pix = ?, chave_mestra = ? WHERE id = 1", (nome_empresa, cnpj, telefone, pix, chave_mestra))
+    cursor.execute("UPDATE empresas SET nome_empresa = ?, cnpj = ?, telefone = ?, chave_mestra = ? WHERE id = 1", (nome_empresa, cnpj, telefone, chave_mestra))
     conn.commit()
     conn.close()
     return RedirectResponse(url="/painel-get", status_code=303)
@@ -1741,7 +1749,6 @@ def export_csv():
     output = io.StringIO()
     writer = csv.writer(output, delimiter=';')
     writer.writerow(["ID", "Data/Hora", "Cliente", "CPF", "Telefone", "Ambiente", "Preco Venda (R$)", "Status"])
-    
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
@@ -1749,9 +1756,4 @@ def export_csv():
     for r in cursor.fetchall():
         writer.writerow([r["id"], r["criado_em"], r["cliente_nome"], r["cliente_cpf"], r["cliente_telefone"], r["cliente_ambiente"], f"{float(r['preco_venda'] or 0):.2f}", r["status"]])
     conn.close()
-    
-    return Response(
-        content=output.getvalue().encode('utf-8-sig'),
-        media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=relatorio-mvi.csv"}
-    )
+    return Response(content=output.getvalue().encode('utf-8-sig'), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename=relatorio-mvi.csv"})
