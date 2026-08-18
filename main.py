@@ -12,19 +12,28 @@ import json
 import sqlite3
 import math
 import base64
+import traceback
 from datetime import datetime, date, timedelta
 from typing import List
 
-app = FastAPI(title="MVI Móveis Planejados SaaS")
-DB_PATH = "mvi_database_v3.db"
+app = FastAPI(title="MVI Móveis Planejados")
+DB_PATH = "mvi_production.db"
 
-def get_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+# Blindagem contra Internal Server Error
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    err = traceback.format_exc()
+    return HTMLResponse(content=f"""
+    <div style="background:#0f172a; color:#f8fafc; font-family:sans-serif; padding:30px; min-height:100vh;">
+        <h2 style="color:#f59e0b;">⚠️ Diagnóstico do Sistema MVI</h2>
+        <p style="color:#94a3b8; font-size:13px;">Ocorreu uma exceção tratada no servidor. Detalhes técnicos:</p>
+        <pre style="background:#1e293b; color:#f43f5e; padding:15px; border-radius:10px; font-size:12px; overflow-x:auto;">{err}</pre>
+        <a href="/" style="display:inline-block; margin-top:15px; padding:10px 20px; background:#f59e0b; color:#0f172a; font-weight:bold; border-radius:8px; text-decoration:none;">Ir para a Página Inicial</a>
+    </div>
+    """, status_code=500)
 
 def init_db():
-    conn = get_connection()
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
     cursor.execute("""
@@ -93,7 +102,6 @@ def init_db():
     """)
     conn.commit()
 
-    # Criação da empresa padrão
     cursor.execute("SELECT id FROM empresas WHERE id = 1")
     if not cursor.fetchone():
         precos_iniciais = {
@@ -130,7 +138,8 @@ CURRENT_SESSION = {
 }
 
 def get_empresa_dados(empresa_id=1):
-    conn = get_connection()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM empresas WHERE id = ?", (empresa_id,))
     row = cursor.fetchone()
@@ -143,19 +152,55 @@ def get_empresa_dados(empresa_id=1):
         "pix": "contato@mvi.com", "precos_json": "{}"
     }
 
+def get_metricas():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT preco_venda, lucro_liquido, status, valor_recebido FROM orcamentos WHERE empresa_id = ?", (CURRENT_SESSION.get("empresa_id", 1),))
+    rows = cursor.fetchall()
+    conn.close()
+    
+    total_orcamentos = len(rows)
+    faturamento_total = 0.0
+    lucro_acumulado = 0.0
+    total_recebido = 0.0
+    aprovados = 0
+    
+    for r in rows:
+        st = r["status"] or "Em Negociação"
+        pv = float(r["preco_venda"] or 0.0)
+        lucro = float(r["lucro_liquido"] or 0.0)
+        rec = float(r["valor_recebido"] or 0.0)
+        
+        if st in ["Aprovado", "Em Produção", "Entregue"]:
+            faturamento_total += pv
+            lucro_acumulado += lucro
+            total_recebido += rec
+            aprovados += 1
+
+    taxa = (aprovados / total_orcamentos * 100.0) if total_orcamentos > 0 else 0.0
+    ticket = (faturamento_total / aprovados) if aprovados > 0 else 0.0
+    saldo = max(faturamento_total - total_recebido, 0.0)
+    
+    return {
+        "total": total_orcamentos, "aprovados": aprovados,
+        "faturamento": faturamento_total, "lucro": lucro_acumulado,
+        "recebido": total_recebido, "saldo": saldo,
+        "ticket": ticket, "taxa": taxa
+    }
+
 def calcular_engenharia(ambientes: list, area_m2: float, exp_caixa: str, exp_tamp: str, fab_mdf: str, cor_mdf: str, mod_portas: str, marca_ferr: str):
-    empresa = get_empresa_dados(CURRENT_SESSION["empresa_id"])
+    empresa = get_empresa_dados(CURRENT_SESSION.get("empresa_id", 1))
     precos = json.loads(empresa.get("precos_json") or "{}")
     mdf_preco = float(precos.get("mdf_m2", 65.0))
     dob_preco = float(precos.get("dobradica", 18.50))
     corr_preco = float(precos.get("corredica", 38.00))
     fita_preco = float(precos.get("fita_borda_m", 3.20))
-    pux_preco = float(precos.get("puxador", 25.00))
 
     fator_caixa = 1.15 if "18mm" in exp_caixa else 1.0
-    fator_tamp = 1.35 if "36mm" in exp_tamp else (1.20 if "25mm" in exp_tamp else (1.10 if "18mm" in exp_tamp else 1.0))
+    fator_tamp = 1.35 if "36mm" in exp_tamp else (1.20 if "25mm" in exp_tamp else 1.0)
     fator_mdf = 1.30 if any(c in cor_mdf for c in ["Freijó", "Carvalho", "Nogueira", "Grafite"]) else 1.0
-    fator_portas = 1.50 if "Reflecta" in mod_portas else (1.25 if "Gola" in mod_portas else (1.20 if "Cava" in mod_portas else 1.0))
+    fator_portas = 1.50 if "Reflecta" in mod_portas else (1.25 if "Gola" in mod_portas else 1.0)
 
     if "Blum" in marca_ferr:
         dob_mult, corr_mult = 2.8, 3.2
@@ -163,8 +208,6 @@ def calcular_engenharia(ambientes: list, area_m2: float, exp_caixa: str, exp_tam
         dob_mult, corr_mult = 2.5, 2.9
     elif "Häfele" in marca_ferr:
         dob_mult, corr_mult = 2.1, 2.4
-    elif "FGVTN" in marca_ferr:
-        dob_mult, corr_mult = 1.6, 1.8
     else:
         dob_mult, corr_mult = 1.0, 1.0
 
@@ -175,101 +218,98 @@ def calcular_engenharia(ambientes: list, area_m2: float, exp_caixa: str, exp_tam
 
     items = []
     for amb in ambientes:
-        m_lin = max(area_comodo * 0.32, 2.8 if area >= 160 else 2.0)
+        m_lin = max(area_comodo * 0.32, 3.2 if area >= 160 else 2.2)
         num_mod = max(int(math.ceil(m_lin / 0.8)), 2)
         
         items.append({
             "nome": f"Caixaria Estrutural ({exp_caixa}) - {amb}",
-            "tipo": "MDF", "ambiente": amb, "largura": 800, "altura": 720,
-            "dimensoes": "800x720x580mm", "qtd": num_mod, "valor": num_mod * 1.25 * custo_base_mdf
+            "tipo": "MDF", "ambiente": amb, "qtd": num_mod,
+            "valor": num_mod * 1.25 * custo_base_mdf
         })
         items.append({
             "nome": f"Portas/Frentes ({fab_mdf} {cor_mdf})",
-            "tipo": "MDF", "ambiente": amb, "largura": 395, "altura": 700,
-            "dimensoes": "395x700x18mm", "qtd": num_mod * 2, "valor": num_mod * 2 * 0.58 * custo_base_mdf
+            "tipo": "MDF", "ambiente": amb, "qtd": num_mod * 2,
+            "valor": num_mod * 2 * 0.58 * custo_base_mdf
         })
         items.append({
             "nome": f"Dobradiças c/ Amortecedor ({marca_ferr})",
-            "tipo": "Ferragem", "ambiente": amb, "largura": 0, "altura": 0,
-            "dimensoes": "Ø35mm", "qtd": num_mod * 4, "valor": num_mod * 4 * dob_preco * dob_mult
+            "tipo": "Ferragem", "ambiente": amb, "qtd": num_mod * 4,
+            "valor": num_mod * 4 * dob_preco * dob_mult
         })
         items.append({
             "nome": f"Corrediças Telescópicas/Ocultas ({marca_ferr})",
-            "tipo": "Ferragem", "ambiente": amb, "largura": 0, "altura": 0,
-            "dimensoes": "450mm", "qtd": 4, "valor": 4 * corr_preco * corr_mult
+            "tipo": "Ferragem", "ambiente": amb, "qtd": 4,
+            "valor": 4 * corr_preco * corr_mult
         })
         items.append({
             "nome": f"Fita de Borda PVC ({fab_mdf})",
-            "tipo": "Insumo", "ambiente": amb, "largura": 0, "altura": 0,
-            "dimensoes": "22mm", "qtd": int(m_lin * 20), "valor": int(m_lin * 20) * fita_preco
+            "tipo": "Insumo", "ambiente": amb, "qtd": int(m_lin * 20),
+            "valor": int(m_lin * 20) * fita_preco
         })
 
     total_materiais = sum(i["valor"] for i in items)
-    dias_producao = max(int(math.ceil(qtd_amb * 2.5)), 3)
-    custo_mo = dias_producao * 180.0
-    custo_frete_montagem = max(qtd_amb * 350.0, 600.0)
+    dias_prod = max(int(math.ceil(qtd_amb * 3.0)), 4)
+    custo_mo = dias_prod * 180.0
+    custo_frete = max(qtd_amb * 400.0, 800.0)
     markup = 2.2
 
-    preco_venda = (total_materiais + custo_mo + custo_frete_montagem) * markup
-    lucro = preco_venda - (total_materiais + custo_mo + custo_frete_montagem + (preco_venda * 0.10))
+    preco_venda = (total_materiais + custo_mo + custo_frete) * markup
+    lucro = preco_venda - (total_materiais + custo_mo + custo_frete + (preco_venda * 0.10))
 
     return {
-        "items": items,
-        "total_mat": total_materiais,
-        "custo_mo": custo_mo,
-        "custo_frete": custo_frete_montagem,
-        "dias_prod": dias_producao,
-        "preco_venda": preco_venda,
-        "lucro": lucro
+        "items": items, "total_mat": total_materiais,
+        "custo_mo": custo_mo, "custo_frete": custo_frete,
+        "preco_venda": preco_venda, "lucro": lucro
     }
 
-# ROTAS PRINCIPAIS
+# ROTAS FASTAPI
 
 @app.get("/", response_class=HTMLResponse)
-def index():
-    return render_login_page()
+def root():
+    return render_login()
 
 @app.post("/painel", response_class=HTMLResponse)
 def login(username: str = Form(...), password: str = Form(...)):
-    conn = get_connection()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM usuarios WHERE email = ? AND senha = ?", (username, password))
     user = cursor.fetchone()
     conn.close()
 
     if not user:
-        return render_login_page("E-mail ou senha incorretos. Tente novamente.")
+        return render_login("E-mail ou senha incorretos. Tente novamente.")
 
     CURRENT_SESSION["user_email"] = user["email"]
     CURRENT_SESSION["user_nome"] = user["nome"]
     CURRENT_SESSION["user_perfil"] = user["perfil"]
     CURRENT_SESSION["empresa_id"] = user["empresa_id"]
 
-    return render_dashboard()
+    return render_dashboard_view()
 
 @app.get("/painel", response_class=HTMLResponse)
 @app.get("/painel-get", response_class=HTMLResponse)
-def painel():
-    return render_dashboard()
+def painel_view():
+    return render_dashboard_view()
 
 @app.get("/solicitar-orcamento", response_class=HTMLResponse)
 @app.get("/solicitar-orcamento/{slug}", response_class=HTMLResponse)
-def captacao(slug: str = "mvi"):
+def captacao_view(slug: str = "mvi"):
     empresa = get_empresa_dados(1)
-    return render_pagina_captacao(empresa)
+    return render_form_captacao(empresa)
 
 @app.post("/enviar-solicitacao-lead", response_class=HTMLResponse)
-async def lead_submit(
+async def submit_lead(
     nome: str = Form(...),
     whatsapp: str = Form(...),
-    area_m2_total: float = Form(65.0),
-    espessura_caixa: str = Form("MDF 15mm"),
-    espessura_tamponamento: str = Form("Tamponamento 18mm"),
+    area_m2_total: float = Form(180.0),
+    espessura_caixa: str = Form("MDF 18mm"),
+    espessura_tamponamento: str = Form("Tamponamento 25mm"),
     fabricante_mdf: str = Form("Duratex"),
     cor_mdf: str = Form("Freijó"),
-    modelo_portas: str = Form("Perfil Gola em Alumínio (Rometal)"),
+    modelo_portas: str = Form("Perfil Gola em Alumínio"),
     marca_ferragens: str = Form("Blum (Linha Blumotion Áustria)"),
-    ambientes_check: List[str] = Form(["Cozinha Planejada"]),
+    ambientes_check: List[str] = Form(["Cozinha c/ Ilha", "Suíte Master"]),
     cidade: str = Form(...),
     descricao: str = Form(""),
     planta: UploadFile = File(...),
@@ -296,12 +336,12 @@ async def lead_submit(
         except Exception:
             pass
 
-    nome_ambientes_str = " + ".join(ambientes_check)
+    nome_amb_str = " + ".join(ambientes_check)
     obs = f"Lead {area_m2_total}m² ({cidade}) | MDF: {fabricante_mdf} ({cor_mdf}) | Ferragens: {marca_ferragens} | Portas: {modelo_portas}"
     if descricao:
         obs += f" | Obs: {descricao}"
 
-    conn = get_connection()
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO orcamentos (
@@ -313,8 +353,8 @@ async def lead_submit(
             observacoes_tecnicas, items_json
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
-        1, agora, nome, whatsapp, nome_ambientes_str,
-        "25 dias úteis", (date.today() + timedelta(days=25)).strftime("%Y-%m-%d"),
+        1, agora, nome, whatsapp, nome_amb_str,
+        "30 dias úteis", (date.today() + timedelta(days=30)).strftime("%Y-%m-%d"),
         "Novo Lead Instagram", calc["total_mat"], calc["custo_mo"], calc["custo_frete"],
         6.0, 4.0, 2.2, calc["preco_venda"], calc["lucro"], calc["preco_venda"] * 0.3, 3,
         "Entrada + 3x Cartão", 0.0, json.dumps(imagens), json.dumps(ambientes_check),
@@ -325,67 +365,66 @@ async def lead_submit(
     conn.close()
 
     msg_zap = f"""Olá! Meu nome é *{nome}*.
-Acabei de calcular meu projeto de móveis sob medida na *{empresa['nome_empresa']}* (Projeto #{novo_id:04d}).
+Acabei de calcular meu projeto no site da *{empresa['nome_empresa']}* (Projeto #{novo_id:04d}).
 
-📋 *BRIEFING DO PROJETO:*
-• *Cidade/Bairro:* {cidade}
-• *Metragem Total:* {area_m2_total} m²
-• *Ambientes:* {nome_ambientes_str}
-• *MDF Escolhido:* {fabricante_mdf} ({cor_mdf})
+📋 *BRIEFING:*
+• *Cidade:* {cidade}
+• *Metragem:* {area_m2_total} m²
+• *Ambientes:* {nome_amb_str}
+• *MDF:* {fabricante_mdf} ({cor_mdf})
 • *Ferragens:* {marca_ferragens}
-• *Modelo de Portas:* {modelo_portas}
-• *Estimativa Calculada:* R$ {calc['preco_venda']:,.2f}
+• *Portas:* {modelo_portas}
+• *Estimativa:* R$ {calc['preco_venda']:,.2f}
 
-Já enviei a foto da planta baixa no site e gostaria de dar andamento!"""
+Já enviei a foto da planta baixa e gostaria de dar andamento!"""
 
     tel_limpo = empresa["telefone"].replace("(", "").replace(")", "").replace("-", "").replace(" ", "")
     zap_url = f"https://api.whatsapp.com/send?phone=55{tel_limpo}&text={urllib.parse.quote(msg_zap)}"
 
-    return render_pagina_sucesso(empresa, calc["preco_venda"], novo_id, zap_url)
+    return render_sucesso(empresa, calc["preco_venda"], zap_url)
 
 @app.post("/salvar-empresa", response_class=HTMLResponse)
-def salvar_empresa(nome_empresa: str = Form(...), cnpj: str = Form(...), telefone: str = Form(...), pix: str = Form(...)):
-    conn = get_connection()
+def update_empresa(nome_empresa: str = Form(...), cnpj: str = Form(...), telefone: str = Form(...), pix: str = Form(...)):
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE empresas SET nome_empresa = ?, cnpj = ?, telefone = ?, pix = ? WHERE id = ?
-    """, (nome_empresa, cnpj, telefone, pix, CURRENT_SESSION["empresa_id"]))
+    cursor.execute("UPDATE empresas SET nome_empresa = ?, cnpj = ?, telefone = ?, pix = ? WHERE id = 1", (nome_empresa, cnpj, telefone, pix))
     conn.commit()
     conn.close()
     return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.post("/criar-usuario", response_class=HTMLResponse)
-def criar_usuario(nome: str = Form(...), email: str = Form(...), senha: str = Form(...), perfil: str = Form(...)):
-    conn = get_connection()
+def new_user(nome: str = Form(...), email: str = Form(...), senha: str = Form(...), perfil: str = Form(...)):
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("INSERT OR REPLACE INTO usuarios VALUES (?, ?, ?, ?, ?)", (email, senha, nome, perfil, CURRENT_SESSION["empresa_id"]))
+    cursor.execute("INSERT OR REPLACE INTO usuarios VALUES (?, ?, ?, ?, 1)", (email, senha, nome, perfil))
     conn.commit()
     conn.close()
     return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.get("/exportar-csv")
-def exportar_csv():
+def export_csv():
     output = io.StringIO()
     writer = csv.writer(output, delimiter=';')
     writer.writerow(["ID", "Data/Hora", "Cliente", "Telefone", "Ambiente", "Preco Venda (R$)", "Lucro (R$)"])
     
-    conn = get_connection()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = ? ORDER BY id DESC", (CURRENT_SESSION["empresa_id"],))
+    cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 ORDER BY id DESC")
     for r in cursor.fetchall():
-        writer.writerow([r["id"], r["criado_em"], r["cliente_nome"], r["cliente_telefone"], r["cliente_ambiente"], f"{r['preco_venda']:.2f}", f"{r['lucro_liquido']:.2f}"])
+        writer.writerow([r["id"], r["criado_em"], r["cliente_nome"], r["cliente_telefone"], r["cliente_ambiente"], f"{float(r['preco_venda'] or 0):.2f}", f"{float(r['lucro_liquido'] or 0):.2f}"])
     conn.close()
     
     return Response(
         content=output.getvalue().encode('utf-8-sig'),
         media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=relatorio-marcenaria-mvi.csv"}
+        headers={"Content-Disposition": f"attachment; filename=relatorio-mvi.csv"}
     )
 
-# HTML RENDERERS
+# INTERFACES HTML
 
-def render_login_page(msg_erro=""):
-    erro_html = f"<div class='p-3 bg-rose-950/60 border border-rose-800 text-rose-300 text-xs rounded-xl text-center'>{msg_erro}</div>" if msg_erro else ""
+def render_login(msg=""):
+    erro = f"<div class='p-3 bg-rose-950/70 border border-rose-800 text-rose-300 text-xs rounded-xl text-center'>{msg}</div>" if msg else ""
     return f"""<!DOCTYPE html>
 <html lang="pt-br">
 <head>
@@ -397,13 +436,11 @@ def render_login_page(msg_erro=""):
 <body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4 font-sans">
     <div class="max-w-md w-full bg-slate-900 border border-amber-500/30 rounded-3xl p-8 shadow-2xl space-y-6">
         <div class="text-center space-y-2">
-            <div class="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-black text-slate-950 text-xl shadow-lg">
-                MVI
-            </div>
+            <div class="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-black text-slate-950 text-2xl shadow-lg">MVI</div>
             <h1 class="text-xl font-bold tracking-tight text-white">MVI Móveis Planejados</h1>
-            <p class="text-xs text-slate-400">Sistema Corporativo Multi-Empresa</p>
+            <p class="text-xs text-slate-400">Sistema Corporativo de Vendas & Engenharia</p>
         </div>
-        {erro_html}
+        {erro}
         <form action="/painel" method="post" class="space-y-4">
             <div>
                 <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">E-mail</label>
@@ -425,26 +462,24 @@ def render_login_page(msg_erro=""):
 </body>
 </html>"""
 
-def render_dashboard():
-    empresa = get_empresa_dados(CURRENT_SESSION["empresa_id"])
-    metricas = get_metricas_financeiras()
+def render_dashboard_view():
+    empresa = get_empresa_dados(1)
+    met = get_metricas()
     
-    conn = get_connection()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = ? ORDER BY id DESC LIMIT 25", (CURRENT_SESSION["empresa_id"],))
+    cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 ORDER BY id DESC LIMIT 25")
     leads = cursor.fetchall()
-    
-    cursor.execute("SELECT * FROM usuarios WHERE empresa_id = ?", (CURRENT_SESSION["empresa_id"],))
+    cursor.execute("SELECT * FROM usuarios WHERE empresa_id = 1")
     equipe = cursor.fetchall()
     conn.close()
 
     leads_html = ""
     for h in leads:
         pv = float(h["preco_venda"] or 0)
-        rec = float(h["valor_recebido"] or 0)
+        lucro = float(h["lucro_liquido"] or 0)
         st = h["status"] or "Em Negociação"
-        pgto_tag = "<span class='px-2 py-0.5 bg-emerald-950 text-emerald-300 border border-emerald-800 rounded text-[10px]'>Quitado</span>" if (pv > 0 and rec >= pv) else "<span class='px-2 py-0.5 bg-rose-950 text-rose-300 border border-rose-800 rounded text-[10px]'>Pendente</span>"
-        
         leads_html += f"""
         <tr class="border-b border-slate-800 hover:bg-slate-800/40 text-xs">
             <td class="py-3 px-4 font-mono text-slate-400">#{h['id']}</td>
@@ -452,22 +487,21 @@ def render_dashboard():
             <td class="py-3 px-4 text-white font-medium">{h['cliente_nome']}</td>
             <td class="py-3 px-4 text-slate-300">{h['cliente_ambiente']}</td>
             <td class="py-3 px-4 text-right text-amber-400 font-bold">R$ {pv:,.2f}</td>
-            <td class="py-3 px-4 text-right text-emerald-400 font-bold">R$ {float(h['lucro_liquido'] or 0):,.2f}</td>
+            <td class="py-3 px-4 text-right text-emerald-400 font-bold">R$ {lucro:,.2f}</td>
             <td class="py-3 px-4 text-center"><span class="px-2 py-1 bg-slate-950 border border-slate-700 rounded text-[10px]">{st}</span></td>
-            <td class="py-3 px-4 text-center">{pgto_tag}</td>
         </tr>
         """
 
     if not leads_html:
-        leads_html = "<tr><td colspan='8' class='py-8 text-center text-xs text-slate-500'>Nenhum lead recebido ainda. Divulgue o link exclusivo da MVI.</td></tr>"
+        leads_html = "<tr><td colspan='7' class='py-8 text-center text-xs text-slate-500'>Nenhum lead recebido ainda. Divulgue o link da MVI.</td></tr>"
 
     equipe_html = ""
     for u in equipe:
-        perfil_tag = "<span class='text-[10px] bg-amber-950 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-xl'>Admin</span>" if u["perfil"] == "admin_empresa" else "<span class='text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded-xl'>Vendedor</span>"
+        perfil = "Admin" if u["perfil"] == "admin_empresa" else "Vendedor"
         equipe_html += f"""
-        <li class="flex items-center justify-between py-2 border-b border-slate-800 text-xs">
+        <li class="flex items-center justify-between py-2.5 border-b border-slate-800 text-xs">
             <div><span class="font-semibold text-white">{u['nome']}</span><span class="text-slate-400 block text-[11px]">{u['email']}</span></div>
-            {perfil_tag}
+            <span class="text-[10px] bg-amber-950 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-xl">{perfil}</span>
         </li>
         """
 
@@ -476,7 +510,7 @@ def render_dashboard():
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{empresa['nome_empresa']} - Painel</title>
+    <title>MVI Móveis Planejados - Painel</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         .tab-btn.active {{ background: linear-gradient(135deg, #f59e0b, #d97706); color: #0f172a; font-weight: 800; }}
@@ -491,7 +525,7 @@ def render_dashboard():
             <span class="font-bold text-lg text-white">{empresa['nome_empresa']}</span>
         </div>
         <div class="flex items-center space-x-3">
-            <a href="/solicitar-orcamento/{empresa['slug']}" target="_blank" class="text-xs bg-amber-950 text-amber-300 border border-amber-500/40 px-3 py-1.5 rounded-xl hover:bg-amber-900/60">🔗 Link Instagram</a>
+            <a href="/solicitar-orcamento" target="_blank" class="text-xs bg-amber-950 text-amber-300 border border-amber-500/40 px-3 py-1.5 rounded-xl hover:bg-amber-900/60">🔗 Link Instagram</a>
             <span class="text-xs text-slate-400">Usuário: <b class="text-amber-400">{CURRENT_SESSION['user_nome']}</b></span>
             <a href="/" class="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-xl text-slate-300 border border-slate-700">Sair</a>
         </div>
@@ -510,25 +544,25 @@ def render_dashboard():
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow">
                     <p class="text-[11px] font-semibold text-slate-400 uppercase">Faturamento Fechado</p>
-                    <p class="text-xl font-bold text-amber-400">R$ {metricas['faturamento_total']:,.2f}</p>
+                    <p class="text-xl font-bold text-amber-400">R$ {met['faturamento']:,.2f}</p>
                 </div>
                 <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow">
                     <p class="text-[11px] font-semibold text-slate-400 uppercase">Lucro Líquido</p>
-                    <p class="text-xl font-bold text-emerald-400">R$ {metricas['lucro_acumulado']:,.2f}</p>
+                    <p class="text-xl font-bold text-emerald-400">R$ {met['lucro']:,.2f}</p>
                 </div>
                 <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow">
                     <p class="text-[11px] font-semibold text-slate-400 uppercase">Ticket Médio</p>
-                    <p class="text-xl font-bold text-white">R$ {metricas['ticket_medio']:,.2f}</p>
+                    <p class="text-xl font-bold text-white">R$ {met['ticket']:,.2f}</p>
                 </div>
                 <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow">
                     <p class="text-[11px] font-semibold text-slate-400 uppercase">Conversão</p>
-                    <p class="text-xl font-bold text-amber-400">{metricas['taxa_conversao']:.1f}%</p>
+                    <p class="text-xl font-bold text-amber-400">{met['taxa']:.1f}%</p>
                 </div>
             </div>
 
             <div class="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow">
                 <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-850">
-                    <h3 class="text-sm font-semibold text-white">📁 Pedidos & Leads do Instagram</h3>
+                    <h3 class="text-sm font-semibold text-white">📁 Pedidos & Leads Recebidos</h3>
                     <a href="/exportar-csv" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold">📊 Exportar CSV</a>
                 </div>
                 <div class="overflow-x-auto">
@@ -542,7 +576,6 @@ def render_dashboard():
                                 <th class="py-3 px-4 text-right">Valor Venda</th>
                                 <th class="py-3 px-4 text-right">Lucro</th>
                                 <th class="py-3 px-4 text-center">Status</th>
-                                <th class="py-3 px-4 text-center">Pagamento</th>
                             </tr>
                         </thead>
                         <tbody>{leads_html}</tbody>
@@ -554,19 +587,19 @@ def render_dashboard():
         <div id="aba-equipe" class="tab-content space-y-6">
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow space-y-4">
-                    <h2 class="text-base font-semibold text-white">Cadastrar Novo Funcionário</h2>
+                    <h2 class="text-base font-semibold text-white">Cadastrar Funcionário</h2>
                     <form action="/criar-usuario" method="post" class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                         <div>
-                            <label class="block text-slate-400 mb-1">Nome Completo</label>
-                            <input type="text" name="nome" required placeholder="Ex: Lucas Vendedor" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                            <label class="block text-slate-400 mb-1">Nome</label>
+                            <input type="text" name="nome" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
                         </div>
                         <div>
-                            <label class="block text-slate-400 mb-1">E-mail de Login</label>
-                            <input type="email" name="email" required placeholder="lucas@marcenaria.com" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                            <label class="block text-slate-400 mb-1">E-mail</label>
+                            <input type="email" name="email" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
                         </div>
                         <div>
                             <label class="block text-slate-400 mb-1">Senha</label>
-                            <input type="password" name="senha" required placeholder="******" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                            <input type="password" name="senha" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
                         </div>
                         <div>
                             <label class="block text-slate-400 mb-1">Perfil</label>
@@ -576,12 +609,12 @@ def render_dashboard():
                             </select>
                         </div>
                         <div class="col-span-full pt-2">
-                            <button type="submit" class="px-6 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs">+ Cadastrar Acesso</button>
+                            <button type="submit" class="px-6 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs">+ Salvar Acesso</button>
                         </div>
                     </form>
                 </div>
                 <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow">
-                    <h3 class="text-xs font-semibold text-slate-300 uppercase mb-3">Equipe Ativa</h3>
+                    <h3 class="text-xs font-semibold text-slate-300 uppercase mb-3">Equipe MVI</h3>
                     <ul class="divide-y divide-slate-800">{equipe_html}</ul>
                 </div>
             </div>
@@ -589,7 +622,7 @@ def render_dashboard():
 
         <div id="aba-config" class="tab-content space-y-6">
             <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow space-y-4">
-                <h2 class="text-base font-semibold text-white">Dados da Empresa Licenciada</h2>
+                <h2 class="text-base font-semibold text-white">Dados da Empresa</h2>
                 <form action="/salvar-empresa" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
                     <div>
                         <label class="block text-slate-400 mb-1">Nome Fantasia</label>
@@ -631,7 +664,7 @@ def render_dashboard():
 </body>
 </html>"""
 
-def render_pagina_captacao(empresa):
+def render_form_captacao(empresa):
     return f"""<!DOCTYPE html>
 <html lang="pt-br">
 <head>
@@ -652,8 +685,8 @@ def render_pagina_captacao(empresa):
     <main class="max-w-3xl w-full mx-auto p-4 sm:p-6 my-auto">
         <form action="/enviar-solicitacao-lead" method="post" enctype="multipart/form-data" class="space-y-4 bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl">
             <div class="space-y-1 border-b border-slate-800 pb-3">
-                <h2 class="text-lg font-bold text-white">Simulador de Marcenaria Sob Medida</h2>
-                <p class="text-xs text-slate-400">Envie sua planta e especificações para receber um orçamento preliminar.</p>
+                <h2 class="text-lg font-bold text-white">Simulador MVI de Móveis Sob Medida</h2>
+                <p class="text-xs text-slate-400">Suporte a plantas compactas e grandes projetos residenciais (acima de 160m²).</p>
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -679,7 +712,7 @@ def render_pagina_captacao(empresa):
             </div>
 
             <div>
-                <label class="block text-xs font-semibold text-slate-300 uppercase mb-2">Ambientes Inclusos:</label>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-2">Ambientes Inclusos no Projeto:</label>
                 <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                     <label class="flex items-center space-x-2 bg-slate-950 p-2.5 rounded-xl border border-slate-800 cursor-pointer hover:border-amber-500">
                         <input type="checkbox" name="ambientes_check" value="Cozinha c/ Ilha" checked class="rounded text-amber-500">
@@ -729,7 +762,6 @@ def render_pagina_captacao(empresa):
                             <option value="Blum (Linha Blumotion Áustria)">Blum (Áustria / Alto Padrão)</option>
                             <option value="Hettich (Linha Sensys Alemanha)">Hettich (Alemanha)</option>
                             <option value="Häfele (Linha Matrix Box)">Häfele</option>
-                            <option value="FGVTN (Linha Slowmotion)">FGVTN</option>
                             <option value="Standard com Amortecedor">Standard</option>
                         </select>
                     </div>
@@ -773,7 +805,7 @@ def render_pagina_captacao(empresa):
 </body>
 </html>"""
 
-def render_pagina_sucesso(empresa, estimativa, novo_id, zap_url):
+def render_sucesso(empresa, estimativa, zap_url):
     return f"""<!DOCTYPE html>
 <html lang="pt-br">
 <head>
