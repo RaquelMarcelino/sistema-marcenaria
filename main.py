@@ -171,6 +171,12 @@ def get_empresa_config():
         "pix": "contato@marcenaria.com"
     }
 
+def set_empresa_config(dados: dict):
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("INSERT OR REPLACE INTO configuracoes (chave, valor) VALUES ('dados_empresa', ?)", (json.dumps(dados),))
+        conn.commit()
+
 def get_estoque_atual():
     with get_db() as conn:
         cursor = conn.cursor()
@@ -224,7 +230,7 @@ CURRENT_DATA = {
     "status": "Em Negociação",
     "cliente_nome": "Cliente Exemplo",
     "cliente_telefone": "11999998888",
-    "cliente_ambiente": "Apartamento Completo",
+    "cliente_ambiente": "Casa Completa / Múltiplos Ambientes",
     "prazo_entrega": "25 dias úteis",
     "data_entrega_prevista": (date.today() + timedelta(days=25)).strftime("%Y-%m-%d"),
     "entrada_valor": 1000.0,
@@ -233,7 +239,7 @@ CURRENT_DATA = {
     "estoque_baixado": 0,
     "valor_recebido": 1000.0,
     "imagens": [],
-    "ambientes": ["Cozinha Planejada", "Dormitório Casal"],
+    "ambientes": ["Cozinha Planejada"],
     "observacoes_tecnicas": "",
     "custo_materiais": 0.0,
     "dias_producao": 3,
@@ -290,7 +296,6 @@ def numero_extenso_reais(valor: float) -> str:
         texto += f" e {centavos}/100 centavos"
     return texto.capitalize()
 
-# MOTOR AVANÇADO DE CÁLCULO POR ESPECIFICAÇÕES TÉCNICAS E M²
 def calcular_engenharia_avancada(
     ambientes_selecionados: list,
     area_m2_total: float,
@@ -302,41 +307,35 @@ def calcular_engenharia_avancada(
     precos: dict
 ):
     items = []
-    
-    # Fator de espessura de caixa
     fator_caixa = 1.0 if "15mm" in espessura_caixa else 1.15
 
-    # Fator de tamponamento
     if "Sem Tamponamento" in espessura_tamponamento:
         fator_tamp = 1.0
     elif "18mm" in espessura_tamponamento:
         fator_tamp = 1.18
     elif "25mm" in espessura_tamponamento:
         fator_tamp = 1.30
-    else: # 36mm engrossado
+    else:
         fator_tamp = 1.45
 
-    # Fator de cor e padrão de MDF
     if "Branco" in cor_mdf:
         fator_cor = 1.0
     elif "Madeirado" in cor_mdf:
         fator_cor = 1.30
     elif "Grafite" in cor_mdf or "Matt" in cor_mdf:
         fator_cor = 1.40
-    else: # Lacas / Especiais
+    else:
         fator_cor = 1.60
 
-    # Fator de modelo de portas
     if "Lisa Tradicional" in modelo_portas:
         fator_portas = 1.0
     elif "Cava Usinada" in modelo_portas:
         fator_portas = 1.20
     elif "Perfil Gola" in modelo_portas:
         fator_portas = 1.25
-    else: # Perfil Slim Vidro Reflecta
+    else:
         fator_portas = 1.55
 
-    # Custo de ferragens
     preco_dob = precos["dobradica"] * (1.8 if "Premium" in nivel_ferragens else 1.0)
     preco_corr = precos["corredica"] * (2.2 if "Premium" in nivel_ferragens else 1.0)
     custo_m2_mdf_base = precos["mdf_m2"] * fator_caixa * fator_tamp * fator_cor * fator_portas
@@ -381,7 +380,7 @@ def calcular_engenharia_avancada(
             m_lin = max(area_por_comodo * 0.28, 2.0)
             num_portas = max(int(round(m_lin / 0.5)), 2)
             
-            items.append({"nome": f"Laterais/Estrutura Roupeiro ({espessura_caixa}) - {amb}", "tipo": "Chapa MDF / Painel", "ambiente": amb, "largura": 2600, "altura": 600, "dimensoes": "2600 x 600 x 18 mm", "qtd": num_portas + 1, "valor": (num_portas + 1) * (2.6 * 0.6 * custo_m2_mdf_base)})
+            items.append({"nome": f"Laterais Roupeiro ({espessura_caixa}) - {amb}", "tipo": "Chapa MDF / Painel", "ambiente": amb, "largura": 2600, "altura": 600, "dimensoes": "2600 x 600 x 18 mm", "qtd": num_portas + 1, "valor": (num_portas + 1) * (2.6 * 0.6 * custo_m2_mdf_base)})
             items.append({"nome": f"Portas Armário ({modelo_portas})", "tipo": "Chapa MDF / Painel", "ambiente": amb, "largura": 2500, "altura": 500, "dimensoes": "2500 x 500 x 18 mm", "qtd": num_portas, "valor": num_portas * (2.5 * 0.5 * custo_m2_mdf_base)})
             items.append({"nome": f"Divisórias e Maleiros ({amb})", "tipo": "Chapa MDF / Painel", "ambiente": amb, "largura": 900, "altura": 550, "dimensoes": "900 x 550 x 18 mm", "qtd": num_portas * 2, "valor": (num_portas * 2) * (0.9 * 0.55 * custo_m2_mdf_base)})
             items.append({"nome": f"Gavetas Internas ({nivel_ferragens})", "tipo": "Ferragem (Corrediça)", "ambiente": amb, "largura": 0, "altura": 0, "dimensoes": "450 mm", "qtd": 4, "valor": 4 * preco_corr})
@@ -393,7 +392,7 @@ def calcular_engenharia_avancada(
             items.append({"nome": f"Espelheira / Aéreo ({amb})", "tipo": "Chapa MDF / Painel", "ambiente": amb, "largura": 900, "altura": 800, "dimensoes": "900 x 800 x 150 mm", "qtd": 1, "valor": 0.85 * custo_m2_mdf_base})
             items.append({"nome": f"Corrediças e Dobradiças ({nivel_ferragens})", "tipo": "Ferragem (Corrediça)", "ambiente": amb, "largura": 0, "altura": 0, "dimensoes": "Kit", "qtd": 2, "valor": 2 * preco_corr})
 
-        else: # Sala / Home / Living / Lavanderia
+        else:
             items.append({"nome": f"Painel Ripado / Rack ({espessura_tamponamento}) - {amb}", "tipo": "Chapa MDF / Painel", "ambiente": amb, "largura": 2200, "altura": 1800, "dimensoes": "2200 x 1800 x 18 mm", "qtd": 1, "valor": (2.2 * 1.8 * custo_m2_mdf_base)})
             items.append({"nome": f"Bancada Suspensa c/ Portas Basculantes ({amb})", "tipo": "Chapa MDF / Painel", "ambiente": amb, "largura": 2200, "altura": 400, "dimensoes": "2200 x 400 x 400 mm", "qtd": 1, "valor": 1.2 * custo_m2_mdf_base})
             items.append({"nome": f"Pistões e Articulações ({nivel_ferragens})", "tipo": "Ferragem (Dobradiça)", "ambiente": amb, "largura": 0, "altura": 0, "dimensoes": "Kit", "qtd": 4, "valor": 4 * preco_dob})
@@ -416,7 +415,7 @@ def render_login_page(msg_erro=""):
         <div class="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-8 shadow-2xl space-y-6">
             <div class="text-center space-y-2">
                 <h1 class="text-2xl font-bold tracking-tight text-white">Marcenaria Pro SaaS</h1>
-                <p class="text-xs text-slate-400">Gerador Inteligente por Planta & Especificações Técnicas</p>
+                <p class="text-xs text-slate-400">Painel de Gestão e Captação de Projetos</p>
             </div>
             {erro_tag}
             <form action="/painel" method="post" class="space-y-4">
@@ -433,7 +432,7 @@ def render_login_page(msg_erro=""):
                 </button>
             </form>
             <div class="border-t border-slate-700/60 pt-4 text-center">
-                <a href="/solicitar-orcamento" target="_blank" class="text-xs text-emerald-400 hover:underline font-medium block mb-2">🔗 Ver Formulário Público (Link Instagram)</a>
+                <a href="/solicitar-orcamento" target="_blank" class="text-xs text-emerald-400 hover:underline font-medium block mb-2">🔗 Ver Formulário de Captação (Instagram)</a>
                 <p class="text-[11px] text-slate-400">Admin: <b>admin@marcenaria.com</b> | Senha: <b>123456</b></p>
             </div>
         </div>
@@ -446,13 +445,13 @@ def render_pagina_captacao(sucesso=False, orc_id=None, estimativa=0.0):
     msg_sucesso = f"""
     <div class="bg-emerald-950/90 border border-emerald-600 p-6 rounded-2xl text-center space-y-4 shadow-2xl">
         <span class="text-5xl block animate-bounce">✨</span>
-        <h2 class="text-xl font-bold text-white">Planta, Especificações & Estimativa Geradas com Sucesso!</h2>
+        <h2 class="text-xl font-bold text-white">Planta, Especificações & Estimativa Geradas!</h2>
         <div class="bg-slate-950 p-4 rounded-xl border border-emerald-800 inline-block text-left space-y-1">
             <p class="text-xs text-slate-400">Estimativa Orçamentária Inicial:</p>
             <p class="text-2xl font-bold text-emerald-400">R$ {estimativa:,.2f}</p>
             <p class="text-[11px] text-slate-400">Entrada + Parcelamento facilitado em até 12x</p>
         </div>
-        <p class="text-xs text-slate-300">Nossa equipe de engenharia da <b>{empresa['nome_empresa']}</b> já recebeu sua planta e especificações para iniciar o atendimento.</p>
+        <p class="text-xs text-slate-300">Nossa equipe de engenharia da <b>{empresa['nome_empresa']}</b> já recebeu sua solicitação.</p>
         <a href="https://api.whatsapp.com/send?phone=55{empresa['telefone_empresa'].replace('(', '').replace(')', '').replace('-', '').replace(' ', '')}&text=Olá! Enviei minha planta e especificações no site (Projeto #{orc_id}) e gostaria de dar andamento!" target="_blank" class="inline-block px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg transition-colors">
             💬 Falar com Projetista no WhatsApp
         </a>
@@ -519,69 +518,64 @@ def render_pagina_captacao(sucesso=False, orc_id=None, estimativa=0.0):
             </div>
         </div>
 
-        <!-- ESPECIFICAÇÕES TÉCNICAS DA MARCENARIA -->
         <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
             <h3 class="text-xs font-bold text-sky-400 uppercase tracking-wide">⚙️ Especificações Técnicas de Marcenaria</h3>
             
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                 <div>
-                    <label class="block text-slate-300 font-medium mb-1">Espessura da Caixa (Interno)</label>
+                    <label class="block text-slate-300 font-medium mb-1">Espessura da Caixa</label>
                     <select name="espessura_caixa" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white">
-                        <option value="MDF 15mm">MDF 15mm (Padrão de Mercado)</option>
-                        <option value="MDF 18mm">MDF 18mm (Reforçado / Estrutural)</option>
+                        <option value="MDF 15mm">MDF 15mm (Padrão)</option>
+                        <option value="MDF 18mm">MDF 18mm (Reforçado)</option>
                     </select>
                 </div>
                 <div>
-                    <label class="block text-slate-300 font-medium mb-1">Tamponamento Externo</label>
+                    <label class="block text-slate-300 font-medium mb-1">Tamponamento</label>
                     <select name="espessura_tamponamento" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white">
                         <option value="Tamponamento 18mm">Tamponamento 18mm</option>
-                        <option value="Tamponamento 25mm">Tamponamento 25mm (Robustez)</option>
-                        <option value="Tamponamento 36mm Engrossado">Tamponamento 36mm Engrossado (Alto Padrão)</option>
-                        <option value="Sem Tamponamento">Sem Tamponamento (Econômico)</option>
+                        <option value="Tamponamento 25mm">Tamponamento 25mm</option>
+                        <option value="Tamponamento 36mm Engrossado">Tamponamento 36mm Engrossado</option>
+                        <option value="Sem Tamponamento">Sem Tamponamento</option>
                     </select>
                 </div>
                 <div>
-                    <label class="block text-slate-300 font-medium mb-1">Cor / Padrão do MDF</label>
+                    <label class="block text-slate-300 font-medium mb-1">Cor / Padrão MDF</label>
                     <select name="cor_mdf" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white">
                         <option value="Branco TX Essencial">Branco TX Essencial</option>
-                        <option value="Madeirado Nobre (Freijó / Carvalho)">Madeirado Nobre (Freijó / Carvalho)</option>
-                        <option value="Cores Unicolores (Cinza Grafite / Preto Matt)">Cores Unicolores (Grafite / Preto Matt)</option>
-                        <option value="Madeirado + Detalhes em Laca">Madeirado + Detalhes em Laca</option>
+                        <option value="Madeirado Nobre (Freijó / Carvalho)">Madeirado Nobre</option>
+                        <option value="Cores Unicolores (Grafite / Preto)">Cinza Grafite / Preto Matt</option>
                     </select>
                 </div>
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                 <div>
-                    <label class="block text-slate-300 font-medium mb-1">Modelo das Portas & Puxadores</label>
+                    <label class="block text-slate-300 font-medium mb-1">Modelo das Portas</label>
                     <select name="modelo_portas" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white">
-                        <option value="Lisa Tradicional com Puxador Externo">Lisa Tradicional com Puxador Externo</option>
-                        <option value="Cava Usinada na Madeira (Usinado)">Cava Usinada na Própria Madeira</option>
+                        <option value="Lisa Tradicional com Puxador Externo">Lisa Tradicional</option>
+                        <option value="Cava Usinada na Madeira (Usinado)">Cava Usinada na Madeira</option>
                         <option value="Perfil Gola em Alumínio">Perfil Gola em Alumínio</option>
-                        <option value="Perfil Slim com Vidro Reflecta">Perfil Slim com Vidro Reflecta / Bronze</option>
+                        <option value="Perfil Slim com Vidro Reflecta">Perfil Slim com Vidro Reflecta</option>
                     </select>
                 </div>
                 <div>
                     <label class="block text-slate-300 font-medium mb-1">Nível das Ferragens</label>
                     <select name="nivel_ferragens" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white">
-                        <option value="Padrão c/ Amortecedor Slowmotion">Padrão com Amortecimento Slowmotion</option>
-                        <option value="Linha Premium Oculta (Extração Total + Amortecimento Suave)">Linha Premium Oculta (Extração Total)</option>
+                        <option value="Padrão c/ Amortecedor Slowmotion">Padrão com Amortecimento</option>
+                        <option value="Linha Premium Oculta (Extração Total)">Linha Premium Oculta</option>
                     </select>
                 </div>
             </div>
         </div>
 
-        <!-- UPLOADS: PLANTA + FOTOS DE INSPIRAÇÃO -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div class="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-1">
                 <label class="block text-xs font-bold text-sky-400 uppercase">📐 1. Planta Baixa Completa</label>
                 <input type="file" name="planta" accept="image/*" required class="block w-full text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-sky-900 file:text-white hover:file:bg-sky-800 cursor-pointer">
-                <span class="text-[10px] text-slate-500 block">Planta da construtora, arquiteto ou desenho com medidas.</span>
             </div>
             <div class="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-1">
-                <label class="block text-xs font-bold text-purple-400 uppercase">🖼️ 2. Fotos de Inspiração / Estilo</label>
+                <label class="block text-xs font-bold text-purple-400 uppercase">🖼️ 2. Inspiração / Estilo (Opcional)</label>
                 <input type="file" name="inspiracao" accept="image/*" class="block w-full text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-purple-900 file:text-white hover:file:bg-purple-800 cursor-pointer">
-                <span class="text-[10px] text-slate-500 block">Como você quer que fique (Pinterest/Instagram).</span>
             </div>
         </div>
 
@@ -620,7 +614,7 @@ def render_pagina_captacao(sucesso=False, orc_id=None, estimativa=0.0):
         </main>
 
         <footer class="bg-slate-900 border-t border-slate-800 p-4 text-center text-xs text-slate-500">
-            <p>{empresa['nome_empresa']} | Atendimento: {empresa['telefone_empresa']}</p>
+            <p>{empresa['nome_empresa']} | Atendimento WhatsApp: {empresa['telefone_empresa']}</p>
         </footer>
     </body>
     </html>
@@ -1074,144 +1068,6 @@ def render_dashboard(data: dict):
     </div>
     """
 
-    admin_sections = f"""
-    <!-- Módulo de Controle de Estoque & Entrada de Mercadorias -->
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
-        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
-            <div>
-                <h2 class="text-base font-semibold text-white">📦 Controle de Estoque & Insumos da Marcenaria</h2>
-                <p class="text-xs text-slate-400">Saldos atuais de materiais com alerta automático de reposição</p>
-            </div>
-            <span class="text-xs text-indigo-400 font-medium">Baixa automática vinculada à produção</span>
-        </div>
-        
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-            {estoque_cards_html}
-        </div>
-
-        <form action="/adicionar-estoque" method="post" class="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-wrap items-end gap-3">
-            <div class="flex-1 min-w-[180px]">
-                <label class="block text-[11px] font-medium text-slate-400 mb-1">Insumo / Material p/ Entrada</label>
-                <select name="codigo" class="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white">
-                    <option value="mdf">Chapas de MDF (Chapas)</option>
-                    <option value="fita">Fita de Borda PVC (Metros)</option>
-                    <option value="dobradica">Dobradiças com Amortecedor (Un)</option>
-                    <option value="corredica">Corrediças Telescópicas (Pares)</option>
-                    <option value="puxador">Puxadores (Un)</option>
-                </select>
-            </div>
-            <div class="w-32">
-                <label class="block text-[11px] font-medium text-slate-400 mb-1">Qtd Comprada</label>
-                <input type="number" step="1" min="1" name="quantidade" required value="10" class="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white">
-            </div>
-            <button type="submit" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shrink-0">
-                + Dar Entrada no Estoque
-            </button>
-        </form>
-    </div>
-
-    <!-- Personalização dos Dados da Sua Marcenaria -->
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
-        <div class="flex justify-between items-center border-b border-slate-800 pb-3">
-            <h2 class="text-base font-semibold text-white">🏢 Dados da Sua Marcenaria (Contrato, O.S., Recibo e Cabeçalho do PDF)</h2>
-            <span class="text-xs text-slate-400">Configuração institucional da sua empresa</span>
-        </div>
-        <form action="/salvar-empresa" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div>
-                <label class="block text-xs font-medium text-slate-400 mb-1">Nome Comercial / Razão Social</label>
-                <input type="text" name="nome_empresa" value="{empresa['nome_empresa']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white">
-            </div>
-            <div>
-                <label class="block text-xs font-medium text-slate-400 mb-1">CNPJ</label>
-                <input type="text" name="cnpj" value="{empresa['cnpj']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white">
-            </div>
-            <div>
-                <label class="block text-xs font-medium text-slate-400 mb-1">Telefone / WhatsApp da Loja</label>
-                <input type="text" name="telefone_empresa" value="{empresa['telefone_empresa']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white">
-            </div>
-            <div>
-                <label class="block text-xs font-medium text-slate-400 mb-1">Chave PIX p/ Pagamentos</label>
-                <div class="flex gap-2">
-                    <input type="text" name="pix" value="{empresa['pix']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white">
-                    <button type="submit" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold shrink-0">
-                        Salvar
-                    </button>
-                </div>
-            </div>
-        </form>
-    </div>
-
-    <!-- Mão de Obra e Operacionais -->
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
-        <div class="flex justify-between items-center border-b border-slate-800 pb-3">
-            <h2 class="text-base font-semibold text-white">🔨 Mão de Obra & Custos Operacionais</h2>
-            <span class="text-xs text-slate-400">Visível apenas para Administrador</span>
-        </div>
-        <form action="/salvar-operacionais" method="post" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            <div>
-                <label class="block text-[11px] font-medium text-slate-400 mb-1">Dias Fabricação</label>
-                <input type="number" step="1" min="0" name="dias_producao" value="{data['dias_producao']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
-            </div>
-            <div>
-                <label class="block text-[11px] font-medium text-slate-400 mb-1">Diária Marceneiro (R$)</label>
-                <input type="number" step="10" name="valor_diaria" value="{data['valor_diaria']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
-            </div>
-            <div>
-                <label class="block text-[11px] font-medium text-slate-400 mb-1">Custo Frete (R$)</label>
-                <input type="number" step="10" name="custo_frete" value="{data['custo_frete']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
-            </div>
-            <div>
-                <label class="block text-[11px] font-medium text-slate-400 mb-1">Montagem Cliente (R$)</label>
-                <input type="number" step="10" name="custo_montagem" value="{data['custo_montagem']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
-            </div>
-            <div>
-                <label class="block text-[11px] font-medium text-slate-400 mb-1">Impostos (%)</label>
-                <input type="number" step="0.5" min="0" max="30" name="imposto_pct" value="{data['imposto_pct']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
-            </div>
-            <div class="flex items-end">
-                <button type="submit" class="w-full py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold transition-colors">
-                    Atualizar DRE
-                </button>
-            </div>
-        </form>
-    </div>
-
-    <!-- Tabela de Custos Unitários de Insumos -->
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
-        <div class="flex justify-between items-center border-b border-slate-800 pb-3">
-            <h2 class="text-base font-semibold text-white">⚙️ Tabela de Custos Unitários por Insumo</h2>
-            <span class="text-xs text-slate-400">Tabela Geral da Marcenaria</span>
-        </div>
-        <form action="/salvar-precos" method="post" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            <div>
-                <label class="block text-[11px] font-medium text-slate-400 mb-1">MDF (m²)</label>
-                <input type="number" step="0.5" name="mdf_m2" value="{precos['mdf_m2']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
-            </div>
-            <div>
-                <label class="block text-[11px] font-medium text-slate-400 mb-1">Dobradiça (Un)</label>
-                <input type="number" step="0.5" name="dobradica" value="{precos['dobradica']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
-            </div>
-            <div>
-                <label class="block text-[11px] font-medium text-slate-400 mb-1">Corrediça (Par)</label>
-                <input type="number" step="0.5" name="corredica" value="{precos['corredica']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
-            </div>
-            <div>
-                <label class="block text-[11px] font-medium text-slate-400 mb-1">Fita Borda (m)</label>
-                <input type="number" step="0.1" name="fita_borda_m" value="{precos['fita_borda_m']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
-            </div>
-            <div>
-                <label class="block text-[11px] font-medium text-slate-400 mb-1">Puxador (Un)</label>
-                <input type="number" step="0.5" name="puxador" value="{precos['puxador']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
-            </div>
-            <div class="flex items-end">
-                <button type="submit" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-sky-400 border border-slate-700 rounded-lg text-xs font-semibold transition-colors">
-                    Salvar Config
-                </button>
-            </div>
-        </form>
-    </div>
-    """ if is_admin else ""
-
     markup_control = f"""
     <form action="/recalcular" method="post" class="flex items-center gap-3">
         <label class="text-xs text-slate-400 font-medium">Markup:</label>
@@ -1230,15 +1086,28 @@ def render_dashboard(data: dict):
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Marcenaria SaaS - Painel</title>
         <script src="https://cdn.tailwindcss.com"></script>
+        <style>
+            .tab-btn.active {{
+                background-color: #0284c7;
+                color: #ffffff;
+                border-color: #38bdf8;
+            }}
+            .tab-content {{
+                display: none;
+            }}
+            .tab-content.active {{
+                display: block;
+            }}
+        </style>
     </head>
     <body class="bg-slate-950 text-slate-100 min-h-screen font-sans">
-        <header class="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center justify-between">
+        <header class="bg-slate-900 border-b border-slate-800 px-6 py-4 flex flex-wrap items-center justify-between gap-3">
             <div class="flex items-center space-x-3">
-                <div class="w-8 h-8 rounded-lg bg-sky-600 flex items-center justify-center font-bold text-white">M</div>
+                <div class="w-8 h-8 rounded-lg bg-sky-600 flex items-center justify-center font-bold text-white shadow-md">M</div>
                 <span class="font-bold text-lg text-white tracking-wide">Marcenaria Pro</span>
                 {status_tag}
             </div>
-            <div class="flex items-center space-x-4">
+            <div class="flex items-center space-x-3">
                 {perfil_badge}
                 <a href="/solicitar-orcamento" target="_blank" class="text-xs bg-emerald-950 text-emerald-300 border border-emerald-700 px-3 py-1.5 rounded-lg hover:bg-emerald-900/60 transition-colors">🔗 Link Instagram</a>
                 <a href="/novo-orcamento" class="text-xs bg-sky-600 hover:bg-sky-500 text-white font-medium px-3 py-1.5 rounded-lg transition-colors">+ Novo Orçamento</a>
@@ -1247,351 +1116,602 @@ def render_dashboard(data: dict):
             </div>
         </header>
 
+        <!-- MENU DE NAVEGAÇÃO POR ABAS -->
+        <nav class="bg-slate-900/80 border-b border-slate-800 px-6 py-3 sticky top-0 z-50 backdrop-blur-md">
+            <div class="max-w-7xl mx-auto flex items-center gap-2 overflow-x-auto">
+                <button onclick="mudarAba('aba-leads')" id="btn-aba-leads" class="tab-btn active px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 transition-all flex items-center space-x-1.5 shrink-0">
+                    <span>🏠 Painel Geral & Leads</span>
+                </button>
+                <button onclick="mudarAba('aba-engenharia')" id="btn-aba-engenharia" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 transition-all flex items-center space-x-1.5 shrink-0">
+                    <span>📐 Engenharia & Ambientes</span>
+                </button>
+                <button onclick="mudarAba('aba-fabrica')" id="btn-aba-fabrica" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 transition-all flex items-center space-x-1.5 shrink-0">
+                    <span>🏭 Fábrica & Plano de Corte</span>
+                </button>
+                <button onclick="mudarAba('aba-financeiro')" id="btn-aba-financeiro" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 transition-all flex items-center space-x-1.5 shrink-0">
+                    <span>💳 Financeiro & Contratos</span>
+                </button>
+                <button onclick="mudarAba('aba-estoque')" id="btn-aba-estoque" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 transition-all flex items-center space-x-1.5 shrink-0">
+                    <span>📦 Estoque & Materiais</span>
+                </button>
+                <button onclick="mudarAba('aba-config')" id="btn-aba-config" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 transition-all flex items-center space-x-1.5 shrink-0">
+                    <span>⚙️ Configurações & Custos</span>
+                </button>
+            </div>
+        </nav>
+
         <main class="max-w-7xl mx-auto p-6 space-y-6">
-            {dre_cards}
 
-            <!-- Central de Notificações WhatsApp -->
-            <div class="bg-slate-900 border border-emerald-900/60 rounded-xl p-6 shadow-lg space-y-3">
-                <div class="flex justify-between items-center border-b border-slate-800 pb-3">
-                    <div>
-                        <h2 class="text-base font-semibold text-white">📲 Central de Notificações & Mensagens WhatsApp</h2>
-                        <p class="text-xs text-emerald-400">Dispare atualizações automáticas direto no WhatsApp do cliente com 1 clique</p>
+            <!-- ABA 1: PAINEL GERAL & LEADS -->
+            <div id="aba-leads" class="tab-content active space-y-6">
+                {dre_cards}
+
+                <!-- Central de Notificações WhatsApp -->
+                <div class="bg-slate-900 border border-emerald-900/60 rounded-xl p-6 shadow-lg space-y-3">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
+                        <div>
+                            <h2 class="text-base font-semibold text-white">📲 Central de Notificações & WhatsApp do Cliente</h2>
+                            <p class="text-xs text-emerald-400">Envie mensagens automáticas e atualizações com 1 clique</p>
+                        </div>
+                        <span class="text-xs text-slate-400">Cliente Atual: <b class="text-white">{data['cliente_nome']}</b> ({data['cliente_telefone']})</span>
                     </div>
-                    <span class="text-xs text-slate-400">Cliente: <b class="text-white">{data['cliente_nome']}</b> ({data['cliente_telefone']})</span>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+                        <a href="{url_proposta}" target="_blank" class="p-3.5 bg-slate-950 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-700 rounded-xl text-left transition-colors group flex flex-col justify-between">
+                            <div>
+                                <span class="text-xs font-bold text-white group-hover:text-emerald-400 block">📄 Enviar Orçamento</span>
+                                <span class="text-[11px] text-slate-400 leading-tight block mt-1">Resumo de valor total, entrada e condições.</span>
+                            </div>
+                            <span class="text-[10px] text-emerald-500 font-semibold mt-3">Disparar no WhatsApp →</span>
+                        </a>
+                        <a href="{url_producao}" target="_blank" class="p-3.5 bg-slate-950 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-700 rounded-xl text-left transition-colors group flex flex-col justify-between">
+                            <div>
+                                <span class="text-xs font-bold text-white group-hover:text-emerald-400 block">🛠️ Início da Produção</span>
+                                <span class="text-[11px] text-slate-400 leading-tight block mt-1">Notifica que as chapas entraram em corte.</span>
+                            </div>
+                            <span class="text-[10px] text-emerald-500 font-semibold mt-3">Disparar no WhatsApp →</span>
+                        </a>
+                        <a href="{url_montagem}" target="_blank" class="p-3.5 bg-slate-950 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-700 rounded-xl text-left transition-colors group flex flex-col justify-between">
+                            <div>
+                                <span class="text-xs font-bold text-white group-hover:text-emerald-400 block">🚚 Agendar Montagem</span>
+                                <span class="text-[11px] text-slate-400 leading-tight block mt-1">Confirma data da equipe na obra.</span>
+                            </div>
+                            <span class="text-[10px] text-emerald-500 font-semibold mt-3">Disparar no WhatsApp →</span>
+                        </a>
+                        <a href="{url_cobranca}" target="_blank" class="p-3.5 bg-slate-950 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-700 rounded-xl text-left transition-colors group flex flex-col justify-between">
+                            <div>
+                                <span class="text-xs font-bold text-white group-hover:text-emerald-400 block">💳 Saldo / Chave PIX</span>
+                                <span class="text-[11px] text-slate-400 leading-tight block mt-1">Lembrete de saldo devedor e chave PIX.</span>
+                            </div>
+                            <span class="text-[10px] text-emerald-500 font-semibold mt-3">Disparar no WhatsApp →</span>
+                        </a>
+                    </div>
                 </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
-                    <a href="{url_proposta}" target="_blank" class="p-3 bg-slate-950 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-700 rounded-xl text-left transition-colors group flex flex-col justify-between">
+
+                <!-- Histórico de Orçamentos e Leads do Instagram -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
+                    <div class="p-4 border-b border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-slate-850">
                         <div>
-                            <span class="text-xs font-bold text-white group-hover:text-emerald-400 block">📄 Enviar Orçamento</span>
-                            <span class="text-[11px] text-slate-400 leading-tight block mt-1">Resumo de valor total, entrada e prazos negociados.</span>
+                            <h3 class="text-sm font-semibold text-white">📁 Histórico de Pedidos & Leads (Banco de Dados)</h3>
+                            <span class="text-xs text-slate-400">Pesquise por cliente ou ambiente</span>
                         </div>
-                        <span class="text-[10px] text-emerald-500 font-semibold mt-3">Disparar no WhatsApp →</span>
-                    </a>
-                    <a href="{url_producao}" target="_blank" class="p-3 bg-slate-950 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-700 rounded-xl text-left transition-colors group flex flex-col justify-between">
-                        <div>
-                            <span class="text-xs font-bold text-white group-hover:text-emerald-400 block">🛠️ Início da Produção</span>
-                            <span class="text-[11px] text-slate-400 leading-tight block mt-1">Notifica que as chapas entraram na linha de corte.</span>
+                        <div class="flex items-center space-x-2 w-full sm:w-auto">
+                            <input type="text" id="campoBusca" onkeyup="filtrarTabela()" placeholder="🔍 Buscar cliente ou ambiente..." class="px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500 w-full sm:w-64">
+                            <a href="/exportar-csv" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold flex items-center space-x-1 shrink-0">
+                                <span>📊 CSV</span>
+                            </a>
                         </div>
-                        <span class="text-[10px] text-emerald-500 font-semibold mt-3">Disparar no WhatsApp →</span>
-                    </a>
-                    <a href="{url_montagem}" target="_blank" class="p-3 bg-slate-950 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-700 rounded-xl text-left transition-colors group flex flex-col justify-between">
-                        <div>
-                            <span class="text-xs font-bold text-white group-hover:text-emerald-400 block">🚚 Agendar Montagem</span>
-                            <span class="text-[11px] text-slate-400 leading-tight block mt-1">Confirma a data de chegada da equipe na obra.</span>
-                        </div>
-                        <span class="text-[10px] text-emerald-500 font-semibold mt-3">Disparar no WhatsApp →</span>
-                    </a>
-                    <a href="{url_cobranca}" target="_blank" class="p-3 bg-slate-950 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-700 rounded-xl text-left transition-colors group flex flex-col justify-between">
-                        <div>
-                            <span class="text-xs font-bold text-white group-hover:text-emerald-400 block">💳 Saldo / Chave PIX</span>
-                            <span class="text-[11px] text-slate-400 leading-tight block mt-1">Envia lembrete do saldo devedor e chave PIX da loja.</span>
-                        </div>
-                        <span class="text-[10px] text-emerald-500 font-semibold mt-3">Disparar no WhatsApp →</span>
-                    </a>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse" id="tabelaHistorico">
+                            <thead>
+                                <tr class="bg-slate-800/40 border-b border-slate-800 text-xs font-semibold text-slate-400 uppercase">
+                                    <th class="py-3 px-4"># ID</th>
+                                    <th class="py-3 px-4">Data/Hora</th>
+                                    <th class="py-3 px-4">Cliente</th>
+                                    <th class="py-3 px-4">Ambiente</th>
+                                    <th class="py-3 px-4 text-right">Valor Venda</th>
+                                    <th class="py-3 px-4 text-right">Lucro Líquido</th>
+                                    <th class="py-3 px-4 text-center">Status</th>
+                                    <th class="py-3 px-4 text-center">Pagamento</th>
+                                    <th class="py-3 px-4 text-center">Estoque</th>
+                                    <th class="py-3 px-4 text-center">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {historico_html}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="flex justify-end pt-2">
+                    <button onclick="mudarAba('aba-engenharia')" class="px-6 py-2.5 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-xl shadow-lg transition-all flex items-center space-x-1">
+                        <span>Avançar para Engenharia & Ambientes ➡️</span>
+                    </button>
                 </div>
             </div>
 
-            <!-- Ambientes Inclusos -->
-            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
-                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
-                    <div>
-                        <h2 class="text-base font-semibold text-white">🏠 Ambientes Inclusos no Projeto</h2>
-                        <p class="text-xs text-slate-400">Cômodos contemplados no cálculo e proposta global</p>
+            <!-- ABA 2: ENGENHARIA & AMBIENTES -->
+            <div id="aba-engenharia" class="tab-content space-y-6">
+                <div class="flex justify-between items-center bg-slate-900 p-4 rounded-xl border border-slate-800">
+                    <button onclick="mudarAba('aba-leads')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 transition-colors flex items-center space-x-1">
+                        <span>⬅️ Voltar ao Painel Geral</span>
+                    </button>
+                    <span class="text-xs text-sky-400 font-medium">Etapa: Especificações e Modulação</span>
+                    <button onclick="mudarAba('aba-fabrica')" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-lg shadow-md transition-colors flex items-center space-x-1">
+                        <span>Ir para Fábrica & Corte ➡️</span>
+                    </button>
+                </div>
+
+                <!-- Dados do Cliente & Instruções Técnicas -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+                    <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                        <h2 class="text-base font-semibold text-white">👤 Dados do Cliente & Proposta</h2>
+                        <span class="text-xs text-sky-400">Edição e detalhes do projeto</span>
                     </div>
-                    <form action="/adicionar-ambiente" method="post" class="flex items-center gap-2">
-                        <input type="text" name="novo_ambiente" placeholder="Ex: Quarto Casal, Lavabo..." required class="px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
-                        <button type="submit" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold shrink-0">
-                            + Adicionar Cômodo
-                        </button>
+                    <form action="/salvar-cliente" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Nome do Cliente</label>
+                            <input type="text" name="cliente_nome" value="{data['cliente_nome']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">WhatsApp / Tel</label>
+                            <input type="text" name="cliente_telefone" value="{data['cliente_telefone']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Projeto Master</label>
+                            <input type="text" name="cliente_ambiente" value="{data['cliente_ambiente']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Data Montagem</label>
+                            <input type="date" name="data_entrega_prevista" value="{data.get('data_entrega_prevista', '')}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Status</label>
+                            <select name="status" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none">
+                                <option value="Novo Lead Instagram" {'selected' if data.get('status')=='Novo Lead Instagram' else ''}>📸 Lead Planta + Inspiração</option>
+                                <option value="Em Negociação" {'selected' if data.get('status')=='Em Negociação' else ''}>🟡 Em Negociação</option>
+                                <option value="Aprovado" {'selected' if data.get('status')=='Aprovado' else ''}>🟢 Aprovado</option>
+                                <option value="Em Produção" {'selected' if data.get('status')=='Em Produção' else ''}>🔵 Em Produção</option>
+                                <option value="Entregue" {'selected' if data.get('status')=='Entregue' else ''}>🟣 Entregue</option>
+                                <option value="Cancelado" {'selected' if data.get('status')=='Cancelado' else ''}>🔴 Cancelado</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Prazo Texto</label>
+                            <input type="text" name="prazo_entrega" value="{data['prazo_entrega']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div class="col-span-full">
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Instruções Técnicas & Detalhes do Lead</label>
+                            <div class="flex gap-2">
+                                <input type="text" name="observacoes_tecnicas" value="{data.get('observacoes_tecnicas', '')}" placeholder="Ex: Detalhes de furação, recortes de tomadas ou especificações enviadas pelo cliente..." class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                                <button type="submit" class="px-6 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold shrink-0">
+                                    Salvar Dados
+                                </button>
+                            </div>
+                        </div>
                     </form>
                 </div>
-                <div class="flex flex-wrap gap-2">
-                    {ambientes_tags_html}
-                </div>
-            </div>
 
-            <!-- Galeria de Imagens / Plantas / Inspirações -->
-            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
-                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
-                    <div>
-                        <h2 class="text-base font-semibold text-white">🖼️ Galeria: Planta Baixa & Inspirações do Cliente</h2>
-                        <p class="text-xs text-slate-400">Fotos enviadas pelo cliente no formulário do Instagram</p>
-                    </div>
-                    <form action="/upload-imagem" method="post" enctype="multipart/form-data" class="flex items-center gap-2">
-                        <input type="file" name="foto" accept="image/*" required class="block w-full text-xs text-slate-400 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-200 hover:file:bg-slate-700 cursor-pointer">
-                        <button type="submit" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold shrink-0">
-                            + Anexar Imagem
-                        </button>
-                    </form>
-                </div>
-                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                    {galeria_html}
-                </div>
-            </div>
-
-            <!-- Agenda & Cronograma de Entregas e Montagens -->
-            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
-                <div class="flex justify-between items-center border-b border-slate-800 pb-3">
-                    <div>
-                        <h2 class="text-base font-semibold text-white">📅 Cronograma de Entregas & Montagens (Fábrica)</h2>
-                        <p class="text-xs text-slate-400">Contagem de dias e monitoramento de prazos críticos</p>
-                    </div>
-                    <span class="text-xs text-sky-400 font-medium">Controle de Fábrica</span>
-                </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {cronograma_cards_html}
-                </div>
-            </div>
-
-            <!-- Contas a Receber & Simulador de Pagamento -->
-            <div class="bg-slate-900 border border-amber-900/50 rounded-xl p-6 shadow-lg space-y-4">
-                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
-                    <div>
-                        <h2 class="text-base font-semibold text-white">💳 Contas a Receber, Parcelamento & Recibos</h2>
-                        <p class="text-xs text-amber-400">Acompanhe entradas, registre pagamentos e emita recibos oficiais</p>
+                <!-- Ambientes Inclusos -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
+                        <div>
+                            <h2 class="text-base font-semibold text-white">🏠 Ambientes Inclusos no Projeto</h2>
+                            <p class="text-xs text-slate-400">Cômodos contemplados no cálculo global</p>
+                        </div>
+                        <form action="/adicionar-ambiente" method="post" class="flex items-center gap-2">
+                            <input type="text" name="novo_ambiente" placeholder="Ex: Quarto Casal, Lavabo..." required class="px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                            <button type="submit" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold shrink-0">
+                                + Adicionar Cômodo
+                            </button>
+                        </form>
                     </div>
                     <div class="flex flex-wrap gap-2">
-                        <a href="/gerar-os" class="px-3 py-1.5 bg-blue-800 hover:bg-blue-700 text-white font-medium text-xs rounded-lg transition-colors flex items-center space-x-1 shadow-md">
-                            <span>🛠️ O.S. Fábrica (PDF)</span>
-                        </a>
-                        <a href="/gerar-recibo" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs rounded-lg transition-colors flex items-center space-x-1 shadow-md">
-                            <span>📄 Emitir Recibo (PDF)</span>
-                        </a>
-                        <a href="/gerar-contrato" class="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-medium text-xs rounded-lg transition-colors flex items-center space-x-1 shadow-md">
-                            <span>📑 Contrato Master (PDF)</span>
-                        </a>
-                        <a href="/gerar-vistoria" class="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white font-medium text-xs rounded-lg transition-colors flex items-center space-x-1 shadow-md">
-                            <span>📋 Vistoria (PDF)</span>
-                        </a>
+                        {ambientes_tags_html}
                     </div>
                 </div>
-                <form action="/salvar-pagamento" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-                    <div>
-                        <label class="block text-xs font-medium text-slate-400 mb-1">Valor de Entrada (R$)</label>
-                        <input type="number" step="50" name="entrada_valor" value="{data['entrada_valor']}" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-amber-500">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-medium text-slate-400 mb-1">Nº de Parcelas</label>
-                        <select name="num_parcelas" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none">
-                            <option value="1" {'selected' if data.get('num_parcelas')==1 else ''}>1x (À vista / Parcela Única)</option>
-                            <option value="2" {'selected' if data.get('num_parcelas')==2 else ''}>2x parcelas</option>
-                            <option value="3" {'selected' if data.get('num_parcelas')==3 else ''}>3x parcelas</option>
-                            <option value="4" {'selected' if data.get('num_parcelas')==4 else ''}>4x parcelas</option>
-                            <option value="5" {'selected' if data.get('num_parcelas')==5 else ''}>5x parcelas</option>
-                            <option value="6" {'selected' if data.get('num_parcelas')==6 else ''}>6x parcelas</option>
-                            <option value="10" {'selected' if data.get('num_parcelas')==10 else ''}>10x parcelas</option>
-                            <option value="12" {'selected' if data.get('num_parcelas')==12 else ''}>12x parcelas</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-xs font-medium text-slate-400 mb-1">Valor Já Recebido (R$)</label>
-                        <input type="number" step="50" name="valor_recebido" value="{data.get('valor_recebido', 0.0)}" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-amber-500">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-medium text-slate-400 mb-1">Forma de Pagamento</label>
-                        <input type="text" name="forma_pagamento" value="{data['forma_pagamento']}" placeholder="Ex: Entrada PIX + Cartão" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-amber-500">
-                    </div>
-                    <div class="flex items-end">
-                        <button type="submit" class="w-full py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold transition-colors">
-                            Atualizar Pagamento
-                        </button>
-                    </div>
-                </form>
-                <div class="bg-slate-950 p-3 rounded-lg border border-slate-800 flex flex-wrap justify-between items-center text-xs">
-                    <span class="text-slate-300">Total Proposta: <b>R$ {dre['pv']:,.2f}</b> | Recebido: <b class="text-emerald-400">R$ {dre['valor_recebido']:,.2f}</b> | Saldo Devedor: <b class="text-rose-400">R$ {dre['saldo_devedor']:,.2f}</b></span>
-                    <span class="text-amber-400 font-semibold">{data['forma_pagamento']}</span>
-                </div>
-            </div>
 
-            <!-- Resumo de Compras para Fornecedores -->
-            <div class="bg-slate-900 border border-indigo-900/50 rounded-xl p-6 shadow-lg space-y-4">
-                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
-                    <div>
-                        <h2 class="text-base font-semibold text-white">📦 Resumo de Compras para Fornecedores / Madeireira</h2>
-                        <p class="text-xs text-indigo-400">Totalizadores de materiais necessários para produzir o projeto</p>
-                    </div>
-                    <div class="flex gap-2">
-                        <a href="/gerar-pdf-compras" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs rounded-lg transition-colors flex items-center space-x-1 shadow-md">
-                            <span>📄 PDF p/ Madeireira</span>
-                        </a>
-                    </div>
-                </div>
-                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-center">
-                    <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                        <p class="text-[11px] text-slate-400 uppercase">Chapas MDF</p>
-                        <p class="text-lg font-bold text-white">{compras['chapas_mdf']} <span class="text-xs font-normal text-slate-500">un</span></p>
-                        <p class="text-[10px] text-slate-500">{compras['area_m2']:.1f} m²</p>
-                    </div>
-                    <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                        <p class="text-[11px] text-slate-400 uppercase">Fita Borda</p>
-                        <p class="text-lg font-bold text-white">{compras['fita_metros']} <span class="text-xs font-normal text-slate-500">m</span></p>
-                        <p class="text-[10px] text-slate-500">PVC 22mm</p>
-                    </div>
-                    <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                        <p class="text-[11px] text-slate-400 uppercase">Dobradiças</p>
-                        <p class="text-lg font-bold text-sky-400">{compras['dobradicas']} <span class="text-xs font-normal text-slate-500">un</span></p>
-                        <p class="text-[10px] text-slate-500">Amortecedor</p>
-                    </div>
-                    <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                        <p class="text-[11px] text-slate-400 uppercase">Corrediças</p>
-                        <p class="text-lg font-bold text-sky-400">{compras['corredicas']} <span class="text-xs font-normal text-slate-500">pares</span></p>
-                        <p class="text-[10px] text-slate-500">Telescópicas</p>
-                    </div>
-                    <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                        <p class="text-[11px] text-slate-400 uppercase">Puxadores</p>
-                        <p class="text-lg font-bold text-white">{compras['puxadores']} <span class="text-xs font-normal text-slate-500">un</span></p>
-                        <p class="text-[10px] text-slate-500">Perfis/Pontos</p>
-                    </div>
-                    <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
-                        <p class="text-[11px] text-slate-400 uppercase">Outros Insumos</p>
-                        <p class="text-lg font-bold text-slate-300">{compras['outros']} <span class="text-xs font-normal text-slate-500">itens</span></p>
-                        <p class="text-[10px] text-slate-500">Parafusos/Tapas</p>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Dados do Cliente & Instruções da O.S. -->
-            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
-                <div class="flex justify-between items-center border-b border-slate-800 pb-3">
-                    <h2 class="text-base font-semibold text-white">👤 Dados do Cliente & Proposta</h2>
-                    <span class="text-xs text-sky-400">Vinculado ao Cronograma, Contrato, O.S., Vistoria e WhatsApp</span>
-                </div>
-                <form action="/salvar-cliente" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
-                    <div>
-                        <label class="block text-xs font-medium text-slate-400 mb-1">Nome do Cliente</label>
-                        <input type="text" name="cliente_nome" value="{data['cliente_nome']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-medium text-slate-400 mb-1">WhatsApp / Tel</label>
-                        <input type="text" name="cliente_telefone" value="{data['cliente_telefone']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-medium text-slate-400 mb-1">Projeto Master</label>
-                        <input type="text" name="cliente_ambiente" value="{data['cliente_ambiente']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-medium text-slate-400 mb-1">Data Montagem</label>
-                        <input type="date" name="data_entrega_prevista" value="{data.get('data_entrega_prevista', '')}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-medium text-slate-400 mb-1">Status</label>
-                        <select name="status" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none">
-                            <option value="Novo Lead Instagram" {'selected' if data.get('status')=='Novo Lead Instagram' else ''}>📸 Lead Planta + Inspiração</option>
-                            <option value="Em Negociação" {'selected' if data.get('status')=='Em Negociação' else ''}>🟡 Em Negociação</option>
-                            <option value="Aprovado" {'selected' if data.get('status')=='Aprovado' else ''}>🟢 Aprovado</option>
-                            <option value="Em Produção" {'selected' if data.get('status')=='Em Produção' else ''}>🔵 Em Produção</option>
-                            <option value="Entregue" {'selected' if data.get('status')=='Entregue' else ''}>🟣 Entregue</option>
-                            <option value="Cancelado" {'selected' if data.get('status')=='Cancelado' else ''}>🔴 Cancelado</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-xs font-medium text-slate-400 mb-1">Prazo Texto</label>
-                        <input type="text" name="prazo_entrega" value="{data['prazo_entrega']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
-                    </div>
-                    <div class="col-span-full">
-                        <label class="block text-xs font-medium text-slate-400 mb-1">Instruções Técnicas & Detalhes do Lead</label>
-                        <div class="flex gap-2">
-                            <input type="text" name="observacoes_tecnicas" value="{data.get('observacoes_tecnicas', '')}" placeholder="Ex: Detalhes de furação, recortes de tomadas ou especificações enviadas pelo cliente..." class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
-                            <button type="submit" class="px-6 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold shrink-0">
-                                Salvar Dados
+                <!-- Galeria de Imagens / Plantas / Inspirações -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
+                        <div>
+                            <h2 class="text-base font-semibold text-white">🖼️ Galeria: Planta Baixa & Inspirações do Cliente</h2>
+                            <p class="text-xs text-slate-400">Fotos enviadas pelo cliente ou renders anexados</p>
+                        </div>
+                        <form action="/upload-imagem" method="post" enctype="multipart/form-data" class="flex items-center gap-2">
+                            <input type="file" name="foto" accept="image/*" required class="block w-full text-xs text-slate-400 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-200 hover:file:bg-slate-700 cursor-pointer">
+                            <button type="submit" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold shrink-0">
+                                + Anexar Imagem
                             </button>
+                        </form>
+                    </div>
+                    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                        {galeria_html}
+                    </div>
+                </div>
+
+                <!-- Listagem de Peças -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
+                    <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-850">
+                        <h3 class="text-sm font-semibold text-white">Listagem de Peças e Insumos ({data['cliente_ambiente']})</h3>
+                        <span class="text-xs text-slate-400">{len(items)} itens calculados</span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-slate-800/40 border-b border-slate-800 text-xs font-semibold text-slate-400 uppercase">
+                                    <th class="py-3 px-4">Descrição / Insumo</th>
+                                    <th class="py-3 px-4 text-center">Dimensões (mm)</th>
+                                    <th class="py-3 px-4 text-center">Quantidade</th>
+                                    <th class="py-3 px-4 text-right">Custo Est. (R$)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {rows_html}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ABA 3: FÁBRICA & PLANO DE CORTE -->
+            <div id="aba-fabrica" class="tab-content space-y-6">
+                <div class="flex justify-between items-center bg-slate-900 p-4 rounded-xl border border-slate-800">
+                    <button onclick="mudarAba('aba-engenharia')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 transition-colors flex items-center space-x-1">
+                        <span>⬅️ Voltar para Engenharia</span>
+                    </button>
+                    <span class="text-xs text-sky-400 font-medium">Etapa: Produção e Corte</span>
+                    <button onclick="mudarAba('aba-financeiro')" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-lg shadow-md transition-colors flex items-center space-x-1">
+                        <span>Ir para Financeiro & Contratos ➡️</span>
+                    </button>
+                </div>
+
+                <!-- Cronograma de Fábrica -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+                    <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                        <div>
+                            <h2 class="text-base font-semibold text-white">📅 Cronograma de Entregas & Montagens (Fábrica)</h2>
+                            <p class="text-xs text-slate-400">Contagem de dias e monitoramento de prazos críticos</p>
+                        </div>
+                        <span class="text-xs text-sky-400 font-medium">Controle de Fábrica</span>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {cronograma_cards_html}
+                    </div>
+                </div>
+
+                <!-- Resumo de Compras para Fornecedores -->
+                <div class="bg-slate-900 border border-indigo-900/50 rounded-xl p-6 shadow-lg space-y-4">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
+                        <div>
+                            <h2 class="text-base font-semibold text-white">📦 Resumo de Compras para Fornecedores / Madeireira</h2>
+                            <p class="text-xs text-indigo-400">Totalizadores de materiais necessários para produzir o projeto</p>
+                        </div>
+                        <div class="flex gap-2">
+                            <a href="/gerar-pdf-compras" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs rounded-lg transition-colors flex items-center space-x-1 shadow-md">
+                                <span>📄 PDF p/ Madeireira</span>
+                            </a>
                         </div>
                     </div>
-                </form>
-            </div>
+                    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-center">
+                        <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                            <p class="text-[11px] text-slate-400 uppercase">Chapas MDF</p>
+                            <p class="text-lg font-bold text-white">{compras['chapas_mdf']} <span class="text-xs font-normal text-slate-500">un</span></p>
+                            <p class="text-[10px] text-slate-500">{compras['area_m2']:.1f} m²</p>
+                        </div>
+                        <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                            <p class="text-[11px] text-slate-400 uppercase">Fita Borda</p>
+                            <p class="text-lg font-bold text-white">{compras['fita_metros']} <span class="text-xs font-normal text-slate-500">m</span></p>
+                            <p class="text-[10px] text-slate-500">PVC 22mm</p>
+                        </div>
+                        <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                            <p class="text-[11px] text-slate-400 uppercase">Dobradiças</p>
+                            <p class="text-lg font-bold text-sky-400">{compras['dobradicas']} <span class="text-xs font-normal text-slate-500">un</span></p>
+                            <p class="text-[10px] text-slate-500">Amortecedor</p>
+                        </div>
+                        <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                            <p class="text-[11px] text-slate-400 uppercase">Corrediças</p>
+                            <p class="text-lg font-bold text-sky-400">{compras['corredicas']} <span class="text-xs font-normal text-slate-500">pares</span></p>
+                            <p class="text-[10px] text-slate-500">Telescópicas</p>
+                        </div>
+                        <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                            <p class="text-[11px] text-slate-400 uppercase">Puxadores</p>
+                            <p class="text-lg font-bold text-white">{compras['puxadores']} <span class="text-xs font-normal text-slate-500">un</span></p>
+                            <p class="text-[10px] text-slate-500">Perfis/Pontos</p>
+                        </div>
+                        <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                            <p class="text-[11px] text-slate-400 uppercase">Outros Insumos</p>
+                            <p class="text-lg font-bold text-slate-300">{compras['outros']} <span class="text-xs font-normal text-slate-500">itens</span></p>
+                            <p class="text-[10px] text-slate-500">Parafusos/Tapas</p>
+                        </div>
+                    </div>
+                </div>
 
-            {admin_sections}
-
-            <!-- Ações da Proposta & PDFs -->
-            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col justify-between space-y-4 shadow-lg">
-                <h2 class="text-base font-semibold text-white">Documentos Oficiais da Proposta</h2>
-                {markup_control}
-                <div class="grid grid-cols-2 sm:grid-cols-6 gap-2">
-                    <form action="/salvar-banco" method="post" class="col-span-2 sm:col-span-1">
-                        <button type="submit" class="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center space-x-1 shadow-md">
-                            <span>💾 Salvar Banco</span>
-                        </button>
-                    </form>
-                    <a href="/gerar-pdf" class="py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center shadow-md">
-                        <span>📄 Orçamento</span>
-                    </a>
-                    <a href="/gerar-contrato" class="py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center shadow-md">
-                        <span>📑 Contrato</span>
-                    </a>
-                    <a href="/gerar-os" class="py-2.5 bg-blue-800 hover:bg-blue-700 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center shadow-md">
-                        <span>🛠️ O.S. Fábrica</span>
-                    </a>
-                    <a href="/gerar-recibo" class="py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center shadow-md">
-                        <span>🧾 Recibo</span>
-                    </a>
-                    <a href="/gerar-vistoria" class="py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center shadow-md">
-                        <span>📋 Vistoria</span>
-                    </a>
+                <!-- Módulo Visual de Plano de Corte Gráfico (2D Nesting) -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+                    <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                        <div>
+                            <h2 class="text-base font-semibold text-white">📐 Diagrama Visual de Plano de Corte (Nesting)</h2>
+                            <p class="text-xs text-slate-400">Distribuição automatizada das peças nas chapas padrão 2750 x 1830 mm</p>
+                        </div>
+                        <span class="text-xs text-sky-400 font-semibold">{compras['chapas_mdf']} chapa(s) necessária(s)</span>
+                    </div>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        {svg_chapas_html}
+                    </div>
                 </div>
             </div>
 
-            <!-- Histórico de Orçamentos com Busca e Contas a Receber -->
-            <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
-                <div class="p-4 border-b border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-slate-850">
-                    <div>
-                        <h3 class="text-sm font-semibold text-white">📁 Histórico, Pedidos & Contas a Receber (Banco de Dados)</h3>
-                        <span class="text-xs text-slate-400">Pesquise por cliente, emita O.S., recibos e gerencie recebimentos</span>
+            <!-- ABA 4: FINANCEIRO & CONTRATOS -->
+            <div id="aba-financeiro" class="tab-content space-y-6">
+                <div class="flex justify-between items-center bg-slate-900 p-4 rounded-xl border border-slate-800">
+                    <button onclick="mudarAba('aba-fabrica')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 transition-colors flex items-center space-x-1">
+                        <span>⬅️ Voltar para Fábrica</span>
+                    </button>
+                    <span class="text-xs text-sky-400 font-medium">Etapa: Fechamento Comercial</span>
+                    <button onclick="mudarAba('aba-estoque')" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-lg shadow-md transition-colors flex items-center space-x-1">
+                        <span>Ir para Estoque ➡️</span>
+                    </button>
+                </div>
+
+                <!-- Contas a Receber & Simulador de Pagamento -->
+                <div class="bg-slate-900 border border-amber-900/50 rounded-xl p-6 shadow-lg space-y-4">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
+                        <div>
+                            <h2 class="text-base font-semibold text-white">💳 Contas a Receber, Parcelamento & Recibos</h2>
+                            <p class="text-xs text-amber-400">Acompanhe entradas, registre pagamentos e emita recibos oficiais</p>
+                        </div>
                     </div>
-                    <div class="flex items-center space-x-2 w-full sm:w-auto">
-                        <input type="text" id="campoBusca" onkeyup="filtrarTabela()" placeholder="🔍 Buscar cliente ou ambiente..." class="px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500 w-full sm:w-64">
-                        <a href="/exportar-csv" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold flex items-center space-x-1 shrink-0">
-                            <span>📊 CSV</span>
+                    <form action="/salvar-pagamento" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Valor de Entrada (R$)</label>
+                            <input type="number" step="50" name="entrada_valor" value="{data['entrada_valor']}" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-amber-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Nº de Parcelas</label>
+                            <select name="num_parcelas" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none">
+                                <option value="1" {'selected' if data.get('num_parcelas')==1 else ''}>1x (À vista / Parcela Única)</option>
+                                <option value="2" {'selected' if data.get('num_parcelas')==2 else ''}>2x parcelas</option>
+                                <option value="3" {'selected' if data.get('num_parcelas')==3 else ''}>3x parcelas</option>
+                                <option value="4" {'selected' if data.get('num_parcelas')==4 else ''}>4x parcelas</option>
+                                <option value="5" {'selected' if data.get('num_parcelas')==5 else ''}>5x parcelas</option>
+                                <option value="6" {'selected' if data.get('num_parcelas')==6 else ''}>6x parcelas</option>
+                                <option value="10" {'selected' if data.get('num_parcelas')==10 else ''}>10x parcelas</option>
+                                <option value="12" {'selected' if data.get('num_parcelas')==12 else ''}>12x parcelas</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Valor Já Recebido (R$)</label>
+                            <input type="number" step="50" name="valor_recebido" value="{data.get('valor_recebido', 0.0)}" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-amber-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Forma de Pagamento</label>
+                            <input type="text" name="forma_pagamento" value="{data['forma_pagamento']}" placeholder="Ex: Entrada PIX + Cartão" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-amber-500">
+                        </div>
+                        <div class="flex items-end">
+                            <button type="submit" class="w-full py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold transition-colors">
+                                Atualizar Pagamento
+                            </button>
+                        </div>
+                    </form>
+                    <div class="bg-slate-950 p-3 rounded-lg border border-slate-800 flex flex-wrap justify-between items-center text-xs">
+                        <span class="text-slate-300">Total Proposta: <b>R$ {dre['pv']:,.2f}</b> | Recebido: <b class="text-emerald-400">R$ {dre['valor_recebido']:,.2f}</b> | Saldo Devedor: <b class="text-rose-400">R$ {dre['saldo_devedor']:,.2f}</b></span>
+                        <span class="text-amber-400 font-semibold">{data['forma_pagamento']}</span>
+                    </div>
+                </div>
+
+                <!-- Documentos Oficiais da Proposta -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col justify-between space-y-4 shadow-lg">
+                    <h2 class="text-base font-semibold text-white">Documentos Oficiais & Emissão em PDF</h2>
+                    {markup_control}
+                    <div class="grid grid-cols-2 sm:grid-cols-6 gap-2">
+                        <form action="/salvar-banco" method="post" class="col-span-2 sm:col-span-1">
+                            <button type="submit" class="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center space-x-1 shadow-md">
+                                <span>💾 Salvar Banco</span>
+                            </button>
+                        </form>
+                        <a href="/gerar-pdf" class="py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center shadow-md">
+                            <span>📄 Orçamento</span>
+                        </a>
+                        <a href="/gerar-contrato" class="py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center shadow-md">
+                            <span>📑 Contrato</span>
+                        </a>
+                        <a href="/gerar-os" class="py-2.5 bg-blue-800 hover:bg-blue-700 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center shadow-md">
+                            <span>🛠️ O.S. Fábrica</span>
+                        </a>
+                        <a href="/gerar-recibo" class="py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center shadow-md">
+                            <span>🧾 Recibo</span>
+                        </a>
+                        <a href="/gerar-vistoria" class="py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center shadow-md">
+                            <span>📋 Vistoria</span>
                         </a>
                     </div>
                 </div>
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left border-collapse" id="tabelaHistorico">
-                        <thead>
-                            <tr class="bg-slate-800/40 border-b border-slate-800 text-xs font-semibold text-slate-400 uppercase">
-                                <th class="py-3 px-4"># ID</th>
-                                <th class="py-3 px-4">Data/Hora</th>
-                                <th class="py-3 px-4">Cliente</th>
-                                <th class="py-3 px-4">Ambiente</th>
-                                <th class="py-3 px-4 text-right">Valor Venda</th>
-                                <th class="py-3 px-4 text-right">Lucro Líquido</th>
-                                <th class="py-3 px-4 text-center">Status</th>
-                                <th class="py-3 px-4 text-center">Pagamento</th>
-                                <th class="py-3 px-4 text-center">Estoque</th>
-                                <th class="py-3 px-4 text-center">Ações</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {historico_html}
-                        </tbody>
-                    </table>
+            </div>
+
+            <!-- ABA 5: ESTOQUE & MATERIAIS -->
+            <div id="aba-estoque" class="tab-content space-y-6">
+                <div class="flex justify-between items-center bg-slate-900 p-4 rounded-xl border border-slate-800">
+                    <button onclick="mudarAba('aba-financeiro')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 transition-colors flex items-center space-x-1">
+                        <span>⬅️ Voltar para Financeiro</span>
+                    </button>
+                    <span class="text-xs text-sky-400 font-medium">Etapa: Controle de Insumos</span>
+                    <button onclick="mudarAba('aba-config')" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-lg shadow-md transition-colors flex items-center space-x-1">
+                        <span>Ir para Configurações ➡️</span>
+                    </button>
+                </div>
+
+                <!-- Controle de Estoque -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
+                        <div>
+                            <h2 class="text-base font-semibold text-white">📦 Controle de Estoque & Insumos da Marcenaria</h2>
+                            <p class="text-xs text-slate-400">Saldos atuais de materiais com alerta automático de reposição</p>
+                        </div>
+                        <span class="text-xs text-indigo-400 font-medium">Baixa automática vinculada à produção</span>
+                    </div>
+                    
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                        {estoque_cards_html}
+                    </div>
+
+                    <form action="/adicionar-estoque" method="post" class="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-wrap items-end gap-3">
+                        <div class="flex-1 min-w-[180px]">
+                            <label class="block text-[11px] font-medium text-slate-400 mb-1">Insumo / Material p/ Entrada</label>
+                            <select name="codigo" class="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white">
+                                <option value="mdf">Chapas de MDF (Chapas)</option>
+                                <option value="fita">Fita de Borda PVC (Metros)</option>
+                                <option value="dobradica">Dobradiças com Amortecedor (Un)</option>
+                                <option value="corredica">Corrediças Telescópicas (Pares)</option>
+                                <option value="puxador">Puxadores (Un)</option>
+                            </select>
+                        </div>
+                        <div class="w-32">
+                            <label class="block text-[11px] font-medium text-slate-400 mb-1">Qtd Comprada</label>
+                            <input type="number" step="1" min="1" name="quantidade" required value="10" class="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white">
+                        </div>
+                        <button type="submit" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shrink-0">
+                            + Dar Entrada no Estoque
+                        </button>
+                    </form>
                 </div>
             </div>
 
-            <!-- Listagem de Peças -->
-            <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
-                <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-850">
-                    <h3 class="text-sm font-semibold text-white">Listagem de Peças e Insumos ({data['cliente_ambiente']})</h3>
-                    <span class="text-xs text-slate-400">{len(items)} itens detectados</span>
+            <!-- ABA 6: CONFIGURAÇÕES & CUSTOS -->
+            <div id="aba-config" class="tab-content space-y-6">
+                <div class="flex justify-between items-center bg-slate-900 p-4 rounded-xl border border-slate-800">
+                    <button onclick="mudarAba('aba-estoque')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 transition-colors flex items-center space-x-1">
+                        <span>⬅️ Voltar para Estoque</span>
+                    </button>
+                    <span class="text-xs text-sky-400 font-medium">Configurações Gerais</span>
+                    <button onclick="mudarAba('aba-leads')" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-lg shadow-md transition-colors flex items-center space-x-1">
+                        <span>🏠 Ir ao Início (Painel Geral)</span>
+                    </button>
                 </div>
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left border-collapse">
-                        <thead>
-                            <tr class="bg-slate-800/40 border-b border-slate-800 text-xs font-semibold text-slate-400 uppercase">
-                                <th class="py-3 px-4">Descrição / Insumo</th>
-                                <th class="py-3 px-4 text-center">Dimensões (mm)</th>
-                                <th class="py-3 px-4 text-center">Quantidade</th>
-                                <th class="py-3 px-4 text-right">Custo Est. (R$)</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {rows_html}
-                        </tbody>
-                    </table>
+
+                <!-- Dados da Marcenaria -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+                    <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                        <h2 class="text-base font-semibold text-white">🏢 Dados da Sua Marcenaria (Contrato, O.S., Recibo e Cabeçalho do PDF)</h2>
+                    </div>
+                    <form action="/salvar-empresa" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Nome Comercial / Razão Social</label>
+                            <input type="text" name="nome_empresa" value="{empresa['nome_empresa']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">CNPJ</label>
+                            <input type="text" name="cnpj" value="{empresa['cnpj']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Telefone / WhatsApp da Loja</label>
+                            <input type="text" name="telefone_empresa" value="{empresa['telefone_empresa']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Chave PIX p/ Pagamentos</label>
+                            <div class="flex gap-2">
+                                <input type="text" name="pix" value="{empresa['pix']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white">
+                                <button type="submit" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold shrink-0">
+                                    Salvar
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Mão de Obra e Operacionais -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+                    <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                        <h2 class="text-base font-semibold text-white">🔨 Mão de Obra & Custos Operacionais</h2>
+                    </div>
+                    <form action="/salvar-operacionais" method="post" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                        <div>
+                            <label class="block text-[11px] font-medium text-slate-400 mb-1">Dias Fabricação</label>
+                            <input type="number" step="1" min="0" name="dias_producao" value="{data['dias_producao']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-medium text-slate-400 mb-1">Diária Marceneiro (R$)</label>
+                            <input type="number" step="10" name="valor_diaria" value="{data['valor_diaria']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-medium text-slate-400 mb-1">Custo Frete (R$)</label>
+                            <input type="number" step="10" name="custo_frete" value="{data['custo_frete']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-medium text-slate-400 mb-1">Montagem Cliente (R$)</label>
+                            <input type="number" step="10" name="custo_montagem" value="{data['custo_montagem']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-medium text-slate-400 mb-1">Impostos (%)</label>
+                            <input type="number" step="0.5" min="0" max="30" name="imposto_pct" value="{data['imposto_pct']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div class="flex items-end">
+                            <button type="submit" class="w-full py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold transition-colors">
+                                Atualizar DRE
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Tabela de Custos Unitários de Insumos -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+                    <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                        <h2 class="text-base font-semibold text-white">⚙️ Tabela de Custos Unitários por Insumo</h2>
+                    </div>
+                    <form action="/salvar-precos" method="post" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                        <div>
+                            <label class="block text-[11px] font-medium text-slate-400 mb-1">MDF (m²)</label>
+                            <input type="number" step="0.5" name="mdf_m2" value="{precos['mdf_m2']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-medium text-slate-400 mb-1">Dobradiça (Un)</label>
+                            <input type="number" step="0.5" name="dobradica" value="{precos['dobradica']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-medium text-slate-400 mb-1">Corrediça (Par)</label>
+                            <input type="number" step="0.5" name="corredica" value="{precos['corredica']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-medium text-slate-400 mb-1">Fita Borda (m)</label>
+                            <input type="number" step="0.1" name="fita_borda_m" value="{precos['fita_borda_m']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-medium text-slate-400 mb-1">Puxador (Un)</label>
+                            <input type="number" step="0.5" name="puxador" value="{precos['puxador']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div class="flex items-end">
+                            <button type="submit" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-sky-400 border border-slate-700 rounded-lg text-xs font-semibold transition-colors">
+                                Salvar Config
+                            </button>
+                        </div>
+                    </form>
                 </div>
             </div>
+
         </main>
 
         <script>
+            function mudarAba(abaId) {{
+                // Esconde todas as abas
+                var contents = document.getElementsByClassName('tab-content');
+                for (var i = 0; i < contents.length; i++) {{
+                    contents[i].classList.remove('active');
+                }}
+                // Desmarca todos os botões
+                var btns = document.getElementsByClassName('tab-btn');
+                for (var i = 0; i < btns.length; i++) {{
+                    btns[i].classList.remove('active');
+                }}
+                // Ativa a aba e botão selecionados
+                document.getElementById(abaId).classList.add('active');
+                var btn = document.getElementById('btn-' + abaId);
+                if (btn) {{
+                    btn.classList.add('active');
+                }}
+                window.scrollTo({{ top: 0, behavior: 'smooth' }});
+            }}
+
             function filtrarTabela() {{
                 var input = document.getElementById("campoBusca");
                 var filter = input.value.toLowerCase();
@@ -1637,13 +1757,11 @@ async def enviar_solicitacao_lead(
     agora = datetime.now().strftime("%d/%m/%Y %H:%M")
     imagens_lead = []
     
-    # Processar Planta Baixa
     contents_planta = await planta.read()
     if contents_planta:
         img_b64 = base64.b64encode(contents_planta).decode("utf-8")
         imagens_lead.append(img_b64)
 
-    # Processar Foto de Inspiração
     if inspiracao:
         try:
             contents_insp = await inspiracao.read()
@@ -1653,7 +1771,6 @@ async def enviar_solicitacao_lead(
         except Exception:
             pass
 
-    # MOTOR AVANÇADO DE ENGENHARIA E CUSTOS
     precos = get_precos_config()
     items_auto, total_mat = calcular_engenharia_avancada(
         ambientes_check, area_m2_total, espessura_caixa, espessura_tamponamento,
