@@ -18,7 +18,7 @@ from datetime import datetime, date, timedelta
 from typing import List
 
 app = FastAPI(title="MVI Móveis Planejados - Master SaaS")
-DB_PATH = "mvi_production_v12.db"
+DB_PATH = "mvi_production_stable_v1.db"
 
 # ==============================================================================
 # 1. TRATAMENTO DE ERROS GLOBAL
@@ -228,7 +228,7 @@ def get_metricas():
     }
 
 # ==============================================================================
-# 3. ENGENHARIA & PARSER PROMOB
+# 3. ENGENHARIA & PROMOB
 # ==============================================================================
 def calcular_engenharia(ambientes: list, area_m2: float, exp_caixa: str, exp_tamp: str, fab_mdf: str, cor_mdf: str, mod_portas: str, marca_ferr: str):
     empresa = get_empresa_dados(CURRENT_SESSION.get("empresa_id", 1))
@@ -400,7 +400,7 @@ def render_login(msg=""):
                 <input type="password" name="password" required value="123456" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm focus:outline-none focus:border-amber-500 text-slate-200">
             </div>
             <button type="submit" class="w-full py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-sm transition-all shadow-lg">
-                Acessar Painel
+                Acessar Painel Master
             </button>
         </form>
         <div class="border-t border-slate-800 pt-4 text-center">
