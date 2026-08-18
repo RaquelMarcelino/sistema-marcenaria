@@ -14,7 +14,7 @@ from datetime import datetime, date, timedelta
 from typing import List
 
 app = FastAPI(title="MVI Móveis Planejados - Master SaaS")
-DB_PATH = "mvi_production_v17.db"
+DB_PATH = "mvi_production_v18.db"
 
 # ==============================================================================
 # 1. TRATAMENTO DE ERROS GLOBAL
@@ -417,7 +417,7 @@ def render_dashboard_view():
         </div>
         """
         
-        lucro_td = f"<td class='py-3 px-4 text-right text-emerald-400 font-bold'>R$ {lucro:,.2f}</td>" if is_admin else ""
+        lucro_td = f"<td class='py-3 px-4 text-right text-emerald-400 font-bold valor-lucro-col'>R$ {lucro:,.2f}</td>" if is_admin else ""
         adendo_tag = f"<span class='block text-[10px] text-amber-400 font-bold'>+ Adendo R$ {adendo:,.2f}</span>" if adendo > 0 else ""
 
         btn_selecionar = f"""
@@ -489,11 +489,18 @@ def render_dashboard_view():
         </div>
     """ if is_admin else ""
 
-    lucro_card = f"""<div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow"><p class="text-[11px] font-bold text-slate-400 uppercase">Lucro Líquido</p><p class="text-xl font-bold text-emerald-400">R$ {met['lucro']:,.2f}</p></div>""" if is_admin else ""
+    lucro_card = f"""<div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow"><p class="text-[11px] font-bold text-slate-400 uppercase">Lucro Líquido</p><p class="text-xl font-bold text-emerald-400 valor-ocultavel">R$ {met['lucro']:,.2f}</p></div>""" if is_admin else ""
+    
+    # BOX DO LUCRO LÍQUIDO DA OPERAÇÃO COM O BOTÃO DE OLHO (ABRIR / FECHAR)
     lucro_negociacao_box = f"""
-    <div class="bg-slate-950 p-4 border border-emerald-500/30 rounded-2xl">
-        <span class="text-[11px] text-slate-400 font-bold uppercase block">Lucro Líquido da Operação</span>
-        <span class="text-2xl font-black text-emerald-400">R$ {c_lucro:,.2f}</span>
+    <div class="bg-slate-950 p-4 border border-emerald-500/30 rounded-2xl flex items-center justify-between gap-4">
+        <div>
+            <span class="text-[11px] text-slate-400 font-bold uppercase block">Lucro Líquido da Operação</span>
+            <span id="valor_lucro_operacao" data-real="R$ {c_lucro:,.2f}" class="text-2xl font-black text-emerald-400">R$ {c_lucro:,.2f}</span>
+        </div>
+        <button type="button" onclick="alternarOlhoLucro()" id="btn_olho_lucro" title="Ocultar / Revelar Lucro" class="p-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-xl text-slate-300 text-base">
+            👁️
+        </button>
     </div>
     """ if is_admin else ""
 
@@ -797,13 +804,34 @@ def render_dashboard_view():
             document.getElementById('txt_parcela').innerText = "R$ " + vParc.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
         }}
 
+        // FUNÇÃO PARA ABRIR / FECHAR O OLHO DO LUCRO
+        var lucroVisivel = true;
+        function alternarOlhoLucro() {{
+            var elem = document.getElementById('valor_lucro_operacao');
+            var btn = document.getElementById('btn_olho_lucro');
+            if (!elem) return;
+
+            lucroVisivel = !lucroVisivel;
+            if (lucroVisivel) {{
+                elem.innerText = elem.getAttribute('data-real');
+                btn.innerText = "👁️";
+                document.querySelectorAll('.valor-lucro-col').forEach(td => td.style.filter = 'none');
+                document.querySelectorAll('.valor-ocultavel').forEach(c => c.style.filter = 'none');
+            }} else {{
+                elem.innerText = "••••••••";
+                btn.innerText = "🙈";
+                document.querySelectorAll('.valor-lucro-col').forEach(td => td.style.filter = 'blur(6px)');
+                document.querySelectorAll('.valor-ocultavel').forEach(c => c.style.filter = 'blur(6px)');
+            }}
+        }}
+
         function buscarCep(tipo) {{
             var cepInput = document.getElementById(tipo === 'postal' ? 'cep_postal' : 'cep_entrega');
             var endText = document.getElementById(tipo === 'postal' ? 'end_postal' : 'end_entrega');
             var cep = cepInput.value.replace(/\\D/g, '');
 
             if (cep.length !== 8) {{
-                alert("Por favor, digite um CEP válido com 8 dígitos.");
+                alert("Por favor, digite um CEP com 8 dígitos.");
                 return;
             }}
 
@@ -886,244 +914,6 @@ def render_sucesso(empresa, estimativa, zap_url):
 </body></html>"""
 
 # ==============================================================================
-# MINUTA E CONTRATO COMPLETO DE MÓVEIS PLANEJADOS
-# ==============================================================================
-def render_minuta_contrato(orc, empresa):
-    pv_total = float(orc['preco_venda'] or 0) + float(orc['adendo_valor'] or 0)
-    adendo_bloco = f"""
-    <div class="p-4 bg-amber-950/40 border border-amber-500/40 rounded-xl space-y-1 my-3">
-        <span class="text-amber-400 font-bold block">➕ TERMO ADITIVO / COMPLEMENTO INTEGRANTE:</span>
-        <p>{orc['adendo_descricao']}</p>
-        <p class="font-bold text-white">Valor Adicional do Adendo: R$ {float(orc['adendo_valor'] or 0):,.2f}</p>
-    </div>
-    """ if float(orc['adendo_valor'] or 0) > 0 else ""
-
-    link_assinar = f"/assinar/{orc['id']}"
-
-    return f"""<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Minuta de Contrato #{orc['id']:04d} - {empresa['nome_empresa']}</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-slate-950 text-slate-100 min-h-screen p-4 sm:p-8 font-sans">
-    <div class="max-w-4xl mx-auto bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-10 shadow-2xl space-y-6">
-        <div class="flex flex-wrap justify-between items-center border-b border-slate-800 pb-4 gap-2">
-            <div>
-                <h1 class="text-lg sm:text-xl font-bold text-white">INSTRUMENTO PARTICULAR DE PRESTAÇÃO DE SERVIÇOS E FABRICAÇÃO DE MÓVEIS PLANEJADOS</h1>
-                <p class="text-xs text-amber-400">{empresa['nome_empresa']} | CNPJ: {empresa['cnpj']}</p>
-            </div>
-            <div class="flex gap-2">
-                <button onclick="window.print()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold">🖨️ Imprimir / PDF</button>
-                <a href="{link_assinar}" class="px-4 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold rounded-xl text-xs shadow-lg">✍️ Ir para Assinatura</a>
-            </div>
-        </div>
-
-        <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 text-xs space-y-4 leading-relaxed text-slate-300">
-            <p><b>CLÁUSULA 1ª - DAS PARTES CONTRATANTES:</b><br>
-            <b>CONTRATADA:</b> {empresa['nome_empresa']}, pessoa jurídica de direito privado, inscrita no CNPJ sob o nº {empresa['cnpj']}, com atendimento através do telefone {empresa['telefone']}.<br>
-            <b>CONTRATANTE:</b> <b>{orc['cliente_nome']}</b>, portador do CPF nº <b>{orc['cliente_cpf'] or 'Pendente'}</b>, RG nº <b>{orc['cliente_rg']} ({orc['cliente_rg_emissor'] or 'SSP'})</b>, nascido em <b>{orc['cliente_nascimento'] or '—'}</b>, residente no endereço postal: <b>{orc['cliente_endereco_postal'] or 'Não informado'} (CEP: {orc['cliente_cep_postal'] or '—'})</b>, com telefone <b>{orc['cliente_telefone']}</b> e e-mail <b>{orc['cliente_email'] or 'Não informado'}</b>.</p>
-
-            <p><b>CLÁUSULA 2ª - DO OBJETO:</b><br>
-            O presente instrumento tem por objeto a prestação de serviços de marcenaria técnica sob medida para fabricação, transporte e montagem dos móveis planejados destinados aos ambientes: <b>{orc['cliente_ambiente']}</b>, no endereço de entrega da obra: <b>{orc['cliente_endereco_entrega'] or orc['cliente_endereco_postal']} (CEP: {orc['cliente_cep_entrega'] or orc['cliente_cep_postal']})</b>.</p>
-
-            <p><b>CLÁUSULA 3ª - DO MEMORIAL DESCRITIVO E ESPECIFICAÇÕES TÉCNICAS:</b><br>
-            <b>3.1. Descritivo Promob / Projeto Técnico:</b><br>
-            {orc['descricao_promob'] or 'Conforme projeto executivo 3D aprovado pelo cliente.'}<br><br>
-            <b>3.2. Detalhamento e Acabamentos Manuais:</b><br>
-            {orc['descricao_manual'] or 'Caixaria reforçada, portas com alinhamento milimétrico, ferragens com amortecimento slowmotion e tamponamentos inclusos.'}</p>
-
-            {adendo_bloco}
-
-            <p><b>CLÁUSULA 4ª - DO PREÇO E DAS CONDIÇÕES DE PAGAMENTO:</b><br>
-            Pelos serviços contratados, o CONTRATANTE pagará à CONTRATADA o valor líquido total de <b>R$ {pv_total:,.2f}</b>, nas seguintes condições:<br>
-            • <b>Modalidade:</b> {orc['modalidade_pagamento'] or orc['forma_pagamento']}<br>
-            • <b>Valor de Entrada:</b> R$ {float(orc['entrada_valor'] or 0):,.2f}<br>
-            • <b>Saldo Restante:</b> Parcelado em <b>{orc['num_parcelas']} parcela(s)</b> de <b>R$ {float(orc['valor_parcela'] or (pv_total - float(orc['entrada_valor'] or 0))/max(orc['num_parcelas'], 1)):,.2f}</b>.</p>
-
-            <p><b>CLÁUSULA 5ª - DOS PRAZOS DE FABRICAÇÃO E INSTALAÇÃO:</b><br>
-            O prazo estimado para entrega e finalização da montagem é de <b>{orc['prazo_entrega']}</b>, contados a partir da aprovação final das medidas no local (medição fina desimpedida) e confirmação do pagamento da entrada.</p>
-
-            <p><b>CLÁUSULA 6ª - DAS OBRIGAÇÕES DO CONTRATANTE:</b><br>
-            O CONTRATANTE compromete-se a entregar o imóvel em condições adequadas de alvenaria, pisos, revestimentos, pontos de elétrica, gás e hidráulica finalizados antes do início da montagem dos móveis.</p>
-
-            <p><b>CLÁUSULA 7ª - DAS OBRIGAÇÕES DA CONTRATADA:</b><br>
-            A CONTRATADA compromete-se a utilizar mão de obra especializada, materiais de alta qualidade certificados e entregar os ambientes limpos e regulados após a conclusão da montagem.</p>
-
-            <p><b>CLÁUSULA 8ª - DA GARANTIA LEGAL E CONTRATUAL:</b><br>
-            A CONTRATADA oferece a garantia de <b>5 (cinco) anos</b> para todas as ferragens estruturais, corrediças e dobradiças com amortecedor, e <b>12 (doze) meses</b> para os painéis de MDF contra defeitos de fabricação.</p>
-
-            <p><b>CLÁUSULA 9ª - DO FORO:</b><br>
-            Para dirimir quaisquer controvérsias oriundas deste contrato, as partes elegem o foro da Comarca da sede da CONTRATADA com renúncia expressa a qualquer outro.</p>
-        </div>
-
-        <div class="flex justify-between items-center pt-2">
-            <a href="/painel-get" class="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs font-bold">Voltar ao Painel</a>
-            <a href="{link_assinar}" class="px-6 py-3 bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold rounded-xl text-xs shadow-lg">
-                ✍️ Prosseguir para Assinatura Digital do Cliente
-            </a>
-        </div>
-    </div>
-</body></html>"""
-
-def render_assinatura_online(orc, empresa):
-    pv_total = float(orc['preco_venda'] or 0) + float(orc['adendo_valor'] or 0)
-    
-    adendo_bloco = f"""
-    <div class="p-4 bg-amber-950/40 border border-amber-500/40 rounded-xl space-y-1 my-2">
-        <span class="text-amber-400 font-bold block">➕ TERMO ADITIVO CONTRATUAL:</span>
-        <p>{orc['adendo_descricao']}</p>
-        <p class="font-bold text-white">Valor do Adendo: R$ {float(orc['adendo_valor'] or 0):,.2f}</p>
-    </div>
-    """ if float(orc['adendo_valor'] or 0) > 0 else ""
-
-    # Se já estiver assinado, exibe as 2 vias oficiais (Cliente + Sistema)
-    if orc["contrato_assinado"]:
-        return f"""<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Via Oficial Assinada - Contrato #{orc['id']:04d}</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-slate-950 text-slate-100 min-h-screen p-4 sm:p-8 font-sans">
-    <div class="max-w-4xl mx-auto bg-slate-900 border border-emerald-500/40 rounded-3xl p-6 sm:p-10 shadow-2xl space-y-6">
-        <div class="flex flex-wrap justify-between items-center border-b border-slate-800 pb-4 gap-2">
-            <div>
-                <span class="px-3 py-1 bg-emerald-950 text-emerald-300 border border-emerald-500/40 rounded-xl text-xs font-bold">✓ Contrato Assinado Digitalmente</span>
-                <h1 class="text-lg sm:text-xl font-bold text-white mt-1">VIA OFICIAL DO CONTRATO DE PRESTAÇÃO DE SERVIÇOS #{orc['id']:04d}</h1>
-                <p class="text-xs text-slate-400">{empresa['nome_empresa']} | CNPJ: {empresa['cnpj']}</p>
-            </div>
-            <button onclick="window.print()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold rounded-xl text-xs shadow-lg">
-                📥 Imprimir / Salvar PDF
-            </button>
-        </div>
-
-        <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 text-xs space-y-4 leading-relaxed text-slate-300">
-            <p><b>CONTRATADA:</b> {empresa['nome_empresa']} (CNPJ: {empresa['cnpj']})<br>
-            <b>CONTRATANTE:</b> <b>{orc['cliente_nome']}</b> (CPF: {orc['cliente_cpf'] or 'Pendente'})<br>
-            <b>AMBIENTES:</b> {orc['cliente_ambiente']}<br>
-            <b>ENDEREÇO DA INSTALAÇÃO:</b> {orc['cliente_endereco_entrega'] or orc['cliente_endereco_postal']}<br>
-            <b>VALOR TOTAL:</b> R$ {pv_total:,.2f} ({orc['forma_pagamento']})<br>
-            <b>PRAZO DE MONTAGEM:</b> {orc['prazo_entrega']}<br>
-            <b>GARANTIA:</b> 5 anos em ferragens estruturais e 12 meses em painéis de MDF.</p>
-            
-            {adendo_bloco}
-        </div>
-
-        <!-- QUADRO DE ASSINATURA REGISTRADA -->
-        <div class="bg-slate-950 p-6 rounded-2xl border border-emerald-500/30 space-y-3">
-            <h3 class="text-xs font-bold text-emerald-400 uppercase">🛡️ Autenticação & Assinatura Digital do Contratante</h3>
-            <p class="text-[11px] text-slate-400">Assinado digitalmente por <b>{orc['cliente_nome']}</b> em <b>{orc['assinatura_data']}</b>.</p>
-            
-            <div class="p-3 bg-white rounded-xl flex justify-center max-w-sm">
-                <img src="{orc['assinatura_img']}" alt="Assinatura do Cliente" class="max-h-24 object-contain">
-            </div>
-            <p class="text-[10px] text-slate-500">Protocolo de Registro MVI: SHA256-MVI-{orc['id']:04d}-{orc['assinatura_data']}</p>
-        </div>
-
-        <div class="flex justify-between items-center pt-2">
-            <a href="/painel-get" class="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs font-bold">Voltar ao Painel</a>
-            <span class="text-xs text-emerald-400 font-bold">✓ 1 Via Arquivada no Sistema & 1 Via Disponível ao Cliente</span>
-        </div>
-    </div>
-</body></html>"""
-
-    # Tela para assinatura do cliente
-    return f"""<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Assinatura Digital de Contrato - {empresa['nome_empresa']}</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
-</head>
-<body class="bg-slate-950 text-slate-100 min-h-screen p-4 sm:p-8 font-sans">
-    <div class="max-w-4xl mx-auto bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-10 shadow-2xl space-y-6">
-        <div class="flex justify-between items-center border-b border-slate-800 pb-4">
-            <div>
-                <h1 class="text-lg sm:text-xl font-bold text-white">INSTRUMENTO DE PRESTAÇÃO DE SERVIÇOS DE MARCENARIA</h1>
-                <p class="text-xs text-amber-400">{empresa['nome_empresa']} | CNPJ: {empresa['cnpj']}</p>
-            </div>
-            <span class="px-3 py-1 bg-amber-950 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-bold">Contrato #{orc['id']:04d}</span>
-        </div>
-
-        <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 text-xs space-y-4 leading-relaxed text-slate-300 max-h-80 overflow-y-auto">
-            <p><b>1. DAS PARTES CONTRATANTES:</b><br>
-            <b>CONTRATADA:</b> {empresa['nome_empresa']}, CNPJ: {empresa['cnpj']}, Telefone: {empresa['telefone']}.<br>
-            <b>CONTRATANTE:</b> <b>{orc['cliente_nome']}</b>, CPF: <b>{orc['cliente_cpf'] or 'Pendente'}</b>, Endereço: <b>{orc['cliente_endereco_postal'] or 'Não informado'}</b>.</p>
-
-            <p><b>2. DO OBJETO E AMBIENTES:</b><br>
-            Fabricação e instalação de móveis sob medida para: <b>{orc['cliente_ambiente']}</b>, na obra: <b>{orc['cliente_endereco_entrega'] or orc['cliente_endereco_postal']}</b>.</p>
-
-            <p><b>3. DO VALOR E CONDIÇÕES:</b><br>
-            Valor total de <b>R$ {pv_total:,.2f}</b>, sob as condições: <b>{orc['forma_pagamento']}</b>.</p>
-
-            <p><b>4. DO PRAZO E GARANTIA:</b><br>
-            Prazo de entrega de <b>{orc['prazo_entrega']}</b>. Garantia de 5 anos em ferragens com amortecedores e 12 meses em painéis de MDF.</p>
-            
-            {adendo_bloco}
-        </div>
-
-        <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 space-y-3">
-            <h3 class="text-xs font-bold text-white uppercase">✍️ Assinatura Digital do Contratante</h3>
-            <p class="text-[11px] text-slate-400">Desenhe sua assinatura com o dedo ou caneta touch no celular:</p>
-            
-            <div class="border-2 border-dashed border-slate-700 rounded-xl bg-white flex justify-center">
-                <canvas id="signature-pad" width="600" height="200" class="touch-none cursor-crosshair w-full max-w-[600px] h-[200px]"></canvas>
-            </div>
-            
-            <div class="flex justify-between items-center pt-2">
-                <button type="button" id="clear-btn" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold">Limpar</button>
-                <form id="sign-form" action="/confirmar-assinatura" method="post">
-                    <input type="hidden" name="orcamento_id" value="{orc['id']}">
-                    <input type="hidden" name="assinatura_base64" id="assinatura_base64">
-                    <button type="button" id="save-btn" class="px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 font-bold rounded-xl text-xs shadow-lg">
-                        Confirmar e Assinar Contrato Digitalmente
-                    </button>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        var canvas = document.getElementById('signature-pad');
-        var signaturePad = new SignaturePad(canvas, {{ backgroundColor: 'rgb(255, 255, 255)' }});
-        document.getElementById('clear-btn').addEventListener('click', () => signaturePad.clear());
-        document.getElementById('save-btn').addEventListener('click', () => {{
-            if (signaturePad.isEmpty()) {{
-                alert("Por favor, faça sua assinatura antes de confirmar.");
-            }} else {{
-                document.getElementById('assinatura_base64').value = signaturePad.toDataURL();
-                document.getElementById('sign-form').submit();
-            }}
-        }});
-    </script>
-</body></html>"""
-
-def render_convite_gerado(nome, email, p, tel, link):
-    return f"""<html><body style='background:#0f172a; color:#fff; text-align:center; padding:50px; font-family:sans-serif;'>
-        <h1 style='color:#f59e0b;'>Convite de Acesso Gerado</h1>
-        <p style='margin:20px 0;'>Link Seguro: <br><b style='color:#38bdf8;'>{link}</b></p>
-        <a href='/painel' style='color:#f59e0b;'>Voltar ao Painel</a>
-    </body></html>"""
-
-def render_tela_nova_senha(user, token):
-    return f"""<!DOCTYPE html>
-<html lang="pt-br">
-<head><title>Nova Senha</title><script src="https://cdn.tailwindcss.com"></script></head>
-<body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4">
-    <form action="/salvar-nova-senha" method="post" class="bg-slate-900 p-8 rounded-3xl space-y-4 max-w-sm w-full shadow-2xl">
-        <h1 class="text-xl font-bold">Definir Nova Senha</h1>
-        <input type="hidden" name="token" value="{token}">
-        <input type="password" name="nova_senha" required placeholder="Nova Senha" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white">
-        <input type="password" name="confirma_senha" required placeholder="Confirme Senha" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white">
-        <button type="submit" class="w-full py-3 bg-amber-500 font-bold text-slate-950 rounded-xl">Ativar Conta</button>
-    </form>
-</body></html>"""
-
-# ==============================================================================
 # 5. FASTAPI ROUTES
 # ==============================================================================
 
@@ -1169,7 +959,6 @@ def minuta_contrato_route(orcamento_id: int):
     conn.close()
 
     if not orc:
-        # Se for ID 0 ou não existir, pega o primeiro para demonstração
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -1451,36 +1240,17 @@ def assinar_contrato_view(orcamento_id: int):
     cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (orcamento_id,))
     orc = cursor.fetchone()
     conn.close()
-    
-    if not orc:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM orcamentos ORDER BY id DESC LIMIT 1")
-        orc = cursor.fetchone()
-        conn.close()
-
-    if not orc:
-        return HTMLResponse("""
-        <div style="background:#0f172a; color:#fff; text-align:center; padding:50px; font-family:sans-serif; min-height:100vh;">
-            <h2 style="color:#f59e0b;">Nenhum contrato encontrado</h2>
-            <p style="color:#94a3b8; margin:15px 0;">Crie um novo cliente ou simulação na aba 'Ficha & CEP' antes de assinar.</p>
-            <a href="/painel-get" style="display:inline-block; padding:10px 25px; background:#f59e0b; color:#0f172a; font-weight:bold; border-radius:10px; text-decoration:none;">Ir ao Painel</a>
-        </div>
-        """, status_code=404)
-        
-    return render_assinatura_online(dict(orc), get_empresa_dados(1))
+    if not orc: return HTMLResponse("Contrato não encontrado.", status_code=404)
+    return render_assinatura_online(orc, get_empresa_dados(1))
 
 @app.post("/confirmar-assinatura", response_class=HTMLResponse)
 def confirmar_assinatura_route(orcamento_id: int = Form(...), assinatura_base64: str = Form(...)):
-    agora = datetime.now().strftime("%d/%m/%Y às %H:%M:%S")
+    agora = datetime.now().strftime("%d/%m/%Y às %H:%M")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("UPDATE orcamentos SET contrato_assinado = 1, assinatura_data = ?, assinatura_img = ?, status = 'Contrato Assinado Digitalmente' WHERE id = ?", (agora, assinatura_base64, orcamento_id))
     conn.commit()
     conn.close()
-    
-    # Redireciona diretamente para a visualização da via oficial assinada
     return RedirectResponse(url=f"/assinar/{orcamento_id}", status_code=303)
 
 @app.post("/criar-usuario", response_class=HTMLResponse)
