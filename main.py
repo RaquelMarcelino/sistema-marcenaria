@@ -208,20 +208,20 @@ def get_metricas_financeiras():
             total_recebido += rec
             aprovados += 1
 
-    taxa_conversao = (aprovados / total_orcamentos * 100.0) if total_orcamentos > 0 else 0.0
-    ticket_medio = (faturamento_total / aprovados) if aprovados > 0 else 0.0
-    saldo_a_receber = max(faturamento_total - total_recebido, 0.0)
-    
-    return {
-        "total_orcamentos": total_orcamentos,
-        "aprovados": aprovados,
-        "faturamento_total": faturamento_total,
-        "lucro_acumulado": lucro_acumulado,
-        "total_recebido": total_recebido,
-        "saldo_a_receber": saldo_a_receber,
-        "ticket_medio": ticket_medio,
-        "taxa_conversao": taxa_conversao
-    }
+        taxa_conversao = (aprovados / total_orcamentos * 100.0) if total_orcamentos > 0 else 0.0
+        ticket_medio = (faturamento_total / aprovados) if aprovados > 0 else 0.0
+        saldo_a_receber = max(faturamento_total - total_recebido, 0.0)
+        
+        return {
+            "total_orcamentos": total_orcamentos,
+            "aprovados": aprovados,
+            "faturamento_total": faturamento_total,
+            "lucro_acumulado": lucro_acumulado,
+            "total_recebido": total_recebido,
+            "saldo_a_receber": saldo_a_receber,
+            "ticket_medio": ticket_medio,
+            "taxa_conversao": taxa_conversao
+        }
 
 CURRENT_DATA = {
     "user": "admin@mvi.com",
@@ -252,6 +252,50 @@ CURRENT_DATA = {
     "markup": 2.2,
     "items": []
 }
+
+def numero_extenso_reais(valor: float) -> str:
+    inteiro = int(valor)
+    centavos = int(round((valor - inteiro) * 100))
+    unidades = ["", "um", "dois", "três", "quatro", "cinco", "seis", "sete", "oito", "nove"]
+    de_10_a_19 = ["dez", "onze", "doze", "treze", "quatorze", "quinze", "dezesseis", "dezessete", "dezoito", "dezenove"]
+    dezenas = ["", "", "vinte", "trinta", "quarenta", "cinquenta", "sessenta", "setenta", "oitenta", "noventa"]
+    centenas = ["", "cento", "duzentos", "trezentos", "quatrocentos", "quinhentos", "seiscentos", "setecentos", "oitocentos", "novecentos"]
+
+    def converter_grupo(n):
+        if n == 100:
+            return "cem"
+        c = n // 100
+        d = (n % 100) // 10
+        u = n % 10
+        partes = []
+        if c > 0:
+            partes.append(centenas[c])
+        if d == 1:
+            partes.append(de_10_a_19[u])
+        else:
+            if d > 1:
+                partes.append(dezenas[d])
+            if u > 0:
+                partes.append(unidades[u])
+        return " e ".join(partes)
+
+    if inteiro == 0:
+        texto = "zero reais"
+    elif inteiro == 1:
+        texto = "um real"
+    else:
+        milhares = inteiro // 1000
+        resto = inteiro % 1000
+        partes_mil = []
+        if milhares > 0:
+            partes_mil.append("mil" if milhares == 1 else f"{converter_grupo(milhares)} mil")
+        if resto > 0:
+            partes_mil.append(converter_grupo(resto))
+        texto = " e ".join(partes_mil) + " reais"
+
+    if centavos > 0:
+        texto += f" e {centavos}/100 centavos"
+    return texto.capitalize()
 
 def calcular_engenharia_avancada(
     ambientes_selecionados: list,
@@ -370,181 +414,213 @@ def calcular_engenharia_avancada(
     total_mat = sum(i["valor"] for i in items)
     return items, total_mat
 
-def calcular_dre_completa(d: dict):
-    custo_mat = float(d.get("custo_materiais", 0.0) or 0.0)
-    custo_mo = float(d.get("dias_producao", 0) or 0) * float(d.get("valor_diaria", 0.0) or 0.0)
-    custo_frete_mont = float(d.get("custo_frete", 0.0) or 0.0) + float(d.get("custo_montagem", 0.0) or 0.0)
-    custo_direto_total = custo_mat + custo_mo + custo_frete_mont
-    
-    markup = float(d.get("markup", 2.2) or 2.2)
-    pv = custo_direto_total * markup if custo_direto_total > 0 else 0.0
-    
-    imposto_val = (float(d.get("imposto_pct", 0.0) or 0.0) / 100.0) * pv
-    comissao_val = (float(d.get("comissao_pct", 0.0) or 0.0) / 100.0) * pv
-    
-    lucro_liquido = pv - (custo_direto_total + imposto_val + comissao_val) if pv > 0 else 0.0
-    margem_liq_pct = (lucro_liquido / pv * 100.0) if pv > 0 else 0.0
-    
-    entrada = min(float(d.get("entrada_valor", 0.0) or 0.0), pv)
-    saldo_restante = max(pv - entrada, 0.0)
-    n_parc = max(int(d.get("num_parcelas", 1) or 1), 1)
-    valor_parcela = saldo_restante / n_parc if n_parc > 0 else 0.0
-    
-    valor_recebido = float(d.get("valor_recebido", 0.0) or 0.0)
-    saldo_devedor = max(pv - valor_recebido, 0.0)
-
-    return {
-        "custo_mat": custo_mat,
-        "custo_mo": custo_mo,
-        "custo_frete_mont": custo_frete_mont,
-        "custo_direto_total": custo_direto_total,
-        "pv": pv,
-        "imposto_val": imposto_val,
-        "comissao_val": comissao_val,
-        "lucro_liquido": lucro_liquido,
-        "margem_liq_pct": margem_liq_pct,
-        "entrada": entrada,
-        "saldo_restante": saldo_restante,
-        "n_parc": n_parc,
-        "valor_parcela": valor_parcela,
-        "valor_recebido": valor_recebido,
-        "saldo_devedor": saldo_devedor
-    }
-
-def consolidar_compras_e_nesting(items: list):
-    CHAPA_LARGURA = 2750.0
-    CHAPA_ALTURA = 1830.0
-    
-    pecas_corte = []
-    area_total_m2 = 0.0
-    dobradicas = 0
-    corredicas = 0
-    puxadores = 0
-    fita_metros = 0.0
-    outros = 0
-
-    for it in items:
-        tipo = it.get("tipo", "")
-        qtd = it.get("qtd", 1)
-        largura = float(it.get("largura", 0.0))
-        altura = float(it.get("altura", 0.0))
-
-        if "MDF" in tipo and largura > 0 and altura > 0:
-            area_item = (largura / 1000.0) * (altura / 1000.0) * qtd
-            area_total_m2 += area_item
-            fita_metros += (((largura + altura) * 2) / 1000.0) * qtd * 0.5
-            for _ in range(qtd):
-                pecas_corte.append({
-                    "nome": it.get("nome", "Peça"),
-                    "ambiente": it.get("ambiente", "Geral"),
-                    "largura": largura,
-                    "altura": altura
-                })
-        elif "Dobradiça" in tipo:
-            dobradicas += qtd
-        elif "Corrediça" in tipo:
-            corredicas += qtd
-        elif "Puxador" in tipo:
-            puxadores += qtd
-        elif "Fita" in tipo:
-            fita_metros += qtd * 10.0
-        else:
-            outros += qtd
-
-    chapas = []
-    pecas_ordenadas = sorted(pecas_corte, key=lambda p: p["largura"] * p["altura"], reverse=True)
-    
-    for p in pecas_ordenadas:
-        w = min(p["largura"], CHAPA_LARGURA)
-        h = min(p["altura"], CHAPA_ALTURA)
-        colocada = False
+def render_pagina_captacao(sucesso=False, orc_id=None, estimativa=0.0, zap_url=""):
+    empresa = get_empresa_config()
+    msg_sucesso = f"""
+    <div class="bg-amber-950/40 border border-amber-500/50 p-6 sm:p-8 rounded-3xl text-center space-y-4 shadow-2xl">
+        <span class="text-5xl block animate-bounce">✨</span>
+        <h2 class="text-xl font-bold text-white">Projeto & Orçamento MVI Gerados com Sucesso!</h2>
         
-        for ch in chapas:
-            if ch["cur_x"] + w <= CHAPA_LARGURA and ch["cur_y"] + h <= CHAPA_ALTURA:
-                ch["pecas"].append({
-                    "nome": p["nome"], "x": ch["cur_x"], "y": ch["cur_y"], "w": w, "h": h
-                })
-                ch["cur_x"] += w + 10
-                ch["row_max_h"] = max(ch["row_max_h"], h)
-                ch["area_utilizada"] += (w / 1000.0) * (h / 1000.0)
-                colocada = True
-                break
-            elif ch["cur_y"] + ch["row_max_h"] + h <= CHAPA_ALTURA and w <= CHAPA_LARGURA:
-                ch["cur_y"] += ch["row_max_h"] + 10
-                ch["cur_x"] = 0.0
-                ch["row_max_h"] = h
-                ch["pecas"].append({
-                    "nome": p["nome"], "x": ch["cur_x"], "y": ch["cur_y"], "w": w, "h": h
-                })
-                ch["cur_x"] += w + 10
-                ch["area_utilizada"] += (w / 1000.0) * (h / 1000.0)
-                colocada = True
-                break
-        
-        if not colocada:
-            nova_chapa = {
-                "id": len(chapas) + 1,
-                "cur_x": w + 10,
-                "cur_y": 0.0,
-                "row_max_h": h,
-                "area_utilizada": (w / 1000.0) * (h / 1000.0),
-                "pecas": [{
-                    "nome": p["nome"], "x": 0.0, "y": 0.0, "w": w, "h": h
-                }]
-            }
-            chapas.append(nova_chapa)
+        <div class="bg-slate-950 p-5 rounded-2xl border border-amber-500/30 inline-block text-center space-y-1 my-2">
+            <p class="text-xs text-slate-400">Estimativa do Projeto Personalizado:</p>
+            <p class="text-3xl font-black text-amber-400">R$ {estimativa:,.2f}</p>
+            <p class="text-[11px] text-slate-400">Entrada facilitada + Parcelamento em até 12x</p>
+        </div>
 
-    total_chapas = max(len(chapas), 1 if items else 0)
+        <p class="text-xs text-slate-300">
+            Você está sendo redirecionado para o WhatsApp da <b>{empresa['nome_empresa']}</b> com todo o seu briefing técnico pronto...
+        </p>
 
-    return {
-        "area_m2": area_total_m2,
-        "chapas_mdf": total_chapas,
-        "fita_metros": round(fita_metros, 1),
-        "dobradicas": dobradicas,
-        "corredicas": corredicas,
-        "puxadores": puxadores,
-        "outros": outros,
-        "chapas_nesting": chapas
-    }
+        <div class="pt-2">
+            <a id="linkZapAuto" href="{zap_url}" target="_blank" class="inline-block w-full sm:w-auto px-8 py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-black rounded-xl shadow-lg transition-all">
+                👉 Abrir Conversa no WhatsApp Agora
+            </a>
+        </div>
 
-def render_login_page(msg_erro=""):
-    erro_tag = f"<p class='text-rose-400 text-xs text-center bg-rose-950/60 border border-rose-800 p-2 rounded-lg'>{msg_erro}</p>" if msg_erro else ""
+        <script>
+            setTimeout(function() {{
+                window.location.href = "{zap_url}";
+            }}, 2000);
+        </script>
+    </div>
+    """ if sucesso else ""
+
+    formulario = f"""
+    <form action="/enviar-solicitacao-lead" method="post" enctype="multipart/form-data" class="space-y-4 bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl">
+        <div class="space-y-1 border-b border-slate-800 pb-3">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-black text-slate-950 text-base shadow mb-2">MVI</div>
+            <h2 class="text-lg font-bold text-white">Simulador MVI de Móveis Sob Medida</h2>
+            <p class="text-xs text-slate-400">Selecione os fabricantes de MDF, ferragens e envie sua planta para estimativa imediata.</p>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Seu Nome Completo</label>
+                <input type="text" name="nome" required placeholder="Ex: Mariana Silva" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Seu WhatsApp (com DDD)</label>
+                <input type="text" name="whatsapp" required placeholder="Ex: (11) 99999-8888" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500">
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Área Total do Imóvel / Cômodo (m²)</label>
+                <input type="number" step="any" min="5.0" max="2000.0" name="area_m2_total" value="68.5" placeholder="Ex: 68.5" required class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Cidade / Bairro da Obra</label>
+                <input type="text" name="cidade" required placeholder="Ex: São Paulo / Moema" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500">
+            </div>
+        </div>
+
+        <div>
+            <label class="block text-xs font-semibold text-slate-300 uppercase mb-2">Ambientes a Serem Mobiliados:</label>
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                <label class="flex items-center space-x-2 bg-slate-950 p-2.5 rounded-xl border border-slate-800 cursor-pointer hover:border-amber-500">
+                    <input type="checkbox" name="ambientes_check" value="Cozinha Planejada" checked class="rounded text-amber-500">
+                    <span>🍳 Cozinha</span>
+                </label>
+                <label class="flex items-center space-x-2 bg-slate-950 p-2.5 rounded-xl border border-slate-800 cursor-pointer hover:border-amber-500">
+                    <input type="checkbox" name="ambientes_check" value="Lavanderia" checked class="rounded text-amber-500">
+                    <span>🧺 Lavanderia</span>
+                </label>
+                <label class="flex items-center space-x-2 bg-slate-950 p-2.5 rounded-xl border border-slate-800 cursor-pointer hover:border-amber-500">
+                    <input type="checkbox" name="ambientes_check" value="Dormitório Casal / Closet" checked class="rounded text-amber-500">
+                    <span>🛏️ Suíte Casal</span>
+                </label>
+                <label class="flex items-center space-x-2 bg-slate-950 p-2.5 rounded-xl border border-slate-800 cursor-pointer hover:border-amber-500">
+                    <input type="checkbox" name="ambientes_check" value="Dormitório 2 / Infantil" class="rounded text-amber-500">
+                    <span>🧸 Quarto 2 / Office</span>
+                </label>
+                <label class="flex items-center space-x-2 bg-slate-950 p-2.5 rounded-xl border border-slate-800 cursor-pointer hover:border-amber-500">
+                    <input type="checkbox" name="ambientes_check" value="Banheiros" checked class="rounded text-amber-500">
+                    <span>🚿 Banheiros</span>
+                </label>
+                <label class="flex items-center space-x-2 bg-slate-950 p-2.5 rounded-xl border border-slate-800 cursor-pointer hover:border-amber-500">
+                    <input type="checkbox" name="ambientes_check" value="Sala / Painel Home TV" class="rounded text-amber-500">
+                    <span>📺 Sala / Home</span>
+                </label>
+            </div>
+        </div>
+
+        <div class="bg-slate-950 p-4 sm:p-5 rounded-2xl border border-slate-800 space-y-4">
+            <h3 class="text-xs font-bold text-amber-400 uppercase tracking-wide">🪵 Catálogo de Fabricantes & Materiais</h3>
+            
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div>
+                    <label class="block text-slate-300 font-semibold mb-1">Fabricante do MDF</label>
+                    <select name="fabricante_mdf" class="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white focus:border-amber-500">
+                        <option value="Duratex">Duratex</option>
+                        <option value="Arauco">Arauco</option>
+                        <option value="Guararapes">Guararapes</option>
+                        <option value="Eucatex">Eucatex</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-slate-300 font-semibold mb-1">Padrão / Cor da Madeira</label>
+                    <select name="cor_mdf" class="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white focus:border-amber-500">
+                        <option value="Freijó Puro / Natural">Freijó Puro / Natural (Mais pedido)</option>
+                        <option value="Carvalho Boreal / Canela">Carvalho Boreal / Canela</option>
+                        <option value="Nogueira Cadiz / Pecan">Nogueira Cadiz / Pecan</option>
+                        <option value="Gianduia Trama / Savana">Gianduia Trama / Savana</option>
+                        <option value="Cinza Grafite / Preto Matt">Cinza Grafite / Preto Matt</option>
+                        <option value="Branco TX Essencial">Branco TX Essencial</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div>
+                    <label class="block text-slate-300 font-semibold mb-1">Marca das Ferragens</label>
+                    <select name="marca_ferragens" class="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white focus:border-amber-500">
+                        <option value="Blum (Linha Blumotion Áustria)">Blum (Linha Blumotion - Áustria / Alto Padrão)</option>
+                        <option value="Hettich (Linha Sensys Alemanha)">Hettich (Linha Sensys - Alemanha)</option>
+                        <option value="Häfele (Linha Matrix Box)">Häfele (Linha Matrix Box)</option>
+                        <option value="FGVTN (Linha Slowmotion)">FGVTN (Linha Slowmotion)</option>
+                        <option value="Standard com Amortecedor">Standard com Amortecedor</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-slate-300 font-semibold mb-1">Modelo de Portas & Puxadores</label>
+                    <select name="modelo_portas" class="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white focus:border-amber-500">
+                        <option value="Perfil Gola em Alumínio (Rometal)">Perfil Gola em Alumínio (Rometal)</option>
+                        <option value="Cava Usinada na Madeira (Usinado)">Cava Usinada na Madeira</option>
+                        <option value="Puxadores Design (Zen / Torralba)">Puxadores Design (Zen / Torralba)</option>
+                        <option value="Perfil Slim com Vidro Reflecta">Perfil Slim com Vidro Reflecta / Bronze</option>
+                        <option value="Lisa Tradicional">Lisa Tradicional</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs pt-1">
+                <div>
+                    <label class="block text-slate-300 font-semibold mb-1">Espessura da Caixaria Interna</label>
+                    <select name="espessura_caixa" class="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                        <option value="MDF 15mm">MDF 15mm (Padrão)</option>
+                        <option value="MDF 18mm">MDF 18mm (Reforçado)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-slate-300 font-semibold mb-1">Tamponamento Externo</label>
+                    <select name="espessura_tamponamento" class="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                        <option value="Tamponamento 18mm">Tamponamento 18mm</option>
+                        <option value="Tamponamento 25mm">Tamponamento 25mm</option>
+                        <option value="Tamponamento 36mm Engrossado">Tamponamento 36mm Engrossado</option>
+                        <option value="Sem Tamponamento">Sem Tamponamento</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div class="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-1">
+                <label class="block text-xs font-bold text-amber-400 uppercase">📐 1. Planta Baixa Completa</label>
+                <input type="file" name="planta" accept="image/*" required class="block w-full text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-amber-600 file:text-slate-950 hover:file:bg-amber-500 cursor-pointer">
+            </div>
+            <div class="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-1">
+                <label class="block text-xs font-bold text-slate-300 uppercase">🖼️ 2. Fotos de Inspiração</label>
+                <input type="file" name="inspiracao" accept="image/*" class="block w-full text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-white hover:file:bg-slate-700 cursor-pointer">
+            </div>
+        </div>
+
+        <div>
+            <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Observações e Detalhes Especiais (Opcional)</label>
+            <textarea name="descricao" rows="2" placeholder="Ex: Iluminação em fita LED nos aéreos, torre quente na cozinha, portas de espelho no dormitório..." class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500"></textarea>
+        </div>
+
+        <button type="submit" class="w-full py-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black rounded-xl text-sm transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center space-x-2">
+            <span>⚡ Calcular Engenharia & Gerar Estimativa MVI</span>
+        </button>
+    </form>
+    """ if not sucesso else ""
+
     return f"""<!DOCTYPE html>
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MVI Móveis Planejados - Login</title>
+    <title>{empresa['nome_empresa']} - Simulador</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4 font-sans">
-    <div class="max-w-md w-full bg-slate-900 border border-amber-500/30 rounded-3xl p-8 shadow-2xl space-y-6">
-        <div class="text-center space-y-2">
-            <div class="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-black text-slate-950 text-2xl shadow-lg shadow-amber-500/20">
-                MVI
-            </div>
-            <h1 class="text-xl font-bold tracking-tight text-white">MVI Móveis Planejados</h1>
-            <p class="text-xs text-slate-400">Sistema de Gestão, Engenharia & Produção</p>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-between font-sans">
+    <header class="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+            <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-black text-slate-950 text-lg shadow-md">MVI</div>
+            <span class="font-bold text-base sm:text-lg text-white tracking-wide">{empresa['nome_empresa']}</span>
         </div>
-        {erro_tag}
-        <form action="/painel" method="post" class="space-y-4">
-            <div>
-                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">E-mail</label>
-                <input type="email" name="username" required value="admin@mvi.com" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm focus:outline-none focus:border-amber-500 text-slate-200">
-            </div>
-            <div>
-                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Senha</label>
-                <input type="password" name="password" required value="123456" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm focus:outline-none focus:border-amber-500 text-slate-200">
-            </div>
-            <button type="submit" class="w-full py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-sm transition-all shadow-lg shadow-amber-500/20">
-                Acessar Painel MVI
-            </button>
-        </form>
-        <div class="border-t border-slate-800 pt-4 text-center">
-            <a href="/solicitar-orcamento" target="_blank" class="text-xs text-amber-400 hover:underline font-semibold block mb-1">🔗 Ver Simulador Público (Instagram)</a>
-            <p class="text-[11px] text-slate-500">Admin: <b>admin@mvi.com</b> | Senha: <b>123456</b></p>
-        </div>
-    </div>
+        <span class="text-xs text-amber-400 font-semibold">Móveis Sob Medida</span>
+    </header>
+
+    <main class="max-w-3xl w-full mx-auto p-4 sm:p-6 my-auto">
+        {msg_sucesso}
+        {formulario}
+    </main>
+
+    <footer class="bg-slate-900 border-t border-slate-800 p-4 text-center text-xs text-slate-500">
+        <p>{empresa['nome_empresa']} | Atendimento WhatsApp: {empresa['telefone_empresa']}</p>
+    </footer>
 </body>
 </html>"""
 
@@ -1548,6 +1624,7 @@ async def enviar_solicitacao_lead(
     planta: UploadFile = File(...),
     inspiracao: UploadFile = File(None)
 ):
+    empresa = get_empresa_config()
     agora = datetime.now().strftime("%d/%m/%Y %H:%M")
     imagens_lead = []
     
@@ -1613,7 +1690,28 @@ async def enviar_solicitacao_lead(
     novo_id = cursor.lastrowid
     conn.close()
 
-    return render_pagina_captacao(sucesso=True, orc_id=novo_id, estimativa=pv_estimado)
+    # MONTAGEM DO BRIEFING COMPLETO PARA O WHATSAPP
+    msg_zap = f"""Olá! Meu nome é *{nome}*.
+Acabei de simular meu projeto no site da *MVI Móveis Planejados* (Projeto #{novo_id:04d}).
+
+📋 *BRIEFING DO MEU PROJETO:*
+• *Cidade/Bairro:* {cidade}
+• *Área Total:* {area_m2_total} m²
+• *Ambientes:* {nome_ambientes_str}
+• *MDF Escolhido:* {fabricante_mdf} ({cor_mdf})
+• *Portas / Puxadores:* {modelo_portas}
+• *Ferragens:* {marca_ferragens}
+• *Caixaria / Tamponamento:* {espessura_caixa} / {espessura_tamponamento}
+• *Estimativa Calculada:* R$ {pv_estimado:,.2f}
+"""
+    if descricao:
+        msg_zap += f"• *Observações:* {descricao}\n"
+    msg_zap += "\nJá enviei a foto da planta baixa e gostaria de dar andamento com o projetista!"
+
+    tel_empresa_limpo = str(empresa['telefone_empresa'] or "").replace('(', '').replace(')', '').replace('-', '').replace(' ', '')
+    zap_url = f"https://api.whatsapp.com/send?phone=55{tel_empresa_limpo}&text={urllib.parse.quote(msg_zap)}"
+
+    return render_pagina_captacao(sucesso=True, orc_id=novo_id, estimativa=pv_estimado, zap_url=zap_url)
 
 @app.post("/adicionar-ambiente", response_class=HTMLResponse)
 def adicionar_ambiente(novo_ambiente: str = Form(...)):
