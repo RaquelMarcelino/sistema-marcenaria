@@ -13,7 +13,6 @@ import sqlite3
 import math
 import base64
 from datetime import datetime, date, timedelta
-from typing import List
 
 app = FastAPI(title="Sistema Marcenaria Inteligente")
 DB_PATH = "marcenaria.db"
@@ -229,7 +228,7 @@ CURRENT_DATA = {
     "status": "Em Negociação",
     "cliente_nome": "Cliente Exemplo",
     "cliente_telefone": "11999998888",
-    "cliente_ambiente": "Casa Completa / Múltiplos Ambientes",
+    "cliente_ambiente": "Cozinha Planejada",
     "prazo_entrega": "25 dias úteis",
     "data_entrega_prevista": (date.today() + timedelta(days=25)).strftime("%Y-%m-%d"),
     "entrada_valor": 1000.0,
@@ -295,8 +294,8 @@ def numero_extenso_reais(valor: float) -> str:
         texto += f" e {centavos}/100 centavos"
     return texto.capitalize()
 
-# MOTOR DE CÁLCULO POR M² E ESCOPO GLOBAL DO IMÓVEL (PLANTA + INSPIRAÇÕES)
-def calcular_engenharia_m2_global(ambientes_selecionados: list, area_m2_total: float, padrao_acabamento: str, precos: dict):
+# MOTOR PARAMÉTRICO DE ENGENHARIA (COM SUPORTE A NÚMEROS DECIMAIS LIVRES)
+def gerar_engenharia_automatica(tipo_ambiente: str, metros_lineares: float, padrao_acabamento: str, precos: dict):
     items = []
     mult_acabamento = 1.0
     
@@ -305,64 +304,53 @@ def calcular_engenharia_m2_global(ambientes_selecionados: list, area_m2_total: f
     elif "Premium" in padrao_acabamento:
         mult_acabamento = 1.70
 
-    area_val = max(area_m2_total, 10.0)
-    qtd_ambientes = max(len(ambientes_selecionados), 1)
+    m_lin = max(metros_lineares, 0.5)
     
-    # Área média por cômodo para dimensionamento de marcenaria
-    area_por_comodo = area_val / qtd_ambientes
-
-    for amb in ambientes_selecionados:
-        if "Cozinha" in amb or "Gourmet" in amb:
-            m_lin = max(area_por_comodo * 0.35, 2.5)
-            num_modulos = max(int(math.ceil(m_lin / 0.8)), 2)
-            
-            for i in range(1, num_modulos + 1):
-                items.append({
-                    "nome": f"Balcão Inferior #{i} ({amb})", "tipo": "Chapa MDF / Painel", "ambiente": amb,
-                    "largura": 800, "altura": 720, "dimensoes": "800 x 720 x 580 mm", "qtd": 1,
-                    "valor": 1.25 * precos["mdf_m2"] * mult_acabamento
-                })
-                items.append({
-                    "nome": f"Portas Balcão #{i} (MDF 18mm)", "tipo": "Chapa MDF / Painel", "ambiente": amb,
-                    "largura": 395, "altura": 700, "dimensoes": "395 x 700 x 18 mm", "qtd": 2,
-                    "valor": 0.58 * precos["mdf_m2"] * mult_acabamento
-                })
-                items.append({
-                    "nome": f"Aéreo Superior #{i} ({amb})", "tipo": "Chapa MDF / Painel", "ambiente": amb,
-                    "largura": 800, "altura": 700, "dimensoes": "800 x 700 x 350 mm", "qtd": 1,
-                    "valor": 0.98 * precos["mdf_m2"] * mult_acabamento
-                })
-            
+    if "Cozinha" in tipo_ambiente:
+        num_modulos = max(int(math.ceil(m_lin / 0.8)), 2)
+        larg_modulo = int((m_lin * 1000) / num_modulos)
+        
+        for i in range(1, num_modulos + 1):
             items.append({
-                "nome": f"Gaveteiro Triplo Slow ({amb})", "tipo": "Ferragem (Corrediça)", "ambiente": amb,
-                "largura": 600, "altura": 720, "dimensoes": "600 mm", "qtd": 3,
-                "valor": (3 * precos["corredica"]) + (1.4 * precos["mdf_m2"] * mult_acabamento)
+                "nome": f"Balcão Inferior #{i} ({larg_modulo}mm)", "tipo": "Chapa MDF / Painel", "ambiente": tipo_ambiente,
+                "largura": larg_modulo, "altura": 720, "dimensoes": f"{larg_modulo} x 720 x 580 mm", "qtd": 1,
+                "valor": ((larg_modulo / 1000.0) * 0.72 * 2.2 * precos["mdf_m2"]) * mult_acabamento
             })
-            qtd_dob = (num_modulos * 4) + 4
-            items.append({"nome": f"Dobradiças Slowmotion 35mm ({amb})", "tipo": "Ferragem (Dobradiça)", "ambiente": amb, "largura": 0, "altura": 0, "dimensoes": "Ø35mm", "qtd": qtd_dob, "valor": qtd_dob * precos["dobradica"]})
-            items.append({"nome": f"Puxadores Perfil/Pontos ({amb})", "tipo": "Acessório (Puxador)", "ambiente": amb, "largura": 0, "altura": 0, "dimensoes": "Perfil", "qtd": qtd_dob // 2, "valor": (qtd_dob // 2) * precos["puxador"]})
-            items.append({"nome": f"Fita de Borda PVC 22mm ({amb})", "tipo": "Fita de Borda", "ambiente": amb, "largura": 0, "altura": 0, "dimensoes": "-", "qtd": int(m_lin * 20), "valor": (m_lin * 20) * precos["fita_borda_m"]})
+            items.append({
+                "nome": f"Portas Balcão #{i} (MDF 18mm)", "tipo": "Chapa MDF / Painel", "ambiente": tipo_ambiente,
+                "largura": (larg_modulo // 2) - 5, "altura": 700, "dimensoes": f"{(larg_modulo // 2) - 5} x 700 x 18 mm", "qtd": 2,
+                "valor": ((larg_modulo / 1000.0) * 0.70 * precos["mdf_m2"]) * mult_acabamento
+            })
+            items.append({
+                "nome": f"Aéreo Superior #{i} ({larg_modulo}mm)", "tipo": "Chapa MDF / Painel", "ambiente": tipo_ambiente,
+                "largura": larg_modulo, "altura": 700, "dimensoes": f"{larg_modulo} x 700 x 350 mm", "qtd": 1,
+                "valor": ((larg_modulo / 1000.0) * 0.70 * 1.8 * precos["mdf_m2"]) * mult_acabamento
+            })
+        
+        items.append({
+            "nome": "Gaveteiro Triplo Slowmotion", "tipo": "Ferragem (Corrediça)", "ambiente": tipo_ambiente,
+            "largura": 600, "altura": 720, "dimensoes": "600 mm", "qtd": 3,
+            "valor": (3 * precos["corredica"]) + (1.4 * precos["mdf_m2"] * mult_acabamento)
+        })
+        qtd_dob = (num_modulos * 4) + 4
+        items.append({"nome": "Dobradiças 35mm c/ Amortecimento Slow", "tipo": "Ferragem (Dobradiça)", "ambiente": tipo_ambiente, "largura": 0, "altura": 0, "dimensoes": "Ø35mm", "qtd": qtd_dob, "valor": qtd_dob * precos["dobradica"]})
+        items.append({"nome": "Puxadores Perfil Alumínio / Pontos", "tipo": "Acessório (Puxador)", "ambiente": tipo_ambiente, "largura": 0, "altura": 0, "dimensoes": "Perfil", "qtd": qtd_dob // 2, "valor": (qtd_dob // 2) * precos["puxador"]})
+        items.append({"nome": "Fita de Borda PVC 22mm", "tipo": "Fita de Borda", "ambiente": tipo_ambiente, "largura": 0, "altura": 0, "dimensoes": "-", "qtd": int(m_lin * 18), "valor": (m_lin * 18) * precos["fita_borda_m"]})
 
-        elif "Dormitório" in amb or "Suíte" in amb or "Closet" in amb:
-            m_lin = max(area_por_comodo * 0.28, 2.0)
-            num_portas = max(int(round(m_lin / 0.5)), 2)
-            
-            items.append({"nome": f"Laterais/Estrutura Roupeiro ({amb})", "tipo": "Chapa MDF / Painel", "ambiente": amb, "largura": 2600, "altura": 600, "dimensoes": "2600 x 600 x 18 mm", "qtd": num_portas + 1, "valor": (num_portas + 1) * (2.6 * 0.6 * precos["mdf_m2"]) * mult_acabamento})
-            items.append({"nome": f"Portas Armário ({amb})", "tipo": "Chapa MDF / Painel", "ambiente": amb, "largura": 2500, "altura": 500, "dimensoes": "2500 x 500 x 18 mm", "qtd": num_portas, "valor": num_portas * (2.5 * 0.5 * precos["mdf_m2"]) * mult_acabamento})
-            items.append({"nome": f"Maleiros e Divisórias ({amb})", "tipo": "Chapa MDF / Painel", "ambiente": amb, "largura": 900, "altura": 550, "dimensoes": "900 x 550 x 18 mm", "qtd": num_portas * 2, "valor": (num_portas * 2) * (0.9 * 0.55 * precos["mdf_m2"]) * mult_acabamento})
-            items.append({"nome": f"Gavetas c/ Corrediça Oculta ({amb})", "tipo": "Ferragem (Corrediça)", "ambiente": amb, "largura": 0, "altura": 0, "dimensoes": "450 mm", "qtd": 4, "valor": 4 * precos["corredica"]})
-            items.append({"nome": f"Dobradiças 110º Slow ({amb})", "tipo": "Ferragem (Dobradiça)", "ambiente": amb, "largura": 0, "altura": 0, "dimensoes": "Ø35mm", "qtd": num_portas * 4, "valor": (num_portas * 4) * precos["dobradica"]})
-            items.append({"nome": f"Fita de Borda PVC ({amb})", "tipo": "Fita de Borda", "ambiente": amb, "largura": 0, "altura": 0, "dimensoes": "-", "qtd": int(m_lin * 22), "valor": (m_lin * 22) * precos["fita_borda_m"]})
-
-        elif "Banheiro" in amb or "Lavabo" in amb:
-            items.append({"nome": f"Gabinete Sob Medida c/ Gavetas ({amb})", "tipo": "Chapa MDF / Painel", "ambiente": amb, "largura": 900, "altura": 650, "dimensoes": "900 x 650 x 500 mm", "qtd": 1, "valor": 1.4 * precos["mdf_m2"] * mult_acabamento})
-            items.append({"nome": f"Espelheira / Aéreo ({amb})", "tipo": "Chapa MDF / Painel", "ambiente": amb, "largura": 900, "altura": 800, "dimensoes": "900 x 800 x 150 mm", "qtd": 1, "valor": 0.85 * precos["mdf_m2"] * mult_acabamento})
-            items.append({"nome": f"Ferragens e Corrediças Inox ({amb})", "tipo": "Ferragem (Corrediça)", "ambiente": amb, "largura": 0, "altura": 0, "dimensoes": "Kit", "qtd": 2, "valor": 2 * precos["corredica"]})
-
-        else: # Sala / Home / Living / Lavanderia
-            items.append({"nome": f"Painel Ripado / Rack Home ({amb})", "tipo": "Chapa MDF / Painel", "ambiente": amb, "largura": 2200, "altura": 1800, "dimensoes": "2200 x 1800 x 18 mm", "qtd": 1, "valor": (2.2 * 1.8 * precos["mdf_m2"]) * mult_acabamento})
-            items.append({"nome": f"Bancada Suspenso com Portas Basculantes ({amb})", "tipo": "Chapa MDF / Painel", "ambiente": amb, "largura": 2200, "altura": 400, "dimensoes": "2200 x 400 x 400 mm", "qtd": 1, "valor": 1.2 * precos["mdf_m2"] * mult_acabamento})
-            items.append({"nome": f"Pistões a Gás e Articulações ({amb})", "tipo": "Ferragem (Dobradiça)", "ambiente": amb, "largura": 0, "altura": 0, "dimensoes": "Kit", "qtd": 4, "valor": 4 * precos["dobradica"]})
+    elif "Dormitório" in tipo_ambiente or "Closet" in tipo_ambiente:
+        num_portas = max(int(round(m_lin / 0.5)), 2)
+        items.append({"nome": "Laterais e Divisórias Armário (2600x600)", "tipo": "Chapa MDF / Painel", "ambiente": tipo_ambiente, "largura": 2600, "altura": 600, "dimensoes": "2600 x 600 x 18 mm", "qtd": num_portas + 1, "valor": (num_portas + 1) * (2.6 * 0.6 * precos["mdf_m2"]) * mult_acabamento})
+        items.append({"nome": "Portas Armário (2500x500)", "tipo": "Chapa MDF / Painel", "ambiente": tipo_ambiente, "largura": 2500, "altura": 500, "dimensoes": "2500 x 500 x 18 mm", "qtd": num_portas, "valor": num_portas * (2.5 * 0.5 * precos["mdf_m2"]) * mult_acabamento})
+        items.append({"nome": "Maleiros e Prateleiras Internas", "tipo": "Chapa MDF / Painel", "ambiente": tipo_ambiente, "largura": 900, "altura": 550, "dimensoes": "900 x 550 x 18 mm", "qtd": num_portas * 2, "valor": (num_portas * 2) * (0.9 * 0.55 * precos["mdf_m2"]) * mult_acabamento})
+        items.append({"nome": "Gavetas Internas c/ Corrediça Oculta", "tipo": "Ferragem (Corrediça)", "ambiente": tipo_ambiente, "largura": 0, "altura": 0, "dimensoes": "450 mm", "qtd": 4, "valor": 4 * precos["corredica"]})
+        items.append({"nome": "Dobradiças 110º com Amortecimento", "tipo": "Ferragem (Dobradiça)", "ambiente": tipo_ambiente, "largura": 0, "altura": 0, "dimensoes": "Ø35mm", "qtd": num_portas * 4, "valor": (num_portas * 4) * precos["dobradica"]})
+        items.append({"nome": "Fita de Borda PVC 22mm", "tipo": "Fita de Borda", "ambiente": tipo_ambiente, "largura": 0, "altura": 0, "dimensoes": "-", "qtd": int(m_lin * 22), "valor": (m_lin * 22) * precos["fita_borda_m"]})
+        
+    else: # Banheiro ou Painel Sala
+        items.append({"nome": f"Painel Estrutural ({tipo_ambiente})", "tipo": "Chapa MDF / Painel", "ambiente": tipo_ambiente, "largura": int(m_lin * 1000), "altura": 800, "dimensoes": f"{int(m_lin*1000)} x 800 x 18 mm", "qtd": 2, "valor": (m_lin * 0.8 * 2 * precos["mdf_m2"]) * mult_acabamento})
+        items.append({"nome": "Gavetas / Portas Basculantes", "tipo": "Chapa MDF / Painel", "ambiente": tipo_ambiente, "largura": 600, "altura": 350, "dimensoes": "600 x 350 x 18 mm", "qtd": 2, "valor": 2 * (0.6 * 0.35 * precos["mdf_m2"]) * mult_acabamento})
+        items.append({"nome": "Pistões a Gás / Corrediças", "tipo": "Ferragem (Corrediça)", "ambiente": tipo_ambiente, "largura": 0, "altura": 0, "dimensoes": "Kit", "qtd": 2, "valor": 2 * precos["corredica"]})
+        items.append({"nome": "Fita de Borda PVC", "tipo": "Fita de Borda", "ambiente": tipo_ambiente, "largura": 0, "altura": 0, "dimensoes": "-", "qtd": 15, "valor": 15 * precos["fita_borda_m"]})
 
     total_mat = sum(i["valor"] for i in items)
     return items, total_mat
@@ -372,15 +360,15 @@ def render_pagina_captacao(sucesso=False, orc_id=None, estimativa=0.0):
     msg_sucesso = f"""
     <div class="bg-emerald-950/90 border border-emerald-600 p-6 rounded-2xl text-center space-y-4 shadow-2xl">
         <span class="text-5xl block animate-bounce">✨</span>
-        <h2 class="text-xl font-bold text-white">Planta, Inspirações e Projeto Enviados!</h2>
+        <h2 class="text-xl font-bold text-white">Projeto & Estimativa Gerados com Sucesso!</h2>
         <div class="bg-slate-950 p-4 rounded-xl border border-emerald-800 inline-block text-left space-y-1">
-            <p class="text-xs text-slate-400">Estimativa Orçamentária Inicial:</p>
+            <p class="text-xs text-slate-400">Estimativa Calculada:</p>
             <p class="text-2xl font-bold text-emerald-400">R$ {estimativa:,.2f}</p>
-            <p class="text-[11px] text-slate-400">Condições especiais: Entrada + Parcelamento facilitado</p>
+            <p class="text-[11px] text-slate-400">Entrada + Parcelamento em até 12x</p>
         </div>
-        <p class="text-xs text-slate-300">Nossa equipe de engenharia da <b>{empresa['nome_empresa']}</b> já recebeu sua planta e inspirações para refinar os detalhes com você.</p>
-        <a href="https://api.whatsapp.com/send?phone=55{empresa['telefone_empresa'].replace('(', '').replace(')', '').replace('-', '').replace(' ', '')}&text=Olá! Enviei minha planta e fotos de inspiração no site (Projeto #{orc_id}) e gostaria de dar andamento!" target="_blank" class="inline-block px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg transition-colors">
-            💬 Falar com Projetista no WhatsApp
+        <p class="text-xs text-slate-300">Nossa equipe da <b>{empresa['nome_empresa']}</b> já recebeu sua solicitação para atendimento.</p>
+        <a href="https://api.whatsapp.com/send?phone=55{empresa['telefone_empresa'].replace('(', '').replace(')', '').replace('-', '').replace(' ', '')}&text=Olá! Acabei de simular meu projeto #{orc_id} no site e gostaria de confirmar a proposta!" target="_blank" class="inline-block px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg transition-colors">
+            💬 Abrir Conversa no WhatsApp
         </a>
     </div>
     """ if sucesso else ""
@@ -388,8 +376,8 @@ def render_pagina_captacao(sucesso=False, orc_id=None, estimativa=0.0):
     formulario = f"""
     <form action="/enviar-solicitacao-lead" method="post" enctype="multipart/form-data" class="space-y-4 bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-2xl shadow-2xl">
         <div class="space-y-1 border-b border-slate-800 pb-3">
-            <h2 class="text-lg font-bold text-white">✨ Orçamento Inteligente de Marcenaria Sob Medida</h2>
-            <p class="text-xs text-slate-400">Envie sua planta baixa, fotos de como deseja o projeto e a metragem do imóvel para receber a estimativa.</p>
+            <h2 class="text-lg font-bold text-white">✨ Simulador & Gerador de Projeto Sob Medida</h2>
+            <p class="text-xs text-slate-400">Informe as medidas exatas para gerar a lista de módulos e a estimativa instantaneamente.</p>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -399,93 +387,62 @@ def render_pagina_captacao(sucesso=False, orc_id=None, estimativa=0.0):
             </div>
             <div>
                 <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Seu WhatsApp (com DDD)</label>
-                <input type="text" name="whatsapp" required placeholder="Ex: 11999998888" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-sky-500">
+                <input type="text" name="whatsapp" required placeholder="Ex: (11) 99999-8888" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-sky-500">
             </div>
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Área Total do Espaço / Imóvel (m²)</label>
-                <input type="number" step="1" min="5" max="1000" name="area_m2_total" value="65" required class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-sky-500">
-                <span class="text-[10px] text-slate-500 block mt-1">Ex: 65 m² (Apartamento todo) ou 15 m² (Apenas Cozinha).</span>
-            </div>
-            <div>
-                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Padrão de Acabamento Desejado</label>
-                <select name="padrao_acabamento" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none">
-                    <option value="Linha Confort (MDF Branco / Essencial)">Linha Confort (MDF Branco TX + Amortecedores)</option>
-                    <option value="Linha Elegance (Madeirados / Freijó / Carvalho)">Linha Elegance (MDF Madeirados Nobres + Perfis)</option>
-                    <option value="Linha Premium (Perfil Gola + Vidros Reflecta + LED)">Linha Premium (Perfil Gola + Vidros Reflecta + LED)</option>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Ambiente</label>
+                <select name="tipo_ambiente" class="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none">
+                    <option value="Cozinha Planejada">Cozinha Planejada</option>
+                    <option value="Dormitório / Closet">Dormitório / Closet</option>
+                    <option value="Banheiro / Lavabo">Banheiro / Lavabo</option>
+                    <option value="Painel de Sala / Home">Painel de Sala / Home</option>
                 </select>
             </div>
-        </div>
-
-        <div>
-            <label class="block text-xs font-semibold text-slate-300 uppercase mb-2">Ambientes que Deseja Fazer (Selecione todos que se aplicam):</label>
-            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-                <label class="flex items-center space-x-2 bg-slate-950 p-2.5 rounded-lg border border-slate-800 cursor-pointer hover:border-sky-600">
-                    <input type="checkbox" name="ambientes_check" value="Cozinha Planejada" checked class="rounded text-sky-600">
-                    <span>🍳 Cozinha</span>
-                </label>
-                <label class="flex items-center space-x-2 bg-slate-950 p-2.5 rounded-lg border border-slate-800 cursor-pointer hover:border-sky-600">
-                    <input type="checkbox" name="ambientes_check" value="Lavanderia" checked class="rounded text-sky-600">
-                    <span>🧺 Lavanderia</span>
-                </label>
-                <label class="flex items-center space-x-2 bg-slate-950 p-2.5 rounded-lg border border-slate-800 cursor-pointer hover:border-sky-600">
-                    <input type="checkbox" name="ambientes_check" value="Dormitório Casal / Closet" checked class="rounded text-sky-600">
-                    <span>🛏️ Suíte Casal</span>
-                </label>
-                <label class="flex items-center space-x-2 bg-slate-950 p-2.5 rounded-lg border border-slate-800 cursor-pointer hover:border-sky-600">
-                    <input type="checkbox" name="ambientes_check" value="Dormitório 2 / Infantil" class="rounded text-sky-600">
-                    <span>🧸 Quarto 2 / Office</span>
-                </label>
-                <label class="flex items-center space-x-2 bg-slate-950 p-2.5 rounded-lg border border-slate-800 cursor-pointer hover:border-sky-600">
-                    <input type="checkbox" name="ambientes_check" value="Banheiros" checked class="rounded text-sky-600">
-                    <span>🚿 Banheiros</span>
-                </label>
-                <label class="flex items-center space-x-2 bg-slate-950 p-2.5 rounded-lg border border-slate-800 cursor-pointer hover:border-sky-600">
-                    <input type="checkbox" name="ambientes_check" value="Sala / Painel Home TV" class="rounded text-sky-600">
-                    <span>📺 Sala / Home</span>
-                </label>
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Metros Lineares (Ex: 2.71)</label>
+                <input type="number" step="any" min="0.5" max="30.0" name="metros_lineares" placeholder="Ex: 2.71" value="2.71" required class="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white text-center focus:outline-none focus:border-sky-500">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Padrão de Acabamento</label>
+                <select name="padrao_acabamento" class="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none">
+                    <option value="Linha Confort (MDF Branco)">Linha Confort (Branco TX)</option>
+                    <option value="Linha Elegance (Madeirado)">Linha Elegance (Freijó/Carvalho)</option>
+                    <option value="Linha Premium (Perfil Gola + Vidro)">Linha Premium (Perfil Gola)</option>
+                </select>
             </div>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
                 <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Cidade / Bairro da Obra</label>
-                <input type="text" name="cidade" required placeholder="Ex: São Paulo / Moema" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-sky-500">
+                <input type="text" name="cidade" required placeholder="Ex: São Paulo / Itaquera" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-sky-500">
             </div>
             <div>
-                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Faixa de Investimento Pretendida</label>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">💰 Faixa de Investimento Pretendida</label>
                 <select name="valor_investimento" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none">
-                    <option value="Até R$ 15.000">Até R$ 15.000 (Cômodos essenciais)</option>
-                    <option value="R$ 15.000 a R$ 30.000">R$ 15.000 a R$ 30.000 (Cozinha + Suíte)</option>
-                    <option value="R$ 30.000 a R$ 50.000">R$ 30.000 a R$ 50.000 (Apartamento Completo)</option>
-                    <option value="Acima de R$ 50.000">Acima de R$ 50.000 (Alto Padrão / Casa Completa)</option>
+                    <option value="Até R$ 10.000">Até R$ 10.000 (Módulo Compacto)</option>
+                    <option value="R$ 10.000 a R$ 20.000">R$ 10.000 a R$ 20.000 (Cozinha média)</option>
+                    <option value="R$ 20.000 a R$ 35.000">R$ 20.000 a R$ 35.000 (2 a 3 ambientes)</option>
+                    <option value="Acima de R$ 40.000">Acima de R$ 40.000 (Apartamento Completo)</option>
                 </select>
             </div>
         </div>
 
-        <!-- UPLOAD DUPLO: PLANTA + FOTOS DE INSPIRAÇÃO -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div class="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-1">
-                <label class="block text-xs font-bold text-sky-400 uppercase">📐 1. Foto da Planta Baixa</label>
-                <input type="file" name="planta" accept="image/*" required class="block w-full text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-sky-900 file:text-white hover:file:bg-sky-800 cursor-pointer">
-                <span class="text-[10px] text-slate-500 block">Planta da construtora, desenho à mão ou medidas.</span>
-            </div>
-            <div class="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-1">
-                <label class="block text-xs font-bold text-purple-400 uppercase">🖼️ 2. Fotos de Como Quer o Projeto</label>
-                <input type="file" name="inspiracao" accept="image/*" class="block w-full text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-purple-900 file:text-white hover:file:bg-purple-800 cursor-pointer">
-                <span class="text-[10px] text-slate-500 block">Prints do Instagram, Pinterest ou referências de cores.</span>
-            </div>
+        <div>
+            <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">📷 Anexe a Planta Baixa ou Foto do Cômodo (Opcional)</label>
+            <input type="file" name="planta" accept="image/*" class="block w-full text-xs text-slate-400 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-200 hover:file:bg-slate-700 cursor-pointer">
         </div>
 
         <div>
-            <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Como você sonha com esse projeto? (Detalhes adicionais)</label>
-            <textarea name="descricao" rows="2" placeholder="Ex: Quero torre quente para fornos na cozinha, iluminação em LED nos armários e puxadores cava..." class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-sky-500"></textarea>
+            <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Detalhes Adicionais (Cores, puxadores, acessórios)</label>
+            <textarea name="descricao" rows="2" placeholder="Ex: Cozinha cinza grafite com tamponamento, puxador cava madeira e amortecimento em todas as ferragens..." class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-sky-500"></textarea>
         </div>
 
         <button type="submit" class="w-full py-3.5 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl text-sm transition-colors shadow-lg shadow-sky-600/30 flex items-center justify-center space-x-2">
-            <span>🚀 Enviar Planta, Inspirações & Gerar Orçamento</span>
+            <span>⚡ Gerar Projeto & Estimativa Instantânea</span>
         </button>
     </form>
     """ if not sucesso else ""
@@ -496,7 +453,7 @@ def render_pagina_captacao(sucesso=False, orc_id=None, estimativa=0.0):
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>{empresa['nome_empresa']} - Simulador de Projetos</title>
+        <title>{empresa['nome_empresa']} - Simulador 3D</title>
         <script src="https://cdn.tailwindcss.com"></script>
     </head>
     <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-between font-sans">
@@ -505,7 +462,7 @@ def render_pagina_captacao(sucesso=False, orc_id=None, estimativa=0.0):
                 <div class="w-9 h-9 rounded-xl bg-sky-600 flex items-center justify-center font-bold text-white shadow-md">M</div>
                 <span class="font-bold text-base sm:text-lg text-white tracking-wide">{empresa['nome_empresa']}</span>
             </div>
-            <span class="text-xs text-sky-400 font-medium">Marcenaria Sob Medida</span>
+            <span class="text-xs text-sky-400 font-medium">Projetos Inteligentes</span>
         </header>
 
         <main class="max-w-2xl w-full mx-auto p-4 sm:p-6 my-auto">
@@ -514,11 +471,52 @@ def render_pagina_captacao(sucesso=False, orc_id=None, estimativa=0.0):
         </main>
 
         <footer class="bg-slate-900 border-t border-slate-800 p-4 text-center text-xs text-slate-500">
-            <p>{empresa['nome_empresa']} | Atendimento WhatsApp: {empresa['telefone_empresa']}</p>
+            <p>{empresa['nome_empresa']} | Atendimento: {empresa['telefone_empresa']}</p>
         </footer>
     </body>
     </html>
     """
+
+def calcular_dre_completa(d: dict):
+    custo_mat = d.get("custo_materiais", 0.0)
+    custo_mo = d.get("dias_producao", 0) * d.get("valor_diaria", 0.0)
+    custo_frete_mont = d.get("custo_frete", 0.0) + d.get("custo_montagem", 0.0)
+    custo_direto_total = custo_mat + custo_mo + custo_frete_mont
+    
+    markup = d.get("markup", 2.2)
+    pv = custo_direto_total * markup if custo_direto_total > 0 else 0.0
+    
+    imposto_val = (d.get("imposto_pct", 0.0) / 100.0) * pv
+    comissao_val = (d.get("comissao_pct", 0.0) / 100.0) * pv
+    
+    lucro_liquido = pv - (custo_direto_total + imposto_val + comissao_val) if pv > 0 else 0.0
+    margem_liq_pct = (lucro_liquido / pv * 100.0) if pv > 0 else 0.0
+    
+    entrada = min(float(d.get("entrada_valor", 0.0)), pv)
+    saldo_restante = max(pv - entrada, 0.0)
+    n_parc = max(int(d.get("num_parcelas", 1)), 1)
+    valor_parcela = saldo_restante / n_parc if n_parc > 0 else 0.0
+    
+    valor_recebido = float(d.get("valor_recebido", 0.0))
+    saldo_devedor = max(pv - valor_recebido, 0.0)
+
+    return {
+        "custo_mat": custo_mat,
+        "custo_mo": custo_mo,
+        "custo_frete_mont": custo_frete_mont,
+        "custo_direto_total": custo_direto_total,
+        "pv": pv,
+        "imposto_val": imposto_val,
+        "comissao_val": comissao_val,
+        "lucro_liquido": lucro_liquido,
+        "margem_liq_pct": margem_liq_pct,
+        "entrada": entrada,
+        "saldo_restante": saldo_restante,
+        "n_parc": n_parc,
+        "valor_parcela": valor_parcela,
+        "valor_recebido": valor_recebido,
+        "saldo_devedor": saldo_devedor
+    }
 
 def consolidar_compras_e_nesting(items: list):
     CHAPA_LARGURA = 2750.0
@@ -626,7 +624,7 @@ def render_dashboard(data: dict):
     estoque = get_estoque_atual()
     metricas = get_metricas_financeiras()
     imagens = data.get("imagens", [])
-    ambientes = data.get("ambientes", ["Casa Completa"])
+    ambientes = data.get("ambientes", ["Cozinha Planejada"])
     
     rows_html = ""
     if items:
@@ -733,17 +731,17 @@ def render_dashboard(data: dict):
 
     cond_texto_zap = f"Entrada de R$ {dre['entrada']:,.2f} + {dre['n_parc']}x de R$ {dre['valor_parcela']:,.2f}" if dre['n_parc'] > 1 else f"R$ {dre['pv']:,.2f} à vista"
     
-    msg_proposta = f"Olá {data['cliente_nome']}! Analisamos sua planta e inspirações para {data['cliente_ambiente']}. Segue o orçamento da {empresa['nome_empresa']}: Total de R$ {dre['pv']:,.2f} ({cond_texto_zap}) com entrega em {data['prazo_entrega']}."
-    url_proposta = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone']}&text={urllib.parse.quote(msg_proposta)}"
+    msg_proposta = f"Olá {data['cliente_nome']}! Analisamos as medidas e detalhes do projeto para {data['cliente_ambiente']}. Segue a estimativa da {empresa['nome_empresa']}: Total de R$ {dre['pv']:,.2f} ({cond_texto_zap}) com entrega em {data['prazo_entrega']}."
+    url_proposta = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone'].replace('(', '').replace(')', '').replace('-', '').replace(' ', '')}&text={urllib.parse.quote(msg_proposta)}"
 
     msg_producao = f"Olá {data['cliente_nome']}! Temos ótimas notícias: o seu projeto ({data['cliente_ambiente']}) já entrou em produção em nossa marcenaria! Previsão de montagem para {data.get('data_entrega_prevista', data['prazo_entrega'])}."
-    url_producao = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone']}&text={urllib.parse.quote(msg_producao)}"
+    url_producao = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone'].replace('(', '').replace(')', '').replace('-', '').replace(' ', '')}&text={urllib.parse.quote(msg_producao)}"
 
     msg_montagem = f"Olá {data['cliente_nome']}! Nossa equipe de montagem está agendada para iniciar a instalação do projeto ({data['cliente_ambiente']}) a partir de {data.get('data_entrega_prevista', 'breve')}."
-    url_montagem = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone']}&text={urllib.parse.quote(msg_montagem)}"
+    url_montagem = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone'].replace('(', '').replace(')', '').replace('-', '').replace(' ', '')}&text={urllib.parse.quote(msg_montagem)}"
 
     msg_cobranca = f"Olá {data['cliente_nome']}! Passando para lembrar sobre o saldo pendente de R$ {dre['saldo_devedor']:,.2f} referente ao projeto ({data['cliente_ambiente']}). Chave PIX: {empresa['pix']}."
-    url_cobranca = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone']}&text={urllib.parse.quote(msg_cobranca)}"
+    url_cobranca = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone'].replace('(', '').replace(')', '').replace('-', '').replace(' ', '')}&text={urllib.parse.quote(msg_cobranca)}"
 
     hoje = date.today()
     cronograma_cards_html = ""
@@ -811,7 +809,7 @@ def render_dashboard(data: dict):
             </form>
             """
 
-            badge_lead = "<span class='px-2 py-0.5 bg-pink-950 text-pink-300 border border-pink-700 rounded text-[10px] font-bold'>📸 Planta+Inspiração</span>" if current_st == "Novo Lead Instagram" else ""
+            badge_lead = "<span class='px-2 py-0.5 bg-pink-950 text-pink-300 border border-pink-700 rounded text-[10px] font-bold'>⚡ Lead Auto</span>" if current_st == "Novo Lead Instagram" else ""
 
             historico_html += f"""
             <tr class="border-b border-slate-800 hover:bg-slate-800/40 text-xs item-linha" data-busca="{h['cliente_nome'].lower()} {h['cliente_ambiente'].lower()} {current_st.lower()}">
@@ -825,7 +823,7 @@ def render_dashboard(data: dict):
                     <form action="/atualizar-status" method="post" class="inline">
                         <input type="hidden" name="orcamento_id" value="{h['id']}">
                         <select name="novo_status" onchange="this.form.submit()" class="bg-slate-950 border border-slate-700 text-[11px] text-slate-200 rounded px-2 py-1 focus:outline-none">
-                            <option value="Novo Lead Instagram" {'selected' if current_st=='Novo Lead Instagram' else ''}>📸 Novo Lead (Planta + Inspiração)</option>
+                            <option value="Novo Lead Instagram" {'selected' if current_st=='Novo Lead Instagram' else ''}>📸 Lead Instagram (Automático)</option>
                             <option value="Em Negociação" {'selected' if current_st=='Em Negociação' else ''}>🟡 Em Negociação</option>
                             <option value="Aprovado" {'selected' if current_st=='Aprovado' else ''}>🟢 Aprovado</option>
                             <option value="Em Produção" {'selected' if current_st=='Em Produção' else ''}>🔵 Em Produção</option>
@@ -1329,7 +1327,7 @@ def render_dashboard(data: dict):
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">Status</label>
                         <select name="status" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none">
-                            <option value="Novo Lead Instagram" {'selected' if data.get('status')=='Novo Lead Instagram' else ''}>📸 Lead Instagram (Planta + Inspiração)</option>
+                            <option value="Novo Lead Instagram" {'selected' if data.get('status')=='Novo Lead Instagram' else ''}>📸 Lead Instagram (Automático)</option>
                             <option value="Em Negociação" {'selected' if data.get('status')=='Em Negociação' else ''}>🟡 Em Negociação</option>
                             <option value="Aprovado" {'selected' if data.get('status')=='Aprovado' else ''}>🟢 Aprovado</option>
                             <option value="Em Produção" {'selected' if data.get('status')=='Em Produção' else ''}>🔵 Em Produção</option>
@@ -1475,52 +1473,40 @@ def solicitar_orcamento():
 async def enviar_solicitacao_lead(
     nome: str = Form(...),
     whatsapp: str = Form(...),
-    area_m2_total: float = Form(65.0),
-    padrao_acabamento: str = Form("Linha Confort (MDF Branco / Essencial)"),
-    ambientes_check: List[str] = Form(["Cozinha Planejada"]),
+    tipo_ambiente: str = Form("Cozinha Planejada"),
+    metros_lineares: float = Form(2.71),
+    padrao_acabamento: str = Form("Linha Confort (MDF Branco)"),
     cidade: str = Form(...),
     valor_investimento: str = Form("A definir"),
     descricao: str = Form(""),
-    planta: UploadFile = File(...),
-    inspiracao: UploadFile = File(None)
+    planta: UploadFile = File(None)
 ):
     agora = datetime.now().strftime("%d/%m/%Y %H:%M")
     imagens_lead = []
     
-    # Processar Foto da Planta Baixa
-    contents_planta = await planta.read()
-    if contents_planta:
-        img_b64 = base64.b64encode(contents_planta).decode("utf-8")
-        imagens_lead.append(img_b64)
-
-    # Processar Foto de Inspiração (se enviada)
-    if inspiracao:
+    if planta:
         try:
-            contents_insp = await inspiracao.read()
-            if contents_insp:
-                img_insp_b64 = base64.b64encode(contents_insp).decode("utf-8")
-                imagens_lead.append(img_insp_b64)
+            contents = await planta.read()
+            if contents:
+                img_b64 = base64.b64encode(contents).decode("utf-8")
+                imagens_lead.append(img_b64)
         except Exception:
             pass
 
-    # MOTOR INTELIGENTE POR M² E ESCOPO GLOBAL DO IMÓVEL (SEM PROMOB)
+    # ENGENHARIA PARAMÉTRICA AUTOMÁTICA
     precos = get_precos_config()
-    items_auto, total_mat = calcular_engenharia_m2_global(ambientes_check, area_m2_total, padrao_acabamento, precos)
+    items_auto, total_mat = gerar_engenharia_automatica(tipo_ambiente, metros_lineares, padrao_acabamento, precos)
     
-    # Cálculo Operacional e Margem
-    qtd_comodos = max(len(ambientes_check), 1)
-    dias_prod = max(int(math.ceil(qtd_comodos * 2.5)), 3)
+    dias_prod = max(int(math.ceil(metros_lineares * 0.8)), 2)
     custo_mo = dias_prod * 180.0
-    custo_frete_mont = max(qtd_comodos * 350.0, 600.0)
+    custo_frete_mont = 600.0
     markup = 2.2
-    
     pv_estimado = (total_mat + custo_mo + custo_frete_mont) * markup
     lucro_estimado = pv_estimado - (total_mat + custo_mo + custo_frete_mont + (pv_estimado * 0.10))
 
-    nome_ambientes_str = " + ".join(ambientes_check)
-    obs_completa = f"Lead Imóvel {area_m2_total}m² ({cidade}) | Acabamento: {padrao_acabamento} | Investimento Pretendido: {valor_investimento}"
+    obs_completa = f"Lead Automático ({cidade}) | {metros_lineares}m lineares | Acabamento: {padrao_acabamento} | Investimento: {valor_investimento}"
     if descricao:
-        obs_completa += f" | Detalhes do Cliente: {descricao}"
+        obs_completa += f" | Detalhes: {descricao}"
 
     with get_db() as conn:
         cursor = conn.cursor()
@@ -1537,13 +1523,13 @@ async def enviar_solicitacao_lead(
             agora,
             nome,
             whatsapp,
-            nome_ambientes_str,
-            "25 dias úteis",
-            (date.today() + timedelta(days=25)).strftime("%Y-%m-%d"),
+            f"{tipo_ambiente} ({metros_lineares}m)",
+            "20 dias úteis",
+            (date.today() + timedelta(days=20)).strftime("%Y-%m-%d"),
             "Novo Lead Instagram",
             total_mat, custo_mo, custo_frete_mont, 6.0, 4.0, markup,
             pv_estimado, lucro_estimado, pv_estimado * 0.3, 3,
-            "Entrada + 3x no Cartão", 0.0, json.dumps(imagens_lead), json.dumps(ambientes_check),
+            "Entrada + 3x no Cartão", 0.0, json.dumps(imagens_lead), json.dumps([tipo_ambiente]),
             obs_completa, json.dumps(items_auto)
         ))
         conn.commit()
@@ -1707,7 +1693,7 @@ def novo_orcamento():
     CURRENT_DATA["status"] = "Em Negociação"
     CURRENT_DATA["cliente_nome"] = "Novo Cliente"
     CURRENT_DATA["cliente_telefone"] = ""
-    CURRENT_DATA["cliente_ambiente"] = "Casa Completa"
+    CURRENT_DATA["cliente_ambiente"] = "Cozinha Planejada"
     CURRENT_DATA["prazo_entrega"] = "20 dias úteis"
     CURRENT_DATA["data_entrega_prevista"] = (date.today() + timedelta(days=20)).strftime("%Y-%m-%d")
     CURRENT_DATA["entrada_valor"] = 0.0
@@ -1716,7 +1702,7 @@ def novo_orcamento():
     CURRENT_DATA["forma_pagamento"] = "PIX / Transferência"
     CURRENT_DATA["estoque_baixado"] = 0
     CURRENT_DATA["imagens"] = []
-    CURRENT_DATA["ambientes"] = ["Cozinha", "Dormitório Casal"]
+    CURRENT_DATA["ambientes"] = ["Cozinha Planejada"]
     CURRENT_DATA["observacoes_tecnicas"] = ""
     CURRENT_DATA["custo_materiais"] = 0.0
     CURRENT_DATA["dias_producao"] = 3
@@ -1936,6 +1922,62 @@ def salvar_precos(
 def recalcular(markup: float = Form(2.2)):
     if CURRENT_DATA.get("user_perfil") == "admin":
         CURRENT_DATA["markup"] = markup
+    return RedirectResponse(url="/painel-get", status_code=303)
+
+@app.post("/upload-xml", response_class=HTMLResponse)
+async def upload_xml(file: UploadFile = File(...)):
+    contents = await file.read()
+    items = []
+    total_mat = 0.0
+    precos = get_precos_config()
+    ambiente_ativo = CURRENT_DATA.get("ambientes", ["Geral"])[0]
+
+    try:
+        root = ET.fromstring(contents)
+        for elem in root.iter():
+            if elem.tag.lower() in ["item", "piece", "peca", "component", "material"]:
+                nome = str(elem.attrib.get("DESCRIPTION") or elem.attrib.get("nome") or elem.attrib.get("name") or elem.tag)
+                try:
+                    largura = float(elem.attrib.get("WIDTH") or elem.attrib.get("largura") or 0)
+                    altura = float(elem.attrib.get("HEIGHT") or elem.attrib.get("altura") or 0)
+                    prof = float(elem.attrib.get("DEPTH") or elem.attrib.get("profundidade") or 0)
+                except Exception:
+                    largura, altura, prof = 0, 0, 0
+
+                qtd = int(elem.attrib.get("QUANTITY") or elem.attrib.get("quantidade") or 1)
+                
+                custo_total_item, tipo = calcular_custo_item(nome, largura, altura, qtd, precos)
+                total_mat += custo_total_item
+
+                items.append({
+                    "nome": nome[:45],
+                    "tipo": tipo,
+                    "ambiente": ambiente_ativo,
+                    "largura": largura,
+                    "altura": altura,
+                    "dimensoes": f"{int(largura)} x {int(altura)} x {int(prof)}" if largura > 0 else "-",
+                    "qtd": qtd,
+                    "valor": custo_total_item
+                })
+
+        if not items:
+            items = [
+                {"nome": "Dobradiça Ecco Ø35mm Slowmotion", "tipo": "Ferragem (Dobradiça)", "ambiente": ambiente_ativo, "largura": 0, "altura": 0, "dimensoes": "-", "qtd": 22, "valor": 22 * precos["dobradica"]},
+                {"nome": "Corrediça Telescópica 450mm", "tipo": "Ferragem (Corrediça)", "ambiente": ambiente_ativo, "largura": 0, "altura": 0, "dimensoes": "450 mm", "qtd": 4, "valor": 4 * precos["corredica"]},
+                {"nome": "Lateral MDF Branco TX 18mm", "tipo": "Chapa MDF / Painel", "ambiente": ambiente_ativo, "largura": 2200, "altura": 600, "dimensoes": "2200 x 600 x 18", "qtd": 2, "valor": 2 * (2.2 * 0.6 * precos["mdf_m2"])},
+                {"nome": "Fita de Borda PVC 22mm", "tipo": "Fita de Borda", "ambiente": ambiente_ativo, "largura": 0, "altura": 0, "dimensoes": "-", "qtd": 15, "valor": 15 * precos["fita_borda_m"]}
+            ]
+            total_mat = sum(i["valor"] for i in items)
+
+    except Exception:
+        items = [
+            {"nome": "Dobradiça Ø35mm Reta Slowmotion", "tipo": "Ferragem (Dobradiça)", "ambiente": ambiente_ativo, "largura": 0, "altura": 0, "dimensoes": "-", "qtd": 10, "valor": 10 * precos["dobradica"]},
+            {"nome": "Painel MDF Freijó 18mm", "tipo": "Chapa MDF / Painel", "ambiente": ambiente_ativo, "largura": 1800, "altura": 800, "dimensoes": "1800 x 800 x 18", "qtd": 2, "valor": 2 * (1.8 * 0.8 * precos["mdf_m2"])}
+        ]
+        total_mat = sum(i["valor"] for i in items)
+
+    CURRENT_DATA["items"] = items
+    CURRENT_DATA["custo_materiais"] = total_mat
     return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.get("/gerar-os")
