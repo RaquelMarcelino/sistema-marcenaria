@@ -15,8 +15,8 @@ import traceback
 from datetime import datetime, date, timedelta
 from typing import List
 
-app = FastAPI(title="MVI Móveis Planejados SaaS")
-DB_PATH = "mvi_production_v4.db"
+app = FastAPI(title="MVI Móveis Planejados - Master Admin")
+DB_PATH = "mvi_production_v5.db"
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -41,7 +41,8 @@ def init_db():
             cnpj TEXT,
             telefone TEXT,
             pix TEXT,
-            precos_json TEXT
+            precos_json TEXT,
+            chave_mestra TEXT DEFAULT 'MVI2026'
         )
     """)
 
@@ -90,6 +91,7 @@ def init_db():
             preco_venda REAL DEFAULT 0,
             desconto_pct REAL DEFAULT 0,
             desconto_autorizado INTEGER DEFAULT 1,
+            liberado_financeiro INTEGER DEFAULT 0,
             lucro_liquido REAL DEFAULT 0,
             entrada_valor REAL DEFAULT 0,
             num_parcelas INTEGER DEFAULT 1,
@@ -114,11 +116,11 @@ def init_db():
             "fita_borda_m": 3.20, "puxador": 25.00, "outros_insumos": 15.00
         }
         cursor.execute("""
-            INSERT INTO empresas (id, slug, nome_empresa, cnpj, telefone, pix, precos_json)
-            VALUES (1, 'mvi', 'MVI Móveis Planejados', '00.000.000/0001-00', '(11) 98888-7777', 'financeiro@mvi.com.br', ?)
+            INSERT INTO empresas (id, slug, nome_empresa, cnpj, telefone, pix, precos_json, chave_mestra)
+            VALUES (1, 'mvi', 'MVI Móveis Planejados', '00.000.000/0001-00', '(11) 98888-7777', 'financeiro@mvi.com.br', ?, 'MVI2026')
         """, (json.dumps(precos_iniciais),))
         
-        cursor.execute("INSERT OR REPLACE INTO usuarios VALUES ('admin@mvi.com', '123456', 'Diretoria MVI (Admin)', 'admin', 1)")
+        cursor.execute("INSERT OR REPLACE INTO usuarios VALUES ('admin@mvi.com', '123456', 'Administrador Geral MVI', 'admin', 1)")
         cursor.execute("INSERT OR REPLACE INTO usuarios VALUES ('vendedor@mvi.com', '123456', 'Vendedor MVI', 'vendedor', 1)")
         
         itens_estoque = [
@@ -137,7 +139,7 @@ init_db()
 
 CURRENT_SESSION = {
     "user_email": "admin@mvi.com",
-    "user_nome": "Diretoria MVI (Admin)",
+    "user_nome": "Administrador Geral MVI",
     "user_perfil": "admin",
     "empresa_id": 1
 }
@@ -154,7 +156,7 @@ def get_empresa_dados(empresa_id=1):
     return {
         "id": 1, "slug": "mvi", "nome_empresa": "MVI Móveis Planejados",
         "cnpj": "00.000.000/0001-00", "telefone": "(11) 98888-7777",
-        "pix": "contato@mvi.com.br", "precos_json": "{}"
+        "pix": "contato@mvi.com.br", "precos_json": "{}", "chave_mestra": "MVI2026"
     }
 
 def get_metricas():
@@ -177,7 +179,7 @@ def get_metricas():
         lucro = float(r["lucro_liquido"] or 0.0)
         rec = float(r["valor_recebido"] or 0.0)
         
-        if st in ["Aprovado", "Em Produção", "Entregue"]:
+        if st in ["Aprovado", "Em Produção", "Entregue", "Liberado para Financeiro", "Contrato Assinado Digitalmente"]:
             faturamento_total += pv
             lucro_acumulado += lucro
             total_recebido += rec
@@ -355,8 +357,8 @@ async def submit_lead(
             custo_mao_obra, custo_frete_montagem, imposto_pct, comissao_pct,
             markup, preco_venda, lucro_liquido, entrada_valor, num_parcelas,
             forma_pagamento, valor_recebido, imagens_json, ambientes_json,
-            observacoes_tecnicas, items_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            observacoes_tecnicas, items_json, liberado_financeiro
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
     """, (
         1, agora, nome, whatsapp, nome_amb_str,
         "30 dias úteis", (date.today() + timedelta(days=30)).strftime("%Y-%m-%d"),
@@ -412,10 +414,9 @@ def salvar_dados_cliente(
         pv_original = float(orc["preco_venda"] or 0)
         custo_total = float(orc["custo_materiais"] or 0) + float(orc["custo_mao_obra"] or 0) + float(orc["custo_frete_montagem"] or 0)
         
-        # Regra de Desconto
-        precisa_aprovacao = (desconto_pct > 5.0 and CURRENT_SESSION["user_perfil"] == "vendedor")
+        precisa_aprovacao = (desconto_pct > 3.0 and CURRENT_SESSION["user_perfil"] == "vendedor")
         desconto_autorizado = 0 if precisa_aprovacao else 1
-        status = "Aguardando Liberação de Desconto" if precisa_aprovacao else "Em Fechamento / Contrato"
+        status = "Aguardando Liberação de Desconto" if precisa_aprovacao else "Aguardando Liberação Financeiro"
         
         pv_final = pv_original * (1.0 - (desconto_pct / 100.0))
         lucro_final = pv_final - (custo_total + (pv_final * 0.10))
@@ -437,22 +438,35 @@ def salvar_dados_cliente(
     conn.close()
     return RedirectResponse(url="/painel-get", status_code=303)
 
-@app.post("/autorizar-desconto", response_class=HTMLResponse)
-def autorizar_desconto(orcamento_id: int = Form(...), acao: str = Form(...)):
-    if CURRENT_SESSION["user_perfil"] != "admin":
-        return RedirectResponse(url="/painel-get", status_code=303)
-        
+# LIBERAÇÃO COM CHAVE MESTRA (DESCONTO E FINANCEIRO)
+@app.post("/autorizar-com-chave", response_class=HTMLResponse)
+def autorizar_com_chave(
+    orcamento_id: int = Form(...),
+    chave_digitada: str = Form(...),
+    tipo_acao: str = Form(...)
+):
+    empresa = get_empresa_dados(CURRENT_SESSION.get("empresa_id", 1))
+    chave_oficial = empresa.get("chave_mestra", "MVI2026")
+    
+    if chave_digitada.strip() != chave_oficial.strip():
+        return HTMLResponse(f"""
+        <div style="background:#0f172a; color:#f8fafc; font-family:sans-serif; text-align:center; padding:50px; min-height:100vh;">
+            <h1 style="color:#ef4444; font-size:26px;">❌ Chave de Segurança Incorreta</h1>
+            <p style="color:#94a3b8; font-size:14px; margin-top:10px;">Apenas a Diretoria/Administrador possui a chave mestra de liberação.</p>
+            <a href="/painel" style="display:inline-block; margin-top:20px; padding:10px 25px; background:#f59e0b; color:#0f172a; font-weight:bold; border-radius:10px; text-decoration:none;">Voltar ao Painel</a>
+        </div>
+        """, status_code=403)
+
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    if acao == "aprovar":
-        cursor.execute("UPDATE orcamentos SET desconto_autorizado = 1, status = 'Desconto Autorizado' WHERE id = ?", (orcamento_id,))
-    else:
-        cursor.execute("UPDATE orcamentos SET desconto_pct = 0, desconto_autorizado = 1, status = 'Desconto Recusado' WHERE id = ?", (orcamento_id,))
+    if tipo_acao == "desconto":
+        cursor.execute("UPDATE orcamentos SET desconto_autorizado = 1, status = 'Desconto Autorizado pela Diretoria' WHERE id = ?", (orcamento_id,))
+    elif tipo_acao == "financeiro":
+        cursor.execute("UPDATE orcamentos SET liberado_financeiro = 1, status = 'Liberado para Financeiro & Produção' WHERE id = ?", (orcamento_id,))
     conn.commit()
     conn.close()
     return RedirectResponse(url="/painel-get", status_code=303)
 
-# ROTA PÚBLICA DE ASSINATURA VIRTUAL DO CLIENTE
 @app.get("/assinar/{orcamento_id}", response_class=HTMLResponse)
 def assinar_contrato_view(orcamento_id: int):
     conn = sqlite3.connect(DB_PATH)
@@ -490,7 +504,45 @@ def confirmar_assinatura(orcamento_id: int = Form(...), assinatura_base64: str =
     </div>
     """)
 
-# TELAS HTML INTERATIVAS
+@app.post("/salvar-empresa", response_class=HTMLResponse)
+def update_empresa(nome_empresa: str = Form(...), cnpj: str = Form(...), telefone: str = Form(...), pix: str = Form(...), chave_mestra: str = Form("MVI2026")):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE empresas SET nome_empresa = ?, cnpj = ?, telefone = ?, pix = ?, chave_mestra = ? WHERE id = 1", (nome_empresa, cnpj, telefone, pix, chave_mestra))
+    conn.commit()
+    conn.close()
+    return RedirectResponse(url="/painel-get", status_code=303)
+
+@app.post("/criar-usuario", response_class=HTMLResponse)
+def new_user(nome: str = Form(...), email: str = Form(...), senha: str = Form(...), perfil: str = Form(...)):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR REPLACE INTO usuarios VALUES (?, ?, ?, ?, 1)", (email, senha, nome, perfil))
+    conn.commit()
+    conn.close()
+    return RedirectResponse(url="/painel-get", status_code=303)
+
+@app.get("/exportar-csv")
+def export_csv():
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=';')
+    writer.writerow(["ID", "Data/Hora", "Cliente", "Telefone", "Ambiente", "Preco Venda (R$)", "Lucro (R$)", "Status"])
+    
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 ORDER BY id DESC")
+    for r in cursor.fetchall():
+        writer.writerow([r["id"], r["criado_em"], r["cliente_nome"], r["cliente_telefone"], r["cliente_ambiente"], f"{float(r['preco_venda'] or 0):.2f}", f"{float(r['lucro_liquido'] or 0):.2f}", r["status"]])
+    conn.close()
+    
+    return Response(
+        content=output.getvalue().encode('utf-8-sig'),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=relatorio-mvi.csv"}
+    )
+
+# TELAS HTML
 
 def render_login(msg=""):
     erro = f"<div class='p-3 bg-rose-950/70 border border-rose-800 text-rose-300 text-xs rounded-xl text-center'>{msg}</div>" if msg else ""
@@ -507,7 +559,7 @@ def render_login(msg=""):
         <div class="text-center space-y-2">
             <div class="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-black text-slate-950 text-2xl shadow-lg">MVI</div>
             <h1 class="text-xl font-bold tracking-tight text-white">MVI Móveis Planejados</h1>
-            <p class="text-xs text-slate-400">Acesso Corporativo Seguro</p>
+            <p class="text-xs text-slate-400">Acesso Corporativo do Administrador & Vendas</p>
         </div>
         {erro}
         <form action="/painel" method="post" class="space-y-4">
@@ -520,7 +572,7 @@ def render_login(msg=""):
                 <input type="password" name="password" required value="123456" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm focus:outline-none focus:border-amber-500 text-slate-200">
             </div>
             <button type="submit" class="w-full py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-sm transition-all shadow-lg">
-                Acessar Sistema MVI
+                Acessar Plataforma Geral
             </button>
         </form>
         <div class="border-t border-slate-800 pt-4 text-center">
@@ -532,16 +584,16 @@ def render_login(msg=""):
 </html>"""
 
 def render_dashboard_view():
-    empresa = get_empresa_dados(CURRENT_SESSION.get("empresa_id", 1))
+    empresa = get_empresa_dados(1)
     met = get_metricas()
     is_admin = (CURRENT_SESSION["user_perfil"] == "admin")
     
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = ? ORDER BY id DESC LIMIT 25", (CURRENT_SESSION["empresa_id"],))
+    cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 ORDER BY id DESC LIMIT 25")
     leads = cursor.fetchall()
-    cursor.execute("SELECT * FROM usuarios WHERE empresa_id = ?", (CURRENT_SESSION["empresa_id"],))
+    cursor.execute("SELECT * FROM usuarios WHERE empresa_id = 1")
     equipe = cursor.fetchall()
     conn.close()
 
@@ -551,24 +603,39 @@ def render_dashboard_view():
         lucro = float(h["lucro_liquido"] or 0)
         st = h["status"] or "Em Negociação"
         desc = float(h["desconto_pct"] or 0)
-        autorizado = int(h["desconto_autorizado"] or 1)
+        autorizado_desc = int(h["desconto_autorizado"] or 1)
+        liberado_fin = int(h["liberado_financeiro"] or 0)
         
-        # Ação de Liberação de Desconto para Admin
-        acao_desconto = ""
-        if not autorizado and is_admin:
-            acao_desconto = f"""
-            <form action="/autorizar-desconto" method="post" class="inline-flex gap-1">
+        # Ações do Administrador com Chave Mestra
+        acoes_admin = ""
+        if not autorizado_desc and is_admin:
+            acoes_admin += f"""
+            <form action="/autorizar-com-chave" method="post" class="flex flex-col gap-1 my-1 p-2 bg-amber-950/60 border border-amber-500/40 rounded-xl">
+                <span class='text-[10px] text-amber-300 font-bold'>⚠️ Desconto de {desc:.1f}% Solicitado</span>
                 <input type="hidden" name="orcamento_id" value="{h['id']}">
-                <button type="submit" name="acao" value="aprovar" class="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-bold">Aprovar {desc:.1f}%</button>
-                <button type="submit" name="acao" value="recusar" class="px-2 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded text-[10px] font-bold">Recusar</button>
+                <input type="hidden" name="tipo_acao" value="desconto">
+                <input type="password" name="chave_digitada" placeholder="Chave Mestra" required class="px-2 py-1 bg-slate-950 border border-slate-700 text-white rounded text-[10px]">
+                <button type="submit" class="px-2 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded text-[10px] font-bold">Autorizar Desconto</button>
             </form>
             """
-        elif not autorizado:
-            acao_desconto = f"<span class='text-[10px] text-amber-400 font-bold'>Aguardando Admin ({desc:.1f}%)</span>"
+        elif not autorizado_desc:
+            acoes_admin += f"<span class='text-[10px] text-amber-400 font-bold'>Aguardando Chave Admin ({desc:.1f}%)</span>"
+
+        if not liberado_fin and is_admin:
+            acoes_admin += f"""
+            <form action="/autorizar-com-chave" method="post" class="flex flex-col gap-1 my-1 p-2 bg-sky-950/60 border border-sky-500/40 rounded-xl">
+                <span class='text-[10px] text-sky-300 font-bold'>💳 Liberar p/ Financeiro</span>
+                <input type="hidden" name="orcamento_id" value="{h['id']}">
+                <input type="hidden" name="tipo_acao" value="financeiro">
+                <input type="password" name="chave_digitada" placeholder="Chave Mestra" required class="px-2 py-1 bg-slate-950 border border-slate-700 text-white rounded text-[10px]">
+                <button type="submit" class="px-2 py-1 bg-sky-500 hover:bg-sky-400 text-slate-950 rounded text-[10px] font-bold">Liberar Financeiro</button>
+            </form>
+            """
+        elif liberado_fin:
+            acoes_admin += "<span class='text-[10px] text-emerald-400 font-bold'>✓ Liberado no Financeiro</span>"
 
         link_assinatura = f"/assinar/{h['id']}"
-        status_contrato = "<span class='text-emerald-400 font-bold'>✓ Assinado</span>" if h["contrato_assinado"] else f"<a href='{link_assinatura}' target='_blank' class='text-sky-400 underline font-bold'>✍️ Assinar Online</a>"
-
+        status_contrato = "<span class='text-emerald-400 font-bold'>✓ Assinado Online</span>" if h["contrato_assinado"] else f"<a href='{link_assinatura}' target='_blank' class='text-amber-400 underline font-bold'>✍️ Link Assinatura</a>"
         lucro_col = f"<td class='py-3 px-4 text-right text-emerald-400 font-bold'>R$ {lucro:,.2f}</td>" if is_admin else "<td class='py-3 px-4 text-right text-slate-500'>—</td>"
 
         leads_html += f"""
@@ -582,7 +649,7 @@ def render_dashboard_view():
             <td class="py-3 px-4 text-slate-300">{h['cliente_ambiente']}</td>
             <td class="py-3 px-4 text-right text-amber-400 font-bold">R$ {pv:,.2f}</td>
             {lucro_col}
-            <td class="py-3 px-4 text-center">{acao_desconto if acao_desconto else st}</td>
+            <td class="py-3 px-4 text-center">{acoes_admin if acoes_admin else st}</td>
             <td class="py-3 px-4 text-center">{status_contrato}</td>
         </tr>
         """
@@ -602,7 +669,7 @@ def render_dashboard_view():
 
     admin_tabs_menu = """
     <button onclick="mudarAba('aba-equipe')" id="btn-aba-equipe" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 shrink-0">👥 Equipe & Vendedores</button>
-    <button onclick="mudarAba('aba-config')" id="btn-aba-config" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 shrink-0">⚙️ Configurações & Custos</button>
+    <button onclick="mudarAba('aba-config')" id="btn-aba-config" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 shrink-0">🔑 Chave Mestra & Empresa</button>
     """ if is_admin else ""
 
     return f"""<!DOCTYPE html>
@@ -610,7 +677,7 @@ def render_dashboard_view():
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MVI Móveis Planejados - Painel</title>
+    <title>MVI Móveis Planejados - Master Cockpit</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         .tab-btn.active {{ background: linear-gradient(135deg, #f59e0b, #d97706); color: #0f172a; font-weight: 800; }}
@@ -623,33 +690,33 @@ def render_dashboard_view():
         <div class="flex items-center space-x-3">
             <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-black text-slate-950 text-lg shadow">MVI</div>
             <span class="font-bold text-lg text-white">{empresa['nome_empresa']}</span>
-            <span class="text-xs bg-slate-800 border border-slate-700 text-amber-400 px-2.5 py-1 rounded-full font-bold">Perfil: {CURRENT_SESSION['user_perfil'].upper()}</span>
+            <span class="text-xs bg-slate-800 border border-slate-700 text-amber-400 px-2.5 py-1 rounded-full font-bold">Nível: {CURRENT_SESSION['user_perfil'].upper()}</span>
         </div>
         <div class="flex items-center space-x-3">
             <a href="/solicitar-orcamento" target="_blank" class="text-xs bg-amber-950 text-amber-300 border border-amber-500/40 px-3 py-1.5 rounded-xl hover:bg-amber-900/60">🔗 Link Instagram</a>
-            <span class="text-xs text-slate-400">Operador: <b class="text-amber-400">{CURRENT_SESSION['user_nome']}</b></span>
+            <span class="text-xs text-slate-400">Usuário: <b class="text-amber-400">{CURRENT_SESSION['user_nome']}</b></span>
             <a href="/" class="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-xl text-slate-300 border border-slate-700">Sair</a>
         </div>
     </header>
 
     <nav class="bg-slate-900/80 border-b border-slate-800 px-6 py-3 sticky top-0 z-50 backdrop-blur-md">
         <div class="max-w-7xl mx-auto flex items-center gap-2 overflow-x-auto">
-            <button onclick="mudarAba('aba-leads')" id="btn-aba-leads" class="tab-btn active px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 shrink-0">🏠 Leads & Fechamento</button>
+            <button onclick="mudarAba('aba-leads')" id="btn-aba-leads" class="tab-btn active px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 shrink-0">🏠 Painel Geral & Liberações</button>
             <button onclick="mudarAba('aba-contrato')" id="btn-aba-contrato" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 shrink-0">📑 Gerador de Contrato Pós-Venda</button>
             {admin_tabs_menu}
         </div>
     </nav>
 
     <main class="max-w-7xl mx-auto p-6 space-y-6">
-        <!-- ABA LEADS -->
+        <!-- ABA PRINCIPAL -->
         <div id="aba-leads" class="tab-content active space-y-6">
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow">
-                    <p class="text-[11px] font-semibold text-slate-400 uppercase">Faturamento Fechado</p>
+                    <p class="text-[11px] font-semibold text-slate-400 uppercase">Faturamento Liberado</p>
                     <p class="text-xl font-bold text-amber-400">R$ {met['faturamento']:,.2f}</p>
                 </div>
                 <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow">
-                    <p class="text-[11px] font-semibold text-slate-400 uppercase">Lucro Projetado</p>
+                    <p class="text-[11px] font-semibold text-slate-400 uppercase">Lucro Líquido</p>
                     <p class="text-xl font-bold text-emerald-400">{'R$ ' + f"{met['lucro']:,.2f}" if is_admin else 'Restrito'}</p>
                 </div>
                 <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow">
@@ -657,14 +724,17 @@ def render_dashboard_view():
                     <p class="text-xl font-bold text-white">R$ {met['ticket']:,.2f}</p>
                 </div>
                 <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow">
-                    <p class="text-[11px] font-semibold text-slate-400 uppercase">Projetos Fechados</p>
-                    <p class="text-xl font-bold text-amber-400">{met['aprovados']} contratos</p>
+                    <p class="text-[11px] font-semibold text-slate-400 uppercase">Conversão</p>
+                    <p class="text-xl font-bold text-amber-400">{met['taxa']:.1f}%</p>
                 </div>
             </div>
 
             <div class="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow">
                 <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-850">
-                    <h3 class="text-sm font-semibold text-white">📁 Gestão de Leads & Status de Contratos</h3>
+                    <div>
+                        <h3 class="text-sm font-semibold text-white">📁 Processos Online & Fila de Liberações</h3>
+                        <p class="text-xs text-slate-400">Autorização de descontos e liberação financeira via Chave Mestra</p>
+                    </div>
                     <a href="/exportar-csv" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold">📊 Exportar CSV</a>
                 </div>
                 <div class="overflow-x-auto">
@@ -677,7 +747,7 @@ def render_dashboard_view():
                                 <th class="py-3 px-4">Ambiente</th>
                                 <th class="py-3 px-4 text-right">Valor Venda</th>
                                 <th class="py-3 px-4 text-right">Lucro</th>
-                                <th class="py-3 px-4 text-center">Status / Desconto</th>
+                                <th class="py-3 px-4 text-center">Fila de Liberação</th>
                                 <th class="py-3 px-4 text-center">Assinatura Digital</th>
                             </tr>
                         </thead>
@@ -687,11 +757,11 @@ def render_dashboard_view():
             </div>
         </div>
 
-        <!-- ABA CONTRATOS PÓS-VENDA -->
+        <!-- ABA CONTRATO PÓS-VENDA -->
         <div id="aba-contrato" class="tab-content space-y-6">
             <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow space-y-4">
                 <h2 class="text-base font-semibold text-white">Preenchimento de Dados do Cliente para Contrato & Envio</h2>
-                <p class="text-xs text-slate-400">Preencha o CPF, endereço e condições de pagamento para liberar o link de assinatura virtual ao cliente.</p>
+                <p class="text-xs text-slate-400">Preencha o CPF, endereço e condições comerciais para formalizar o contrato de pós-venda.</p>
                 
                 <form action="/salvar-dados-cliente" method="post" class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
                     <div>
@@ -702,7 +772,7 @@ def render_dashboard_view():
                     </div>
                     <div>
                         <label class="block text-slate-400 mb-1">Nome Completo do Cliente</label>
-                        <input type="text" name="cliente_nome" required placeholder="Ex: Mariana da Silva Santos" class="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                        <input type="text" name="cliente_nome" required placeholder="Ex: Mariana Silva" class="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
                     </div>
                     <div>
                         <label class="block text-slate-400 mb-1">CPF do Cliente</label>
@@ -721,7 +791,7 @@ def render_dashboard_view():
                         <input type="text" name="cliente_endereco" required placeholder="Rua das Flores, 123 - Apto 45" class="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
                     </div>
                     <div>
-                        <label class="block text-slate-400 mb-1">Desconto Comercial (%) - Máx 5% sem autorização</label>
+                        <label class="block text-slate-400 mb-1">Desconto Comercial (%) - Acima de 3% exige Chave Mestra</label>
                         <input type="number" step="0.5" min="0" max="30" name="desconto_pct" value="0.0" class="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
                     </div>
                     <div>
@@ -734,7 +804,7 @@ def render_dashboard_view():
                     </div>
                     <div class="col-span-full pt-2">
                         <button type="submit" class="px-6 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-xs">
-                            💾 Formalizar Contrato e Gerar Link de Assinatura Online
+                            💾 Salvar Dados e Gerar Link de Assinatura Online
                         </button>
                     </div>
                 </form>
@@ -745,14 +815,14 @@ def render_dashboard_view():
         <div id="aba-equipe" class="tab-content space-y-6">
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow space-y-4">
-                    <h2 class="text-base font-semibold text-white">Cadastrar Funcionário / Vendedor</h2>
+                    <h2 class="text-base font-semibold text-white">Cadastrar Novo Usuário</h2>
                     <form action="/criar-usuario" method="post" class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                         <div>
                             <label class="block text-slate-400 mb-1">Nome Completo</label>
                             <input type="text" name="nome" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
                         </div>
                         <div>
-                            <label class="block text-slate-400 mb-1">E-mail</label>
+                            <label class="block text-slate-400 mb-1">E-mail de Login</label>
                             <input type="email" name="email" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
                         </div>
                         <div>
@@ -762,27 +832,27 @@ def render_dashboard_view():
                         <div>
                             <label class="block text-slate-400 mb-1">Nível de Permissão</label>
                             <select name="perfil" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                                <option value="vendedor">Vendedor (Sem acesso a margem/custos)</option>
-                                <option value="admin">Administrador (Acesso total)</option>
+                                <option value="vendedor">Vendedor (Sem acesso a margens/liberações)</option>
+                                <option value="admin">Administrador Geral</option>
                             </select>
                         </div>
                         <div class="col-span-full pt-2">
-                            <button type="submit" class="px-6 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs">+ Salvar Acesso</button>
+                            <button type="submit" class="px-6 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs">+ Cadastrar Usuário</button>
                         </div>
                     </form>
                 </div>
                 <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow">
-                    <h3 class="text-xs font-semibold text-slate-300 uppercase mb-3">Equipe MVI</h3>
+                    <h3 class="text-xs font-semibold text-slate-300 uppercase mb-3">Usuários Ativos</h3>
                     <ul class="divide-y divide-slate-800">{equipe_html}</ul>
                 </div>
             </div>
         </div>
 
-        <!-- ABA CONFIG (ADMIN) -->
+        <!-- ABA CONFIG & CHAVE MESTRA (ADMIN) -->
         <div id="aba-config" class="tab-content space-y-6">
             <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow space-y-4">
-                <h2 class="text-base font-semibold text-white">Dados da Empresa Licenciada</h2>
-                <form action="/salvar-empresa" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+                <h2 class="text-base font-semibold text-white">Configuração da Empresa & Chave Mestra de Segurança</h2>
+                <form action="/salvar-empresa" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 text-xs">
                     <div>
                         <label class="block text-slate-400 mb-1">Nome Fantasia</label>
                         <input type="text" name="nome_empresa" value="{empresa['nome_empresa']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
@@ -792,13 +862,17 @@ def render_dashboard_view():
                         <input type="text" name="cnpj" value="{empresa['cnpj']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
                     </div>
                     <div>
-                        <label class="block text-slate-400 mb-1">WhatsApp da Empresa</label>
+                        <label class="block text-slate-400 mb-1">WhatsApp de Atendimento</label>
                         <input type="text" name="telefone" value="{empresa['telefone']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
                     </div>
                     <div>
                         <label class="block text-slate-400 mb-1">Chave PIX</label>
+                        <input type="text" name="pix" value="{empresa['pix']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                    </div>
+                    <div>
+                        <label class="block text-amber-400 font-bold mb-1">🔑 Chave Mestra (PIN Admin)</label>
                         <div class="flex gap-2">
-                            <input type="text" name="pix" value="{empresa['pix']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                            <input type="text" name="chave_mestra" value="{empresa.get('chave_mestra', 'MVI2026')}" required class="w-full px-3 py-2 bg-slate-950 border border-amber-500/50 rounded-xl text-amber-300 font-bold">
                             <button type="submit" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shrink-0">Salvar</button>
                         </div>
                     </div>
@@ -844,8 +918,8 @@ def render_form_captacao(empresa):
     <main class="max-w-3xl w-full mx-auto p-4 sm:p-6 my-auto">
         <form action="/enviar-solicitacao-lead" method="post" enctype="multipart/form-data" class="space-y-4 bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl">
             <div class="space-y-1 border-b border-slate-800 pb-3">
-                <h2 class="text-lg font-bold text-white">Simulador de Marcenaria Sob Medida</h2>
-                <p class="text-xs text-slate-400">Envie sua planta e especificações para receber um orçamento preliminar.</p>
+                <h2 class="text-lg font-bold text-white">Simulador MVI de Móveis Sob Medida</h2>
+                <p class="text-xs text-slate-400">Suporte a plantas compactas e grandes projetos residenciais (acima de 160m²).</p>
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -921,7 +995,6 @@ def render_form_captacao(empresa):
                             <option value="Blum (Linha Blumotion Áustria)">Blum (Áustria / Alto Padrão)</option>
                             <option value="Hettich (Linha Sensys Alemanha)">Hettich (Alemanha)</option>
                             <option value="Häfele (Linha Matrix Box)">Häfele</option>
-                            <option value="FGVTN (Linha Slowmotion)">FGVTN</option>
                             <option value="Standard com Amortecedor">Standard</option>
                         </select>
                     </div>
