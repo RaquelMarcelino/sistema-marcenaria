@@ -14,7 +14,7 @@ from datetime import datetime, date, timedelta
 from typing import List
 
 app = FastAPI(title="MVI Móveis Planejados - Master SaaS")
-DB_PATH = "mvi_production_v18.db"
+DB_PATH = "mvi_production_v19.db"
 
 # ==============================================================================
 # 1. TRATAMENTO DE ERROS GLOBAL
@@ -179,7 +179,7 @@ def get_metricas():
     conn.close()
     
     total = len(rows)
-    fat_total, lucro_total, recebido, aprovados = 0.0, 0.0, 0.0, 0
+    fat_total, lucro_total, aprovados = 0.0, 0.0, 0
     
     for r in rows:
         st = r["status"] or "Em Negociação"
@@ -376,6 +376,7 @@ def render_dashboard_view():
     c_entrada = float(cliente_ativo["entrada_valor"] or 0) if cliente_ativo else 0.0
     c_parc = int(cliente_ativo["num_parcelas"] or 1) if cliente_ativo else 1
     c_mod = cliente_ativo["modalidade_pagamento"] if cliente_ativo and cliente_ativo["modalidade_pagamento"] else "Cartão de Crédito em até 12x"
+    c_aut_desc = int(cliente_ativo["desconto_autorizado"] or 1) if cliente_ativo else 1
     
     saldo_financiar = max(c_p_venda - c_entrada, 0.0)
     valor_por_parcela = saldo_financiar / c_parc if c_parc > 0 else 0.0
@@ -395,7 +396,7 @@ def render_dashboard_view():
         if not aut_desc and is_admin:
             acoes_admin += f"""<form action="/autorizar-com-chave" method="post" class="flex flex-col gap-1 my-1 p-2 bg-amber-950/60 border border-amber-500/40 rounded-xl"><span class='text-[10px] text-amber-300 font-bold'>⚠️ Desconto {desc:.1f}%</span><input type="hidden" name="orcamento_id" value="{h['id']}"><input type="hidden" name="tipo_acao" value="desconto"><input type="password" name="chave_digitada" placeholder="Chave Mestra" required class="px-2 py-1 bg-slate-950 border border-slate-700 text-white rounded text-[10px]"><button type="submit" class="px-2 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded text-[10px] font-bold">Autorizar</button></form>"""
         elif not aut_desc:
-            acoes_admin += f"<span class='text-[10px] text-amber-400 font-bold'>Aguardando Admin ({desc:.1f}%)</span>"
+            acoes_admin += f"<span class='text-[10px] text-rose-400 font-bold animate-pulse'>🚨 Bloqueado Admin ({desc:.1f}%)</span>"
 
         if not lib_fin and is_admin:
             acoes_admin += f"""<form action="/autorizar-com-chave" method="post" class="flex flex-col gap-1 my-1 p-2 bg-sky-950/60 border border-sky-500/40 rounded-xl"><span class='text-[10px] text-sky-300 font-bold'>💳 Liberar Financeiro</span><input type="hidden" name="orcamento_id" value="{h['id']}"><input type="hidden" name="tipo_acao" value="financeiro"><input type="password" name="chave_digitada" placeholder="Chave" required class="px-2 py-1 bg-slate-950 border border-slate-700 text-white rounded text-[10px]"><button type="submit" class="px-2 py-1 bg-sky-500 text-slate-950 rounded text-[10px] font-bold">Liberar</button></form>"""
@@ -410,12 +411,14 @@ def render_dashboard_view():
             <span class='text-emerald-400 font-bold'>✓ Assinado</span>
             <a href='{link_ass}' target='_blank' class='text-[10px] text-sky-400 underline'>Ver Via do Sistema</a>
         </div>
-        """ if h["contrato_assinado"] else f"""
-        <div class="flex flex-col gap-1 items-center">
-            <a href='{link_previa}' target='_blank' class='text-[10px] text-slate-300 hover:text-white underline font-semibold'>👁️ Prévia Contrato</a>
-            <a href='{link_ass}' target='_blank' class='text-[11px] text-amber-400 underline font-bold'>✍️ Enviar p/ Assinar</a>
-        </div>
-        """
+        """ if h["contrato_assinado"] else (
+            f"""
+            <div class="flex flex-col gap-1 items-center">
+                <a href='{link_previa}' target='_blank' class='text-[10px] text-slate-300 hover:text-white underline font-semibold'>👁️ Prévia Contrato</a>
+                <a href='{link_ass}' target='_blank' class='text-[11px] text-amber-400 underline font-bold'>✍️ Enviar p/ Assinar</a>
+            </div>
+            """ if aut_desc else "<span class='text-[10px] text-rose-400 font-bold'>🔒 Contrato Travado</span>"
+        )
         
         lucro_td = f"<td class='py-3 px-4 text-right text-emerald-400 font-bold valor-lucro-col'>R$ {lucro:,.2f}</td>" if is_admin else ""
         adendo_tag = f"<span class='block text-[10px] text-amber-400 font-bold'>+ Adendo R$ {adendo:,.2f}</span>" if adendo > 0 else ""
@@ -491,7 +494,6 @@ def render_dashboard_view():
 
     lucro_card = f"""<div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow"><p class="text-[11px] font-bold text-slate-400 uppercase">Lucro Líquido</p><p class="text-xl font-bold text-emerald-400 valor-ocultavel">R$ {met['lucro']:,.2f}</p></div>""" if is_admin else ""
     
-    # BOX DO LUCRO LÍQUIDO DA OPERAÇÃO COM O BOTÃO DE OLHO (ABRIR / FECHAR)
     lucro_negociacao_box = f"""
     <div class="bg-slate-950 p-4 border border-emerald-500/30 rounded-2xl flex items-center justify-between gap-4">
         <div>
@@ -514,7 +516,11 @@ def render_dashboard_view():
 <head>
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>MVI - Master Cockpit</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <style>.tab-btn.active {{ background: linear-gradient(135deg, #f59e0b, #d97706); color: #0f172a; font-weight: 800; }} .tab-content {{ display: none; }} .tab-content.active {{ display: block; }}</style>
+    <style>
+        .tab-btn.active {{ background: linear-gradient(135deg, #f59e0b, #d97706); color: #0f172a; font-weight: 800; }}
+        .tab-content {{ display: none; }}
+        .tab-content.active {{ display: block; }}
+    </style>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen font-sans">
     <header class="bg-slate-900 border-b border-slate-800 px-6 py-4 flex flex-wrap items-center justify-between gap-3">
@@ -542,14 +548,20 @@ def render_dashboard_view():
                 <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow"><p class="text-[11px] font-bold text-slate-400 uppercase">Conversão</p><p class="text-xl font-bold text-amber-400">{met['taxa']:.1f}%</p></div>
             </div>
 
+            <!-- TARJA VERMELHA DE ALERTA DINÂMICA (ACENDE QUANDO ULTRAPASSA MARGEM) -->
+            <div id="tarja_alerta_margem" class="hidden p-4 bg-rose-950/90 border-2 border-rose-500 text-rose-200 rounded-2xl text-center space-y-1 shadow-2xl animate-pulse">
+                <span class="text-base font-black tracking-wide block">🚨 ALERTA: DESCONTO ULTRAPASSOU A MARGEM DE VENDA AUTORIZADA!</span>
+                <p class="text-xs text-rose-300">A margem máxima permitida foi excedida. A geração de contrato e a conclusão da venda foram travadas e exigem a liberação do Administrador Geral.</p>
+            </div>
+
             <!-- MESA DE NEGOCIAÇÃO COMERCIAL COMPLETA -->
             <div class="bg-slate-900 border border-amber-500/40 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-5">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-800 pb-3 gap-2">
                     <div>
                         <h2 class="text-lg font-bold text-white flex items-center gap-2">
-                            <span>💼 Mesa de Negociação & Fechamento Comercial</span>
+                            <span>💼 Mesa de Negociação & Fechamento Manual</span>
                         </h2>
-                        <p class="text-xs text-slate-400">Simule descontos, ajuste margens de venda, configure entradas e parcele em até 12x ou 24x no boleto.</p>
+                        <p class="text-xs text-slate-400">Você pode digitar o valor de fechamento livremente. Se o desconto for excessivo, o sistema travará a venda até liberação do Administrador.</p>
                     </div>
                     <div class="flex items-center gap-2">
                         <a href="/minuta-contrato/{c_id}" target="_blank" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold">
@@ -565,27 +577,32 @@ def render_dashboard_view():
                     <input type="hidden" name="orcamento_id" value="{c_id}">
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <!-- VALOR BRUTO -->
                         <div class="bg-slate-950 p-4 border border-slate-800 rounded-2xl space-y-1">
                             <label class="text-[11px] text-slate-400 font-bold uppercase block">1. Valor Bruto (Tabela / Projeto)</label>
-                            <input type="number" step="0.01" name="preco_bruto" id="preco_bruto" value="{c_p_bruto:.2f}" oninput="recalcularMesa()" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold text-base focus:border-amber-500">
+                            <input type="number" step="0.01" name="preco_bruto" id="preco_bruto" value="{c_p_bruto:.2f}" oninput="recalcularPorBrutoOuDesc()" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold text-base focus:border-amber-500">
                         </div>
 
+                        <!-- DESCONTO COMERCIAL -->
                         <div class="bg-slate-950 p-4 border border-slate-800 rounded-2xl space-y-1">
                             <label class="text-[11px] text-slate-400 font-bold uppercase block">2. Desconto Aplicado (%)</label>
                             <div class="flex gap-2">
-                                <input type="number" step="0.1" min="0" max="30" name="desconto_pct" id="desconto_pct" value="{c_desc_pct:.1f}" oninput="recalcularMesa()" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold text-base focus:border-amber-500">
+                                <input type="number" step="0.1" min="0" max="60" name="desconto_pct" id="desconto_pct" value="{c_desc_pct:.1f}" oninput="recalcularPorBrutoOuDesc()" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold text-base focus:border-amber-500">
                                 <span class="px-3 py-2 bg-slate-800 rounded-xl text-slate-300 font-bold flex items-center">%</span>
                             </div>
                         </div>
 
-                        <div class="bg-slate-950 p-4 border border-amber-500/30 rounded-2xl space-y-1">
-                            <label class="text-[11px] text-amber-400 font-bold uppercase block">3. Valor Líquido de Fechamento</label>
-                            <input type="number" step="0.01" name="preco_venda" id="preco_venda" value="{c_p_venda:.2f}" readonly class="w-full px-3 py-2 bg-slate-900 border border-amber-500/50 rounded-xl text-amber-300 font-black text-xl">
+                        <!-- VALOR LÍQUIDO FINAL (EDITÁVEL MANUALMENTE) -->
+                        <div class="bg-slate-950 p-4 border border-amber-500/50 rounded-2xl space-y-1">
+                            <label class="text-[11px] text-amber-400 font-bold uppercase block">3. Valor Fechamento Manual (R$)</label>
+                            <input type="number" step="0.01" name="preco_venda" id="preco_venda" value="{c_p_venda:.2f}" oninput="recalcularPorValorManual()" class="w-full px-3 py-2 bg-slate-900 border border-amber-500 rounded-xl text-amber-300 font-black text-xl focus:outline-none">
+                            <span class="text-[10px] text-slate-500 block">Pode digitar o valor final direto</span>
                         </div>
 
+                        <!-- MARGEM / MARKUP -->
                         <div class="bg-slate-950 p-4 border border-slate-800 rounded-2xl space-y-1">
                             <label class="text-[11px] text-slate-400 font-bold uppercase block">4. Margem / Markup Venda</label>
-                            <input type="number" step="0.1" min="1.0" max="5.0" name="markup" value="{c_markup:.1f}" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold text-base">
+                            <input type="number" step="0.1" min="1.0" max="5.0" name="markup" id="markup" value="{c_markup:.1f}" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold text-base">
                         </div>
                     </div>
 
@@ -603,11 +620,11 @@ def render_dashboard_view():
                             </div>
                             <div>
                                 <label class="block text-slate-400 mb-1">Valor de Entrada (R$)</label>
-                                <input type="number" step="100" name="entrada_valor" id="entrada_valor" value="{c_entrada:.2f}" oninput="recalcularMesa()" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold">
+                                <input type="number" step="100" name="entrada_valor" id="entrada_valor" value="{c_entrada:.2f}" oninput="recalcularParcelas()" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold">
                             </div>
                             <div>
                                 <label class="block text-slate-400 mb-1">Nº de Parcelas</label>
-                                <input type="number" min="1" max="24" name="num_parcelas" id="num_parcelas" value="{c_parc}" oninput="recalcularMesa()" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold">
+                                <input type="number" min="1" max="24" name="num_parcelas" id="num_parcelas" value="{c_parc}" oninput="recalcularParcelas()" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold">
                             </div>
                         </div>
 
@@ -615,13 +632,13 @@ def render_dashboard_view():
                             <span class="text-slate-300">
                                 Simulação: Entrada de <b>R$ {c_entrada:,.2f}</b> + <b>{c_parc}x de <span id="txt_parcela" class="text-amber-400 font-bold">R$ {valor_por_parcela:,.2f}</span></b>
                             </span>
-                            <span class="text-[11px] text-slate-400">Saldo Financiado: R$ {saldo_financiar:,.2f}</span>
+                            <span class="text-[11px] text-slate-400">Saldo Financiado: R$ <span id="txt_saldo">{saldo_financiar:,.2f}</span></span>
                         </div>
                     </div>
 
                     <div class="flex flex-col sm:flex-row justify-between items-center gap-3 pt-2">
                         {lucro_negociacao_box}
-                        <button type="submit" class="w-full sm:w-auto px-8 py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-sm shadow-lg">
+                        <button type="submit" id="btn_salvar_mesa" class="w-full sm:w-auto px-8 py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-sm shadow-lg">
                             💾 Atualizar Negociação & Aplicar no Contrato
                         </button>
                     </div>
@@ -790,21 +807,65 @@ def render_dashboard_view():
             window.scrollTo({{ top: 0, behavior: 'smooth' }});
         }}
 
-        function recalcularMesa() {{
+        // 1. RECALCULA QUANDO O OPERADOR DIGITA O VALOR BRUTO OU A PORCENTAGEM DE DESCONTO
+        function recalcularPorBrutoOuDesc() {{
             var bruto = parseFloat(document.getElementById('preco_bruto').value) || 0;
             var desc = parseFloat(document.getElementById('desconto_pct').value) || 0;
-            var entrada = parseFloat(document.getElementById('entrada_valor').value) || 0;
-            var nParc = parseInt(document.getElementById('num_parcelas').value) || 1;
-
             var valorFinal = bruto * (1.0 - (desc / 100.0));
             document.getElementById('preco_venda').value = valorFinal.toFixed(2);
+            verificarMargemEAlerta(desc);
+            recalcularParcelas();
+        }}
+
+        // 2. RECALCULA QUANDO O OPERADOR DIGITA O VALOR LÍQUIDO MANUALMENTE
+        function recalcularPorValorManual() {{
+            var bruto = parseFloat(document.getElementById('preco_bruto').value) || 0;
+            var manual = parseFloat(document.getElementById('preco_venda').value) || 0;
+            
+            if (bruto > 0) {{
+                var descCalculado = ((bruto - manual) / bruto) * 100.0;
+                descCalculado = Math.max(descCalculado, 0);
+                document.getElementById('desconto_pct').value = descCalculado.toFixed(1);
+                verificarMargemEAlerta(descCalculado);
+            }}
+            recalcularParcelas();
+        }}
+
+        // 3. VERIFICA SE O DESCONTO ULTRAPASSOU A MARGEM E ATIVA A TARJA VERMELHA
+        function verificarMargemEAlerta(desc) {{
+            var tarja = document.getElementById('tarja_alerta_margem');
+            var btnSalvar = document.getElementById('btn_salvar_mesa');
+            var descAutorizado = {c_aut_desc};
+            var isUserAdmin = {'true' if is_admin else 'false'};
+
+            // Se o desconto passar de 3.0% (limite seguro do vendedor)
+            if (desc > 3.0) {{
+                tarja.classList.remove('hidden');
+                if (!isUserAdmin && !descAutorizado) {{
+                    btnSalvar.classList.remove('from-amber-500', 'to-amber-600', 'hover:from-amber-400', 'hover:to-amber-500', 'text-slate-950');
+                    btnSalvar.classList.add('bg-rose-600', 'text-white', 'hover:bg-rose-500');
+                    btnSalvar.innerText = "🔒 Bloqueado: Solicitar Liberação do Administrador";
+                }}
+            }} else {{
+                tarja.classList.add('hidden');
+                btnSalvar.classList.add('from-amber-500', 'to-amber-600', 'text-slate-950');
+                btnSalvar.classList.remove('bg-rose-600', 'text-white');
+                btnSalvar.innerText = "💾 Atualizar Negociação & Aplicar no Contrato";
+            }}
+        }}
+
+        function recalcularParcelas() {{
+            var valorFinal = parseFloat(document.getElementById('preco_venda').value) || 0;
+            var entrada = parseFloat(document.getElementById('entrada_valor').value) || 0;
+            var nParc = parseInt(document.getElementById('num_parcelas').value) || 1;
 
             var saldo = Math.max(valorFinal - entrada, 0);
             var vParc = nParc > 0 ? (saldo / nParc) : 0;
             document.getElementById('txt_parcela').innerText = "R$ " + vParc.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
+            document.getElementById('txt_saldo').innerText = saldo.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
         }}
 
-        // FUNÇÃO PARA ABRIR / FECHAR O OLHO DO LUCRO
+        // CONTROLE DO OLHO PARA OCULTAR/REVELAR LUCRO
         var lucroVisivel = true;
         function alternarOlhoLucro() {{
             var elem = document.getElementById('valor_lucro_operacao');
@@ -831,7 +892,7 @@ def render_dashboard_view():
             var cep = cepInput.value.replace(/\\D/g, '');
 
             if (cep.length !== 8) {{
-                alert("Por favor, digite um CEP com 8 dígitos.");
+                alert("Por favor, digite um CEP válido com 8 dígitos.");
                 return;
             }}
 
@@ -852,6 +913,12 @@ def render_dashboard_view():
                     endText.value = "";
                 }});
         }}
+
+        // Inicializa a verificação de margem ao carregar a página
+        window.onload = function() {{
+            var descInicial = parseFloat(document.getElementById('desconto_pct').value) || 0;
+            verificarMargemEAlerta(descInicial);
+        }};
     </script>
 </body></html>"""
 
@@ -911,6 +978,238 @@ def render_sucesso(empresa, estimativa, zap_url):
         <a href="{zap_url}" class="inline-block w-full py-3.5 bg-amber-500 font-bold text-slate-950 rounded-xl shadow-lg">👉 Abrir Conversa no WhatsApp</a>
         <script>setTimeout(function() {{ window.location.href = "{zap_url}"; }}, 2000);</script>
     </div>
+</body></html>"""
+
+def render_minuta_contrato(orc, empresa):
+    pv_total = float(orc['preco_venda'] or 0) + float(orc['adendo_valor'] or 0)
+    adendo_bloco = f"""
+    <div class="p-4 bg-amber-950/40 border border-amber-500/40 rounded-xl space-y-1 my-3">
+        <span class="text-amber-400 font-bold block">➕ TERMO ADITIVO / COMPLEMENTO INTEGRANTE:</span>
+        <p>{orc['adendo_descricao']}</p>
+        <p class="font-bold text-white">Valor Adicional do Adendo: R$ {float(orc['adendo_valor'] or 0):,.2f}</p>
+    </div>
+    """ if float(orc['adendo_valor'] or 0) > 0 else ""
+
+    link_assinar = f"/assinar/{orc['id']}"
+
+    return f"""<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minuta de Contrato #{orc['id']:04d} - {empresa['nome_empresa']}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen p-4 sm:p-8 font-sans">
+    <div class="max-w-4xl mx-auto bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-10 shadow-2xl space-y-6">
+        <div class="flex flex-wrap justify-between items-center border-b border-slate-800 pb-4 gap-2">
+            <div>
+                <h1 class="text-lg sm:text-xl font-bold text-white">INSTRUMENTO PARTICULAR DE PRESTAÇÃO DE SERVIÇOS E FABRICAÇÃO DE MÓVEIS PLANEJADOS</h1>
+                <p class="text-xs text-amber-400">{empresa['nome_empresa']} | CNPJ: {empresa['cnpj']}</p>
+            </div>
+            <div class="flex gap-2">
+                <button onclick="window.print()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold">🖨️ Imprimir / PDF</button>
+                <a href="{link_assinar}" class="px-4 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold rounded-xl text-xs shadow-lg">✍️ Ir para Assinatura</a>
+            </div>
+        </div>
+
+        <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 text-xs space-y-4 leading-relaxed text-slate-300">
+            <p><b>CLÁUSULA 1ª - DAS PARTES CONTRATANTES:</b><br>
+            <b>CONTRATADA:</b> {empresa['nome_empresa']}, pessoa jurídica de direito privado, inscrita no CNPJ sob o nº {empresa['cnpj']}, com atendimento através do telefone {empresa['telefone']}.<br>
+            <b>CONTRATANTE:</b> <b>{orc['cliente_nome']}</b>, portador do CPF nº <b>{orc['cliente_cpf'] or 'Pendente'}</b>, RG nº <b>{orc['cliente_rg']} ({orc['cliente_rg_emissor'] or 'SSP'})</b>, nascido em <b>{orc['cliente_nascimento'] or '—'}</b>, residente no endereço postal: <b>{orc['cliente_endereco_postal'] or 'Não informado'} (CEP: {orc['cliente_cep_postal'] or '—'})</b>, com telefone <b>{orc['cliente_telefone']}</b> e e-mail <b>{orc['cliente_email'] or 'Não informado'}</b>.</p>
+
+            <p><b>CLÁUSULA 2ª - DO OBJETO:</b><br>
+            O presente instrumento tem por objeto a prestação de serviços de marcenaria técnica sob medida para fabricação, transporte e montagem dos móveis planejados destinados aos ambientes: <b>{orc['cliente_ambiente']}</b>, no endereço de entrega da obra: <b>{orc['cliente_endereco_entrega'] or orc['cliente_endereco_postal']} (CEP: {orc['cliente_cep_entrega'] or orc['cliente_cep_postal']})</b>.</p>
+
+            <p><b>CLÁUSULA 3ª - DO MEMORIAL DESCRITIVO E ESPECIFICAÇÕES TÉCNICAS:</b><br>
+            <b>3.1. Descritivo Promob / Projeto Técnico:</b><br>
+            {orc['descricao_promob'] or 'Conforme projeto executivo 3D aprovado pelo cliente.'}<br><br>
+            <b>3.2. Detalhamento e Acabamentos Manuais:</b><br>
+            {orc['descricao_manual'] or 'Caixaria reforçada, portas com alinhamento milimétrico, ferragens com amortecimento slowmotion e tamponamentos inclusos.'}</p>
+
+            {adendo_bloco}
+
+            <p><b>CLÁUSULA 4ª - DO PREÇO E DAS CONDIÇÕES DE PAGAMENTO:</b><br>
+            Pelos serviços contratados, o CONTRATANTE pagará à CONTRATADA o valor líquido total de <b>R$ {pv_total:,.2f}</b>, nas seguintes condições:<br>
+            • <b>Modalidade:</b> {orc['modalidade_pagamento'] or orc['forma_pagamento']}<br>
+            • <b>Valor de Entrada:</b> R$ {float(orc['entrada_valor'] or 0):,.2f}<br>
+            • <b>Saldo Restante:</b> Parcelado em <b>{orc['num_parcelas']} parcela(s)</b> de <b>R$ {float(orc['valor_parcela'] or (pv_total - float(orc['entrada_valor'] or 0))/max(orc['num_parcelas'], 1)):,.2f}</b>.</p>
+
+            <p><b>CLÁUSULA 5ª - DOS PRAZOS DE FABRICAÇÃO E INSTALAÇÃO:</b><br>
+            O prazo estimado para entrega e finalização da montagem é de <b>{orc['prazo_entrega']}</b>, contados a partir da aprovação final das medidas no local (medição fina desimpedida) e confirmação do pagamento da entrada.</p>
+
+            <p><b>CLÁUSULA 6ª - DAS OBRIGAÇÕES DO CONTRATANTE:</b><br>
+            O CONTRATANTE compromete-se a entregar o imóvel em condições adequadas de alvenaria, pisos, revestimentos, pontos de elétrica, gás e hidráulica finalizados antes do início da montagem dos móveis.</p>
+
+            <p><b>CLÁUSULA 7ª - DAS OBRIGAÇÕES DA CONTRATADA:</b><br>
+            A CONTRATADA compromete-se a utilizar mão de obra especializada, materiais de alta qualidade certificados e entregar os ambientes limpos e regulados após a conclusão da montagem.</p>
+
+            <p><b>CLÁUSULA 8ª - DA GARANTIA LEGAL E CONTRATUAL:</b><br>
+            A CONTRATADA oferece a garantia de <b>5 (cinco) anos</b> para todas as ferragens estruturais, corrediças e dobradiças com amortecedor, e <b>12 (doze) meses</b> para os painéis de MDF contra defeitos de fabricação.</p>
+
+            <p><b>CLÁUSULA 9ª - DO FORO:</b><br>
+            Para dirimir quaisquer controvérsias oriundas deste contrato, as partes elegem o foro da Comarca da sede da CONTRATADA com renúncia expressa a qualquer outro.</p>
+        </div>
+
+        <div class="flex justify-between items-center pt-2">
+            <a href="/painel-get" class="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs font-bold">Voltar ao Painel</a>
+            <a href="{link_assinar}" class="px-6 py-3 bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold rounded-xl text-xs shadow-lg">
+                ✍️ Prosseguir para Assinatura Digital do Cliente
+            </a>
+        </div>
+    </div>
+</body></html>"""
+
+def render_assinatura_online(orc, empresa):
+    pv_total = float(orc['preco_venda'] or 0) + float(orc['adendo_valor'] or 0)
+    
+    adendo_bloco = f"""
+    <div class="p-4 bg-amber-950/40 border border-amber-500/40 rounded-xl space-y-1 my-2">
+        <span class="text-amber-400 font-bold block">➕ TERMO ADITIVO CONTRATUAL:</span>
+        <p>{orc['adendo_descricao']}</p>
+        <p class="font-bold text-white">Valor do Adendo: R$ {float(orc['adendo_valor'] or 0):,.2f}</p>
+    </div>
+    """ if float(orc['adendo_valor'] or 0) > 0 else ""
+
+    if orc["contrato_assinado"]:
+        return f"""<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Via Oficial Assinada - Contrato #{orc['id']:04d}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen p-4 sm:p-8 font-sans">
+    <div class="max-w-4xl mx-auto bg-slate-900 border border-emerald-500/40 rounded-3xl p-6 sm:p-10 shadow-2xl space-y-6">
+        <div class="flex flex-wrap justify-between items-center border-b border-slate-800 pb-4 gap-2">
+            <div>
+                <span class="px-3 py-1 bg-emerald-950 text-emerald-300 border border-emerald-500/40 rounded-xl text-xs font-bold">✓ Contrato Assinado Digitalmente</span>
+                <h1 class="text-lg sm:text-xl font-bold text-white mt-1">VIA OFICIAL DO CONTRATO DE PRESTAÇÃO DE SERVIÇOS #{orc['id']:04d}</h1>
+                <p class="text-xs text-slate-400">{empresa['nome_empresa']} | CNPJ: {empresa['cnpj']}</p>
+            </div>
+            <button onclick="window.print()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold rounded-xl text-xs shadow-lg">
+                📥 Imprimir / Salvar PDF
+            </button>
+        </div>
+
+        <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 text-xs space-y-4 leading-relaxed text-slate-300">
+            <p><b>CONTRATADA:</b> {empresa['nome_empresa']} (CNPJ: {empresa['cnpj']})<br>
+            <b>CONTRATANTE:</b> <b>{orc['cliente_nome']}</b> (CPF: {orc['cliente_cpf'] or 'Pendente'})<br>
+            <b>AMBIENTES:</b> {orc['cliente_ambiente']}<br>
+            <b>ENDEREÇO DA INSTALAÇÃO:</b> {orc['cliente_endereco_entrega'] or orc['cliente_endereco_postal']}<br>
+            <b>VALOR TOTAL:</b> R$ {pv_total:,.2f} ({orc['forma_pagamento']})<br>
+            <b>PRAZO DE MONTAGEM:</b> {orc['prazo_entrega']}<br>
+            <b>GARANTIA:</b> 5 anos em ferragens estruturais e 12 meses em painéis de MDF.</p>
+            
+            {adendo_bloco}
+        </div>
+
+        <div class="bg-slate-950 p-6 rounded-2xl border border-emerald-500/30 space-y-3">
+            <h3 class="text-xs font-bold text-emerald-400 uppercase">🛡️ Autenticação & Assinatura Digital do Contratante</h3>
+            <p class="text-[11px] text-slate-400">Assinado digitalmente por <b>{orc['cliente_nome']}</b> em <b>{orc['assinatura_data']}</b>.</p>
+            
+            <div class="p-3 bg-white rounded-xl flex justify-center max-w-sm">
+                <img src="{orc['assinatura_img']}" alt="Assinatura do Cliente" class="max-h-24 object-contain">
+            </div>
+            <p class="text-[10px] text-slate-500">Protocolo de Registro MVI: SHA256-MVI-{orc['id']:04d}-{orc['assinatura_data']}</p>
+        </div>
+
+        <div class="flex justify-between items-center pt-2">
+            <a href="/painel-get" class="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs font-bold">Voltar ao Painel</a>
+            <span class="text-xs text-emerald-400 font-bold">✓ 1 Via Arquivada no Sistema & 1 Via Disponível ao Cliente</span>
+        </div>
+    </div>
+</body></html>"""
+
+    return f"""<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Assinatura Digital de Contrato - {empresa['nome_empresa']}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen p-4 sm:p-8 font-sans">
+    <div class="max-w-4xl mx-auto bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-10 shadow-2xl space-y-6">
+        <div class="flex justify-between items-center border-b border-slate-800 pb-4">
+            <div>
+                <h1 class="text-lg sm:text-xl font-bold text-white">INSTRUMENTO DE PRESTAÇÃO DE SERVIÇOS DE MARCENARIA</h1>
+                <p class="text-xs text-amber-400">{empresa['nome_empresa']} | CNPJ: {empresa['cnpj']}</p>
+            </div>
+            <span class="px-3 py-1 bg-amber-950 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-bold">Contrato #{orc['id']:04d}</span>
+        </div>
+
+        <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 text-xs space-y-4 leading-relaxed text-slate-300 max-h-80 overflow-y-auto">
+            <p><b>1. DAS PARTES CONTRATANTES:</b><br>
+            <b>CONTRATADA:</b> {empresa['nome_empresa']}, CNPJ: {empresa['cnpj']}, Telefone: {empresa['telefone']}.<br>
+            <b>CONTRATANTE:</b> <b>{orc['cliente_nome']}</b>, CPF: <b>{orc['cliente_cpf'] or 'Pendente'}</b>, Endereço: <b>{orc['cliente_endereco_postal'] or 'Não informado'}</b>.</p>
+
+            <p><b>2. DO OBJETO E AMBIENTES:</b><br>
+            Fabricação e instalação de móveis sob medida para: <b>{orc['cliente_ambiente']}</b>, na obra: <b>{orc['cliente_endereco_entrega'] or orc['cliente_endereco_postal']}</b>.</p>
+
+            <p><b>3. DO VALOR E CONDIÇÕES:</b><br>
+            Valor total de <b>R$ {pv_total:,.2f}</b>, sob as condições: <b>{orc['forma_pagamento']}</b>.</p>
+
+            <p><b>4. DO PRAZO E GARANTIA:</b><br>
+            Prazo de entrega de <b>{orc['prazo_entrega']}</b>. Garantia de 5 anos em ferragens com amortecedores e 12 meses em painéis de MDF.</p>
+            
+            {adendo_bloco}
+        </div>
+
+        <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 space-y-3">
+            <h3 class="text-xs font-bold text-white uppercase">✍️ Assinatura Digital do Contratante</h3>
+            <p class="text-[11px] text-slate-400">Desenhe sua assinatura com o dedo ou caneta touch no celular:</p>
+            
+            <div class="border-2 border-dashed border-slate-700 rounded-xl bg-white flex justify-center">
+                <canvas id="signature-pad" width="600" height="200" class="touch-none cursor-crosshair w-full max-w-[600px] h-[200px]"></canvas>
+            </div>
+            
+            <div class="flex justify-between items-center pt-2">
+                <button type="button" id="clear-btn" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold">Limpar</button>
+                <form id="sign-form" action="/confirmar-assinatura" method="post">
+                    <input type="hidden" name="orcamento_id" value="{orc['id']}">
+                    <input type="hidden" name="assinatura_base64" id="assinatura_base64">
+                    <button type="button" id="save-btn" class="px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 font-bold rounded-xl text-xs shadow-lg">
+                        Confirmar e Assinar Contrato Digitalmente
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        var canvas = document.getElementById('signature-pad');
+        var signaturePad = new SignaturePad(canvas, {{ backgroundColor: 'rgb(255, 255, 255)' }});
+        document.getElementById('clear-btn').addEventListener('click', () => signaturePad.clear());
+        document.getElementById('save-btn').addEventListener('click', () => {{
+            if (signaturePad.isEmpty()) {{
+                alert("Por favor, faça sua assinatura antes de confirmar.");
+            }} else {{
+                document.getElementById('assinatura_base64').value = signaturePad.toDataURL();
+                document.getElementById('sign-form').submit();
+            }}
+        }});
+    </script>
+</body></html>"""
+
+def render_convite_gerado(nome, email, p, tel, link):
+    return f"""<html><body style='background:#0f172a; color:#fff; text-align:center; padding:50px; font-family:sans-serif;'>
+        <h1 style='color:#f59e0b;'>Convite de Acesso Gerado</h1>
+        <p style='margin:20px 0;'>Link Seguro: <br><b style='color:#38bdf8;'>{link}</b></p>
+        <a href='/painel' style='color:#f59e0b;'>Voltar ao Painel</a>
+    </body></html>"""
+
+def render_tela_nova_senha(user, token):
+    return f"""<!DOCTYPE html>
+<html lang="pt-br">
+<head><title>Nova Senha</title><script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4">
+    <form action="/salvar-nova-senha" method="post" class="bg-slate-900 p-8 rounded-3xl space-y-4 max-w-sm w-full shadow-2xl">
+        <h1 class="text-xl font-bold">Definir Nova Senha</h1>
+        <input type="hidden" name="token" value="{token}">
+        <input type="password" name="nova_senha" required placeholder="Nova Senha" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white">
+        <input type="password" name="confirma_senha" required placeholder="Confirme Senha" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white">
+        <button type="submit" class="w-full py-3 bg-amber-500 font-bold text-slate-950 rounded-xl">Ativar Conta</button>
+    </form>
 </body></html>"""
 
 # ==============================================================================
@@ -1001,6 +1300,7 @@ def salvar_negociacao_mesa(
     saldo = max(preco_venda - entrada_valor, 0.0)
     v_parc = saldo / num_parcelas if num_parcelas > 0 else 0.0
 
+    # Se o desconto for maior que 3.0% e o usuário for vendedor, trava o contrato até aprovação do admin
     precisa_aprov = (desconto_pct > 3.0 and CURRENT_SESSION["user_perfil"] == "vendedor")
     desconto_autorizado = 0 if precisa_aprov else 1
     status = "Aguardando Liberação de Desconto" if precisa_aprov else "Negociação Salva / Aguardando Fechamento"
@@ -1240,8 +1540,19 @@ def assinar_contrato_view(orcamento_id: int):
     cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (orcamento_id,))
     orc = cursor.fetchone()
     conn.close()
-    if not orc: return HTMLResponse("Contrato não encontrado.", status_code=404)
-    return render_assinatura_online(orc, get_empresa_dados(1))
+    
+    if not orc:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM orcamentos ORDER BY id DESC LIMIT 1")
+        orc = cursor.fetchone()
+        conn.close()
+
+    if not orc:
+        return HTMLResponse("Contrato não encontrado.", status_code=404)
+        
+    return render_assinatura_online(dict(orc), get_empresa_dados(1))
 
 @app.post("/confirmar-assinatura", response_class=HTMLResponse)
 def confirmar_assinatura_route(orcamento_id: int = Form(...), assinatura_base64: str = Form(...)):
