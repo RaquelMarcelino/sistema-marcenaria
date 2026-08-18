@@ -171,6 +171,12 @@ def get_empresa_config():
         "pix": "contato@marcenaria.com"
     }
 
+def set_empresa_config(dados: dict):
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("INSERT OR REPLACE INTO configuracoes (chave, valor) VALUES ('dados_empresa', ?)", (json.dumps(dados),))
+        conn.commit()
+
 def get_estoque_atual():
     with get_db() as conn:
         cursor = conn.cursor()
@@ -610,6 +616,979 @@ def render_pagina_captacao(sucesso=False, orc_id=None, estimativa=0.0):
         <footer class="bg-slate-900 border-t border-slate-800 p-4 text-center text-xs text-slate-500">
             <p>{empresa['nome_empresa']} | Atendimento WhatsApp: {empresa['telefone_empresa']}</p>
         </footer>
+    </body>
+    </html>
+    """
+
+def render_dashboard(data: dict):
+    is_admin = (data.get("user_perfil") == "admin")
+    dre = calcular_dre_completa(data)
+    items = data.get("items", [])
+    precos = get_precos_config()
+    empresa = get_empresa_config()
+    compras = consolidar_compras_e_nesting(items)
+    estoque = get_estoque_atual()
+    metricas = get_metricas_financeiras()
+    imagens = data.get("imagens", [])
+    ambientes = data.get("ambientes", ["Apartamento Completo"])
+    
+    rows_html = ""
+    if items:
+        for it in items:
+            valor_col = f"<td class='py-3 px-4 text-sm text-right text-emerald-400 font-semibold'>R$ {it.get('valor', 0.0):.2f}</td>" if is_admin else "<td class='py-3 px-4 text-sm text-right text-slate-500'>—</td>"
+            rows_html += f"""
+            <tr class="border-b border-slate-800 hover:bg-slate-850">
+                <td class="py-3 px-4 text-sm text-slate-200">
+                    <span class="font-medium">{it.get('nome', 'Peça')}</span>
+                    <span class="block text-[11px] text-sky-400">{it.get('tipo', 'Insumo')} - {it.get('ambiente', 'Geral')}</span>
+                </td>
+                <td class="py-3 px-4 text-sm text-center text-slate-400">{it.get('dimensoes', '-')}</td>
+                <td class="py-3 px-4 text-sm text-center text-slate-300">{it.get('qtd', 1)}</td>
+                {valor_col}
+            </tr>
+            """
+    else:
+        rows_html = """
+        <tr>
+            <td colspan="4" class="py-8 text-center text-sm text-slate-500">
+                Nenhum projeto importado ou gerado ainda. Os pedidos do Instagram aparecerão automaticamente aqui.
+            </td>
+        </tr>
+        """
+
+    svg_chapas_html = ""
+    if compras["chapas_nesting"]:
+        for ch in compras["chapas_nesting"]:
+            aproveitamento = min((ch["area_utilizada"] / 5.03) * 100.0, 100.0)
+            rects_svg = ""
+            for p in ch["pecas"]:
+                sx = (p["x"] / 2750.0) * 550.0
+                sy = (p["y"] / 1830.0) * 366.0
+                sw = max((p["w"] / 2750.0) * 550.0, 4)
+                sh = max((p["h"] / 1830.0) * 366.0, 4)
+                rects_svg += f"""
+                <rect x="{sx:.1f}" y="{sy:.1f}" width="{sw:.1f}" height="{sh:.1f}" fill="#0284c7" stroke="#0f172a" stroke-width="1" rx="2" opacity="0.9"/>
+                <text x="{sx + 4:.1f}" y="{sy + 14:.1f}" fill="#ffffff" font-size="9" font-family="sans-serif" font-weight="bold">{p['nome'][:16]} ({int(p['w'])}x{int(p['h'])})</text>
+                """
+
+            svg_chapas_html += f"""
+            <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
+                <div class="flex justify-between items-center text-xs">
+                    <span class="font-bold text-white">Chapa #{ch['id']} (2750 x 1830 mm)</span>
+                    <span class="text-emerald-400 font-semibold">Aproveitamento: {aproveitamento:.1f}% ({ch['area_utilizada']:.2f} m²)</span>
+                </div>
+                <div class="w-full bg-slate-900 border border-dashed border-slate-700 rounded-lg p-2 overflow-x-auto flex justify-center">
+                    <svg viewBox="0 0 550 366" class="w-full max-w-[550px] h-[220px] bg-slate-800/80 rounded border border-slate-700">
+                        {rects_svg}
+                    </svg>
+                </div>
+            </div>
+            """
+    else:
+        svg_chapas_html = "<div class='py-8 text-center text-xs text-slate-500'>O diagrama do plano de corte aparecerá aqui após o cálculo.</div>"
+
+    galeria_html = ""
+    if imagens:
+        for idx, img_b64 in enumerate(imagens):
+            galeria_html += f"""
+            <div class="relative group rounded-lg overflow-hidden border border-slate-700 aspect-video bg-slate-950 flex items-center justify-center">
+                <img src="data:image/jpeg;base64,{img_b64}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
+                <form action="/remover-imagem" method="post" class="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <input type="hidden" name="img_index" value="{idx}">
+                    <button type="submit" class="bg-rose-600 hover:bg-rose-500 text-white rounded p-1 text-[10px] shadow">✕</button>
+                </form>
+            </div>
+            """
+    else:
+        galeria_html = "<div class='py-6 text-center text-xs text-slate-500 col-span-full'>Plantas baixas e fotos de inspiração do cliente aparecerão aqui.</div>"
+
+    ambientes_tags_html = ""
+    for amb_nome in ambientes:
+        ambientes_tags_html += f"""
+        <span class="inline-flex items-center gap-1.5 px-3 py-1 bg-sky-950/80 border border-sky-700 text-sky-300 rounded-lg text-xs font-medium">
+            <span>🏠 {amb_nome}</span>
+            <form action="/remover-ambiente" method="post" class="inline">
+                <input type="hidden" name="ambiente_nome" value="{amb_nome}">
+                <button type="submit" class="hover:text-rose-400 font-bold ml-1 text-slate-400">✕</button>
+            </form>
+        </span>
+        """
+
+    estoque_cards_html = ""
+    for est in estoque:
+        is_baixo = est['quantidade'] <= est['qtd_minima']
+        borda_cor = "border-rose-700/60 bg-rose-950/20" if is_baixo else "border-slate-800 bg-slate-950"
+        tag_status = "<span class='text-[10px] text-rose-400 font-bold'>⚠️ Repor</span>" if is_baixo else "<span class='text-[10px] text-emerald-400'>✓ Regular</span>"
+        estoque_cards_html += f"""
+        <div class="p-3.5 rounded-xl border {borda_cor} flex flex-col justify-between space-y-2">
+            <div class="flex justify-between items-start">
+                <span class="text-[11px] font-semibold text-slate-300">{est['descricao']}</span>
+                {tag_status}
+            </div>
+            <div class="flex justify-between items-end">
+                <div>
+                    <span class="text-2xl font-bold text-white">{est['quantidade']:,.0f}</span>
+                    <span class="text-xs text-slate-400"> {est['unidade']}</span>
+                </div>
+                <span class="text-[10px] text-slate-500">Mín: {est['qtd_minima']:,.0f}</span>
+            </div>
+        </div>
+        """
+
+    cond_texto_zap = f"Entrada de R$ {dre['entrada']:,.2f} + {dre['n_parc']}x de R$ {dre['valor_parcela']:,.2f}" if dre['n_parc'] > 1 else f"R$ {dre['pv']:,.2f} à vista"
+    
+    msg_proposta = f"Olá {data['cliente_nome']}! Analisamos as especificações e a planta do projeto para {data['cliente_ambiente']}. Segue a proposta da {empresa['nome_empresa']}: Total de R$ {dre['pv']:,.2f} ({cond_texto_zap}) com entrega em {data['prazo_entrega']}."
+    url_proposta = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone'].replace('(', '').replace(')', '').replace('-', '').replace(' ', '')}&text={urllib.parse.quote(msg_proposta)}"
+
+    msg_producao = f"Olá {data['cliente_nome']}! O seu projeto ({data['cliente_ambiente']}) já entrou em produção em nossa marcenaria! Previsão de montagem para {data.get('data_entrega_prevista', data['prazo_entrega'])}."
+    url_producao = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone'].replace('(', '').replace(')', '').replace('-', '').replace(' ', '')}&text={urllib.parse.quote(msg_producao)}"
+
+    msg_montagem = f"Olá {data['cliente_nome']}! Nossa equipe de montadores está agendada para a instalação do projeto ({data['cliente_ambiente']}) a partir de {data.get('data_entrega_prevista', 'breve')}."
+    url_montagem = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone'].replace('(', '').replace(')', '').replace('-', '').replace(' ', '')}&text={urllib.parse.quote(msg_montagem)}"
+
+    msg_cobranca = f"Olá {data['cliente_nome']}! Segue o lembrete sobre o saldo pendente de R$ {dre['saldo_devedor']:,.2f} referente ao projeto ({data['cliente_ambiente']}). Chave PIX: {empresa['pix']}."
+    url_cobranca = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone'].replace('(', '').replace(')', '').replace('-', '').replace(' ', '')}&text={urllib.parse.quote(msg_cobranca)}"
+
+    hoje = date.today()
+    cronograma_cards_html = ""
+    historico_html = ""
+    
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, criado_em, cliente_nome, cliente_ambiente, preco_venda, lucro_liquido, status, estoque_baixado, data_entrega_prevista, valor_recebido FROM orcamentos ORDER BY id DESC LIMIT 25")
+        historico_rows = cursor.fetchall()
+        
+        for h in historico_rows:
+            current_st = h['status'] or 'Em Negociação'
+            data_prev = h['data_entrega_prevista'] or (hoje + timedelta(days=20)).strftime("%Y-%m-%d")
+            pv_item = float(h['preco_venda'] or 0.0)
+            rec_item = float(h['valor_recebido'] or 0.0)
+            
+            if pv_item > 0 and rec_item >= pv_item:
+                tag_pgto = "<span class='px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950 text-emerald-300 border border-emerald-800'>🟢 Quitado</span>"
+            elif rec_item > 0:
+                tag_pgto = f"<span class='px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-950 text-amber-300 border border-amber-800'>🟡 Pago: R$ {rec_item:,.0f}</span>"
+            else:
+                tag_pgto = "<span class='px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-950 text-rose-300 border border-rose-800'>🔴 Pendente</span>"
+
+            try:
+                dt_obj = datetime.strptime(data_prev, "%Y-%m-%d").date()
+                dias_restantes = (dt_obj - hoje).days
+            except Exception:
+                dias_restantes = 15
+                dt_obj = hoje + timedelta(days=15)
+
+            if current_st in ["Em Produção", "Aprovado"]:
+                if dias_restantes < 0:
+                    badge_tempo = f"<span class='text-rose-400 font-bold'>🔴 Atrasado ({abs(dias_restantes)}d)</span>"
+                    card_border = "border-rose-700/60 bg-rose-950/20"
+                elif dias_restantes <= 5:
+                    badge_tempo = f"<span class='text-amber-400 font-bold'>🟡 {dias_restantes} dias restantes</span>"
+                    card_border = "border-amber-700/60 bg-amber-950/20"
+                else:
+                    badge_tempo = f"<span class='text-emerald-400 font-bold'>🟢 {dias_restantes} dias restantes</span>"
+                    card_border = "border-slate-800 bg-slate-950"
+
+                cronograma_cards_html += f"""
+                <div class="p-3.5 rounded-xl border {card_border} flex flex-col justify-between space-y-2">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <span class="font-bold text-white text-xs block">{h['cliente_nome']}</span>
+                            <span class="text-[11px] text-sky-400">{h['cliente_ambiente']}</span>
+                        </div>
+                        {badge_tempo}
+                    </div>
+                    <div class="flex justify-between items-center text-[11px] text-slate-400 border-t border-slate-800/80 pt-2">
+                        <span>Montagem: <b>{dt_obj.strftime('%d/%m/%Y')}</b></span>
+                        <span class="text-white font-semibold">R$ {h['preco_venda']:,.2f}</span>
+                    </div>
+                </div>
+                """
+
+            lucro_col = f"<td class='py-3 px-4 text-right text-emerald-400 font-semibold'>R$ {h['lucro_liquido']:,.2f}</td>" if is_admin else "<td class='py-3 px-4 text-right text-slate-500'>—</td>"
+            baixado = int(h['estoque_baixado'] or 0)
+            
+            btn_baixa = "<span class='text-[10px] text-emerald-400 font-medium px-2 py-0.5 bg-emerald-950/60 rounded border border-emerald-800'>Baixado</span>" if baixado else f"""
+            <form action="/dar-baixa-estoque" method="post" class="inline" onsubmit="return confirm('Confirmar baixa automática dos materiais no estoque?');">
+                <input type="hidden" name="orcamento_id" value="{h['id']}">
+                <button type="submit" class="px-2 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-[10px] font-semibold">Baixar</button>
+            </form>
+            """
+
+            badge_lead = "<span class='px-2 py-0.5 bg-pink-950 text-pink-300 border border-pink-700 rounded text-[10px] font-bold'>⚡ Lead Auto</span>" if current_st == "Novo Lead Instagram" else ""
+
+            historico_html += f"""
+            <tr class="border-b border-slate-800 hover:bg-slate-800/40 text-xs item-linha" data-busca="{h['cliente_nome'].lower()} {h['cliente_ambiente'].lower()} {current_st.lower()}">
+                <td class="py-3 px-4 text-slate-400 font-mono">#{h['id']}</td>
+                <td class="py-3 px-4 text-slate-300">{h['criado_em']}</td>
+                <td class="py-3 px-4 text-white font-medium">{h['cliente_nome']} {badge_lead}</td>
+                <td class="py-3 px-4 text-slate-300">{h['cliente_ambiente']}</td>
+                <td class="py-3 px-4 text-right text-sky-400 font-bold">R$ {h['preco_venda']:,.2f}</td>
+                {lucro_col}
+                <td class="py-3 px-4 text-center">
+                    <form action="/atualizar-status" method="post" class="inline">
+                        <input type="hidden" name="orcamento_id" value="{h['id']}">
+                        <select name="novo_status" onchange="this.form.submit()" class="bg-slate-950 border border-slate-700 text-[11px] text-slate-200 rounded px-2 py-1 focus:outline-none">
+                            <option value="Novo Lead Instagram" {'selected' if current_st=='Novo Lead Instagram' else ''}>📸 Lead Planta + Inspiração</option>
+                            <option value="Em Negociação" {'selected' if current_st=='Em Negociação' else ''}>🟡 Em Negociação</option>
+                            <option value="Aprovado" {'selected' if current_st=='Aprovado' else ''}>🟢 Aprovado</option>
+                            <option value="Em Produção" {'selected' if current_st=='Em Produção' else ''}>🔵 Em Produção</option>
+                            <option value="Entregue" {'selected' if current_st=='Entregue' else ''}>🟣 Entregue</option>
+                            <option value="Cancelado" {'selected' if current_st=='Cancelado' else ''}>🔴 Cancelado</option>
+                        </select>
+                    </form>
+                </td>
+                <td class="py-3 px-4 text-center">
+                    {tag_pgto}
+                </td>
+                <td class="py-3 px-4 text-center">
+                    {btn_baixa}
+                </td>
+                <td class="py-3 px-4 text-center">
+                    <div class="flex items-center justify-center space-x-1">
+                        <form action="/carregar-orcamento" method="post" class="inline">
+                            <input type="hidden" name="orcamento_id" value="{h['id']}">
+                            <button type="submit" class="px-2 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded text-[11px] font-semibold">Abrir</button>
+                        </form>
+                        <a href="/gerar-pdf?id={h['id']}" class="px-1 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-[10px] font-semibold">Orç.</a>
+                        <a href="/gerar-contrato?id={h['id']}" class="px-1 py-1 bg-amber-700 hover:bg-amber-600 text-white rounded text-[10px] font-semibold">Contrato</a>
+                        <a href="/gerar-os?id={h['id']}" class="px-1 py-1 bg-blue-800 hover:bg-blue-700 text-white rounded text-[10px] font-semibold">O.S.</a>
+                        <a href="/gerar-recibo?id={h['id']}" class="px-1 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-[10px] font-semibold">Recibo</a>
+                        <a href="/gerar-vistoria?id={h['id']}" class="px-1 py-1 bg-purple-700 hover:bg-purple-600 text-white rounded text-[10px] font-semibold">Vistoria</a>
+                        <a href="/gerar-etiquetas?id={h['id']}" class="px-1 py-1 bg-teal-700 hover:bg-teal-600 text-white rounded text-[10px] font-semibold">Etiquetas</a>
+                        <form action="/excluir-orcamento" method="post" class="inline" onsubmit="return confirm('Deseja excluir este orçamento?');">
+                            <input type="hidden" name="orcamento_id" value="{h['id']}">
+                            <button type="submit" class="px-1 py-1 bg-rose-700/60 hover:bg-rose-600 text-white rounded text-[10px]">✕</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            """
+
+        if not historico_rows:
+            historico_html = "<tr><td colspan='10' class='py-6 text-center text-xs text-slate-500'>Nenhum orçamento salvo no histórico ainda.</td></tr>"
+
+    cronograma_cards_html = cronograma_cards_html or "<div class='py-6 text-center text-xs text-slate-500 col-span-full'>Nenhum projeto em produção no momento. Passe orçamentos para 'Em Produção' ou 'Aprovado' para ver o cronograma.</div>"
+
+    usuarios_html = ""
+    if is_admin:
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT email, nome, perfil FROM usuarios")
+            for u in cursor.fetchall():
+                badge = "<span class='text-[10px] bg-sky-950 text-sky-300 border border-sky-800 px-2 py-0.5 rounded'>Admin</span>" if u['perfil'] == 'admin' else "<span class='text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded'>Vendedor</span>"
+                usuarios_html += f"""
+                <li class="flex items-center justify-between py-2 border-b border-slate-800/80 text-xs">
+                    <div>
+                        <span class="font-semibold text-white">{u['nome']}</span>
+                        <span class="text-slate-400 block text-[11px]">{u['email']}</span>
+                    </div>
+                    {badge}
+                </li>
+                """
+
+    status_tag = f"<span class='text-xs bg-sky-950 border border-sky-700 text-sky-300 px-2.5 py-1 rounded-full'>Editando Orçamento #{data['orcamento_id']} ({data.get('status', 'Em Negociação')})</span>" if data['orcamento_id'] else "<span class='text-xs bg-slate-800 border border-slate-700 text-slate-400 px-2.5 py-1 rounded-full'>Novo Orçamento em Rascunho</span>"
+    perfil_badge = "<span class='text-[11px] bg-blue-900/60 border border-blue-600 text-blue-300 px-2 py-0.5 rounded-full font-medium'>👑 Administrador</span>" if is_admin else "<span class='text-[11px] bg-emerald-900/60 border border-emerald-600 text-emerald-300 px-2 py-0.5 rounded-full font-medium'>💼 Vendedor</span>"
+
+    dre_cards = f"""
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
+            <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Faturamento Fechado</p>
+            <p class="text-xl font-bold text-sky-400">R$ {metricas['faturamento_total']:,.2f}</p>
+            <p class="text-[11px] text-slate-500">Recebido: R$ {metricas['total_recebido']:,.2f} | Saldo: R$ {metricas['saldo_a_receber']:,.2f}</p>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
+            <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Lucro Líquido Acumulado</p>
+            <p class="text-xl font-bold text-emerald-400">R$ {metricas['lucro_acumulado']:,.2f}</p>
+            <p class="text-[11px] text-slate-500">Saldo limpo gerado no caixa</p>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
+            <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Ticket Médio por Projeto</p>
+            <p class="text-xl font-bold text-white">R$ {metricas['ticket_medio']:,.2f}</p>
+            <p class="text-[11px] text-slate-500">{metricas['aprovados']} projetos fechados</p>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
+            <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Taxa de Conversão</p>
+            <p class="text-xl font-bold text-amber-400">{metricas['taxa_conversao']:.1f}%</p>
+            <p class="text-[11px] text-slate-500">{metricas['total_orcamentos']} orçamentos gerados no total</p>
+        </div>
+    </div>
+    """ if is_admin else f"""
+    <div class="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg flex justify-between items-center">
+        <div>
+            <p class="text-xs text-slate-400 uppercase font-semibold">Valor da Proposta Comercial</p>
+            <p class="text-3xl font-bold text-sky-400 mt-1">R$ {dre['pv']:,.2f}</p>
+            <p class="text-xs text-slate-500">Entrada: R$ {dre['entrada']:,.2f} + {dre['n_parc']}x de R$ {dre['valor_parcela']:,.2f}</p>
+        </div>
+        <div class="flex space-x-2">
+            <a href="/gerar-pdf" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-lg transition-colors">
+                📄 Orçamento
+            </a>
+            <a href="/gerar-contrato" class="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs rounded-lg transition-colors">
+                📑 Contrato
+            </a>
+        </div>
+    </div>
+    """
+
+    markup_control = f"""
+    <form action="/recalcular" method="post" class="flex items-center gap-3">
+        <label class="text-xs text-slate-400 font-medium">Markup:</label>
+        <input type="number" step="0.1" min="1.0" max="5.0" name="markup" value="{data['markup']}" class="w-20 px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-sm text-center text-white focus:outline-none focus:border-sky-500">
+        <button type="submit" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700">
+            Recalcular
+        </button>
+    </form>
+    """ if is_admin else "<p class='text-xs text-slate-400'>Margem e markup fixados pela diretoria.</p>"
+
+    return f"""
+    <!DOCTYPE html>
+    <html lang="pt-br">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Marcenaria SaaS - Painel</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <style>
+            .tab-btn.active {{
+                background-color: #0284c7;
+                color: #ffffff;
+                border-color: #38bdf8;
+            }}
+            .tab-content {{
+                display: none;
+            }}
+            .tab-content.active {{
+                display: block;
+            }}
+        </style>
+    </head>
+    <body class="bg-slate-950 text-slate-100 min-h-screen font-sans">
+        <header class="bg-slate-900 border-b border-slate-800 px-6 py-4 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center space-x-3">
+                <div class="w-8 h-8 rounded-lg bg-sky-600 flex items-center justify-center font-bold text-white shadow-md">M</div>
+                <span class="font-bold text-lg text-white tracking-wide">Marcenaria Pro</span>
+                {status_tag}
+            </div>
+            <div class="flex items-center space-x-3">
+                {perfil_badge}
+                <a href="/solicitar-orcamento" target="_blank" class="text-xs bg-emerald-950 text-emerald-300 border border-emerald-700 px-3 py-1.5 rounded-lg hover:bg-emerald-900/60 transition-colors">🔗 Link Instagram</a>
+                <a href="/novo-orcamento" class="text-xs bg-sky-600 hover:bg-sky-500 text-white font-medium px-3 py-1.5 rounded-lg transition-colors">+ Novo Orçamento</a>
+                <span class="text-xs text-slate-400">Usuário: <b class="text-sky-400">{data['user_nome']}</b></span>
+                <a href="/" class="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg text-slate-300 border border-slate-700">Sair</a>
+            </div>
+        </header>
+
+        <!-- MENU DE NAVEGAÇÃO POR ABAS -->
+        <nav class="bg-slate-900/80 border-b border-slate-800 px-6 py-3 sticky top-0 z-50 backdrop-blur-md">
+            <div class="max-w-7xl mx-auto flex items-center gap-2 overflow-x-auto">
+                <button onclick="mudarAba('aba-leads')" id="btn-aba-leads" class="tab-btn active px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 transition-all flex items-center space-x-1.5 shrink-0">
+                    <span>🏠 Painel Geral & Leads</span>
+                </button>
+                <button onclick="mudarAba('aba-engenharia')" id="btn-aba-engenharia" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 transition-all flex items-center space-x-1.5 shrink-0">
+                    <span>📐 Engenharia & Ambientes</span>
+                </button>
+                <button onclick="mudarAba('aba-fabrica')" id="btn-aba-fabrica" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 transition-all flex items-center space-x-1.5 shrink-0">
+                    <span>🏭 Fábrica & Plano de Corte</span>
+                </button>
+                <button onclick="mudarAba('aba-financeiro')" id="btn-aba-financeiro" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 transition-all flex items-center space-x-1.5 shrink-0">
+                    <span>💳 Financeiro & Contratos</span>
+                </button>
+                <button onclick="mudarAba('aba-estoque')" id="btn-aba-estoque" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 transition-all flex items-center space-x-1.5 shrink-0">
+                    <span>📦 Estoque & Materiais</span>
+                </button>
+                <button onclick="mudarAba('aba-config')" id="btn-aba-config" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 transition-all flex items-center space-x-1.5 shrink-0">
+                    <span>⚙️ Configurações & Custos</span>
+                </button>
+            </div>
+        </nav>
+
+        <main class="max-w-7xl mx-auto p-6 space-y-6">
+
+            <!-- ABA 1: PAINEL GERAL & LEADS -->
+            <div id="aba-leads" class="tab-content active space-y-6">
+                {dre_cards}
+
+                <!-- Central de Notificações WhatsApp -->
+                <div class="bg-slate-900 border border-emerald-900/60 rounded-xl p-6 shadow-lg space-y-3">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
+                        <div>
+                            <h2 class="text-base font-semibold text-white">📲 Central de Notificações & WhatsApp do Cliente</h2>
+                            <p class="text-xs text-emerald-400">Envie mensagens automáticas e atualizações com 1 clique</p>
+                        </div>
+                        <span class="text-xs text-slate-400">Cliente Atual: <b class="text-white">{data['cliente_nome']}</b> ({data['cliente_telefone']})</span>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+                        <a href="{url_proposta}" target="_blank" class="p-3.5 bg-slate-950 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-700 rounded-xl text-left transition-colors group flex flex-col justify-between">
+                            <div>
+                                <span class="text-xs font-bold text-white group-hover:text-emerald-400 block">📄 Enviar Orçamento</span>
+                                <span class="text-[11px] text-slate-400 leading-tight block mt-1">Resumo de valor total, entrada e condições.</span>
+                            </div>
+                            <span class="text-[10px] text-emerald-500 font-semibold mt-3">Disparar no WhatsApp →</span>
+                        </a>
+                        <a href="{url_producao}" target="_blank" class="p-3.5 bg-slate-950 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-700 rounded-xl text-left transition-colors group flex flex-col justify-between">
+                            <div>
+                                <span class="text-xs font-bold text-white group-hover:text-emerald-400 block">🛠️ Início da Produção</span>
+                                <span class="text-[11px] text-slate-400 leading-tight block mt-1">Notifica que as chapas entraram em corte.</span>
+                            </div>
+                            <span class="text-[10px] text-emerald-500 font-semibold mt-3">Disparar no WhatsApp →</span>
+                        </a>
+                        <a href="{url_montagem}" target="_blank" class="p-3.5 bg-slate-950 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-700 rounded-xl text-left transition-colors group flex flex-col justify-between">
+                            <div>
+                                <span class="text-xs font-bold text-white group-hover:text-emerald-400 block">🚚 Agendar Montagem</span>
+                                <span class="text-[11px] text-slate-400 leading-tight block mt-1">Confirma data da equipe na obra.</span>
+                            </div>
+                            <span class="text-[10px] text-emerald-500 font-semibold mt-3">Disparar no WhatsApp →</span>
+                        </a>
+                        <a href="{url_cobranca}" target="_blank" class="p-3.5 bg-slate-950 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-700 rounded-xl text-left transition-colors group flex flex-col justify-between">
+                            <div>
+                                <span class="text-xs font-bold text-white group-hover:text-emerald-400 block">💳 Saldo / Chave PIX</span>
+                                <span class="text-[11px] text-slate-400 leading-tight block mt-1">Lembrete de saldo devedor e chave PIX.</span>
+                            </div>
+                            <span class="text-[10px] text-emerald-500 font-semibold mt-3">Disparar no WhatsApp →</span>
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Histórico de Orçamentos e Leads do Instagram -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
+                    <div class="p-4 border-b border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-slate-850">
+                        <div>
+                            <h3 class="text-sm font-semibold text-white">📁 Histórico de Pedidos & Leads (Banco de Dados)</h3>
+                            <span class="text-xs text-slate-400">Pesquise por cliente ou ambiente</span>
+                        </div>
+                        <div class="flex items-center space-x-2 w-full sm:w-auto">
+                            <input type="text" id="campoBusca" onkeyup="filtrarTabela()" placeholder="🔍 Buscar cliente ou ambiente..." class="px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500 w-full sm:w-64">
+                            <a href="/exportar-csv" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold flex items-center space-x-1 shrink-0">
+                                <span>📊 CSV</span>
+                            </a>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse" id="tabelaHistorico">
+                            <thead>
+                                <tr class="bg-slate-800/40 border-b border-slate-800 text-xs font-semibold text-slate-400 uppercase">
+                                    <th class="py-3 px-4"># ID</th>
+                                    <th class="py-3 px-4">Data/Hora</th>
+                                    <th class="py-3 px-4">Cliente</th>
+                                    <th class="py-3 px-4">Ambiente</th>
+                                    <th class="py-3 px-4 text-right">Valor Venda</th>
+                                    <th class="py-3 px-4 text-right">Lucro Líquido</th>
+                                    <th class="py-3 px-4 text-center">Status</th>
+                                    <th class="py-3 px-4 text-center">Pagamento</th>
+                                    <th class="py-3 px-4 text-center">Estoque</th>
+                                    <th class="py-3 px-4 text-center">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {historico_html}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="flex justify-end pt-2">
+                    <button onclick="mudarAba('aba-engenharia')" class="px-6 py-2.5 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-xl shadow-lg transition-all flex items-center space-x-1">
+                        <span>Avançar para Engenharia & Ambientes ➡️</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- ABA 2: ENGENHARIA & AMBIENTES -->
+            <div id="aba-engenharia" class="tab-content space-y-6">
+                <div class="flex justify-between items-center bg-slate-900 p-4 rounded-xl border border-slate-800">
+                    <button onclick="mudarAba('aba-leads')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 transition-colors flex items-center space-x-1">
+                        <span>⬅️ Voltar ao Painel Geral</span>
+                    </button>
+                    <span class="text-xs text-sky-400 font-medium">Etapa: Especificações e Modulação</span>
+                    <button onclick="mudarAba('aba-fabrica')" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-lg shadow-md transition-colors flex items-center space-x-1">
+                        <span>Ir para Fábrica & Corte ➡️</span>
+                    </button>
+                </div>
+
+                <!-- Dados do Cliente & Instruções Técnicas -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+                    <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                        <h2 class="text-base font-semibold text-white">👤 Dados do Cliente & Proposta</h2>
+                        <span class="text-xs text-sky-400">Edição e detalhes do projeto</span>
+                    </div>
+                    <form action="/salvar-cliente" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Nome do Cliente</label>
+                            <input type="text" name="cliente_nome" value="{data['cliente_nome']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">WhatsApp / Tel</label>
+                            <input type="text" name="cliente_telefone" value="{data['cliente_telefone']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Projeto Master</label>
+                            <input type="text" name="cliente_ambiente" value="{data['cliente_ambiente']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Data Montagem</label>
+                            <input type="date" name="data_entrega_prevista" value="{data.get('data_entrega_prevista', '')}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Status</label>
+                            <select name="status" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none">
+                                <option value="Novo Lead Instagram" {'selected' if data.get('status')=='Novo Lead Instagram' else ''}>📸 Lead Planta + Inspiração</option>
+                                <option value="Em Negociação" {'selected' if data.get('status')=='Em Negociação' else ''}>🟡 Em Negociação</option>
+                                <option value="Aprovado" {'selected' if data.get('status')=='Aprovado' else ''}>🟢 Aprovado</option>
+                                <option value="Em Produção" {'selected' if data.get('status')=='Em Produção' else ''}>🔵 Em Produção</option>
+                                <option value="Entregue" {'selected' if data.get('status')=='Entregue' else ''}>🟣 Entregue</option>
+                                <option value="Cancelado" {'selected' if data.get('status')=='Cancelado' else ''}>🔴 Cancelado</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Prazo Texto</label>
+                            <input type="text" name="prazo_entrega" value="{data['prazo_entrega']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div class="col-span-full">
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Instruções Técnicas & Detalhes do Lead</label>
+                            <div class="flex gap-2">
+                                <input type="text" name="observacoes_tecnicas" value="{data.get('observacoes_tecnicas', '')}" placeholder="Ex: Detalhes de furação, recortes de tomadas ou especificações enviadas pelo cliente..." class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                                <button type="submit" class="px-6 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold shrink-0">
+                                    Salvar Dados
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Ambientes Inclusos -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
+                        <div>
+                            <h2 class="text-base font-semibold text-white">🏠 Ambientes Inclusos no Projeto</h2>
+                            <p class="text-xs text-slate-400">Cômodos contemplados no cálculo global</p>
+                        </div>
+                        <form action="/adicionar-ambiente" method="post" class="flex items-center gap-2">
+                            <input type="text" name="novo_ambiente" placeholder="Ex: Quarto Casal, Lavabo..." required class="px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                            <button type="submit" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold shrink-0">
+                                + Adicionar Cômodo
+                            </button>
+                        </form>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        {ambientes_tags_html}
+                    </div>
+                </div>
+
+                <!-- Galeria de Imagens / Plantas / Inspirações -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
+                        <div>
+                            <h2 class="text-base font-semibold text-white">🖼️ Galeria: Planta Baixa & Inspirações do Cliente</h2>
+                            <p class="text-xs text-slate-400">Fotos enviadas pelo cliente ou renders anexados</p>
+                        </div>
+                        <form action="/upload-imagem" method="post" enctype="multipart/form-data" class="flex items-center gap-2">
+                            <input type="file" name="foto" accept="image/*" required class="block w-full text-xs text-slate-400 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-200 hover:file:bg-slate-700 cursor-pointer">
+                            <button type="submit" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold shrink-0">
+                                + Anexar Imagem
+                            </button>
+                        </form>
+                    </div>
+                    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                        {galeria_html}
+                    </div>
+                </div>
+
+                <!-- Listagem de Peças -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
+                    <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-850">
+                        <h3 class="text-sm font-semibold text-white">Listagem de Peças e Insumos ({data['cliente_ambiente']})</h3>
+                        <span class="text-xs text-slate-400">{len(items)} itens calculados</span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-slate-800/40 border-b border-slate-800 text-xs font-semibold text-slate-400 uppercase">
+                                    <th class="py-3 px-4">Descrição / Insumo</th>
+                                    <th class="py-3 px-4 text-center">Dimensões (mm)</th>
+                                    <th class="py-3 px-4 text-center">Quantidade</th>
+                                    <th class="py-3 px-4 text-right">Custo Est. (R$)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {rows_html}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ABA 3: FÁBRICA & PLANO DE CORTE -->
+            <div id="aba-fabrica" class="tab-content space-y-6">
+                <div class="flex justify-between items-center bg-slate-900 p-4 rounded-xl border border-slate-800">
+                    <button onclick="mudarAba('aba-engenharia')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 transition-colors flex items-center space-x-1">
+                        <span>⬅️ Voltar para Engenharia</span>
+                    </button>
+                    <span class="text-xs text-sky-400 font-medium">Etapa: Produção e Corte</span>
+                    <button onclick="mudarAba('aba-financeiro')" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-lg shadow-md transition-colors flex items-center space-x-1">
+                        <span>Ir para Financeiro & Contratos ➡️</span>
+                    </button>
+                </div>
+
+                <!-- Cronograma de Fábrica -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+                    <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                        <div>
+                            <h2 class="text-base font-semibold text-white">📅 Cronograma de Entregas & Montagens (Fábrica)</h2>
+                            <p class="text-xs text-slate-400">Contagem de dias e monitoramento de prazos críticos</p>
+                        </div>
+                        <span class="text-xs text-sky-400 font-medium">Controle de Fábrica</span>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {cronograma_cards_html}
+                    </div>
+                </div>
+
+                <!-- Resumo de Compras para Fornecedores -->
+                <div class="bg-slate-900 border border-indigo-900/50 rounded-xl p-6 shadow-lg space-y-4">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
+                        <div>
+                            <h2 class="text-base font-semibold text-white">📦 Resumo de Compras para Fornecedores / Madeireira</h2>
+                            <p class="text-xs text-indigo-400">Totalizadores de materiais necessários para produzir o projeto</p>
+                        </div>
+                        <div class="flex gap-2">
+                            <a href="/gerar-pdf-compras" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs rounded-lg transition-colors flex items-center space-x-1 shadow-md">
+                                <span>📄 PDF p/ Madeireira</span>
+                            </a>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-center">
+                        <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                            <p class="text-[11px] text-slate-400 uppercase">Chapas MDF</p>
+                            <p class="text-lg font-bold text-white">{compras['chapas_mdf']} <span class="text-xs font-normal text-slate-500">un</span></p>
+                            <p class="text-[10px] text-slate-500">{compras['area_m2']:.1f} m²</p>
+                        </div>
+                        <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                            <p class="text-[11px] text-slate-400 uppercase">Fita Borda</p>
+                            <p class="text-lg font-bold text-white">{compras['fita_metros']} <span class="text-xs font-normal text-slate-500">m</span></p>
+                            <p class="text-[10px] text-slate-500">PVC 22mm</p>
+                        </div>
+                        <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                            <p class="text-[11px] text-slate-400 uppercase">Dobradiças</p>
+                            <p class="text-lg font-bold text-sky-400">{compras['dobradicas']} <span class="text-xs font-normal text-slate-500">un</span></p>
+                            <p class="text-[10px] text-slate-500">Amortecedor</p>
+                        </div>
+                        <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                            <p class="text-[11px] text-slate-400 uppercase">Corrediças</p>
+                            <p class="text-lg font-bold text-sky-400">{compras['corredicas']} <span class="text-xs font-normal text-slate-500">pares</span></p>
+                            <p class="text-[10px] text-slate-500">Telescópicas</p>
+                        </div>
+                        <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                            <p class="text-[11px] text-slate-400 uppercase">Puxadores</p>
+                            <p class="text-lg font-bold text-white">{compras['puxadores']} <span class="text-xs font-normal text-slate-500">un</span></p>
+                            <p class="text-[10px] text-slate-500">Perfis/Pontos</p>
+                        </div>
+                        <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                            <p class="text-[11px] text-slate-400 uppercase">Outros Insumos</p>
+                            <p class="text-lg font-bold text-slate-300">{compras['outros']} <span class="text-xs font-normal text-slate-500">itens</span></p>
+                            <p class="text-[10px] text-slate-500">Parafusos/Tapas</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Módulo Visual de Plano de Corte Gráfico (2D Nesting) -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+                    <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                        <div>
+                            <h2 class="text-base font-semibold text-white">📐 Diagrama Visual de Plano de Corte (Nesting)</h2>
+                            <p class="text-xs text-slate-400">Distribuição automatizada das peças nas chapas padrão 2750 x 1830 mm</p>
+                        </div>
+                        <span class="text-xs text-sky-400 font-semibold">{compras['chapas_mdf']} chapa(s) necessária(s)</span>
+                    </div>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        {svg_chapas_html}
+                    </div>
+                </div>
+            </div>
+
+            <!-- ABA 4: FINANCEIRO & CONTRATOS -->
+            <div id="aba-financeiro" class="tab-content space-y-6">
+                <div class="flex justify-between items-center bg-slate-900 p-4 rounded-xl border border-slate-800">
+                    <button onclick="mudarAba('aba-fabrica')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 transition-colors flex items-center space-x-1">
+                        <span>⬅️ Voltar para Fábrica</span>
+                    </button>
+                    <span class="text-xs text-sky-400 font-medium">Etapa: Fechamento Comercial</span>
+                    <button onclick="mudarAba('aba-estoque')" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-lg shadow-md transition-colors flex items-center space-x-1">
+                        <span>Ir para Estoque ➡️</span>
+                    </button>
+                </div>
+
+                <!-- Contas a Receber & Simulador de Pagamento -->
+                <div class="bg-slate-900 border border-amber-900/50 rounded-xl p-6 shadow-lg space-y-4">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
+                        <div>
+                            <h2 class="text-base font-semibold text-white">💳 Contas a Receber, Parcelamento & Recibos</h2>
+                            <p class="text-xs text-amber-400">Acompanhe entradas, registre pagamentos e emita recibos oficiais</p>
+                        </div>
+                    </div>
+                    <form action="/salvar-pagamento" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Valor de Entrada (R$)</label>
+                            <input type="number" step="50" name="entrada_valor" value="{data['entrada_valor']}" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-amber-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Nº de Parcelas</label>
+                            <select name="num_parcelas" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none">
+                                <option value="1" {'selected' if data.get('num_parcelas')==1 else ''}>1x (À vista / Parcela Única)</option>
+                                <option value="2" {'selected' if data.get('num_parcelas')==2 else ''}>2x parcelas</option>
+                                <option value="3" {'selected' if data.get('num_parcelas')==3 else ''}>3x parcelas</option>
+                                <option value="4" {'selected' if data.get('num_parcelas')==4 else ''}>4x parcelas</option>
+                                <option value="5" {'selected' if data.get('num_parcelas')==5 else ''}>5x parcelas</option>
+                                <option value="6" {'selected' if data.get('num_parcelas')==6 else ''}>6x parcelas</option>
+                                <option value="10" {'selected' if data.get('num_parcelas')==10 else ''}>10x parcelas</option>
+                                <option value="12" {'selected' if data.get('num_parcelas')==12 else ''}>12x parcelas</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Valor Já Recebido (R$)</label>
+                            <input type="number" step="50" name="valor_recebido" value="{data.get('valor_recebido', 0.0)}" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-amber-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Forma de Pagamento</label>
+                            <input type="text" name="forma_pagamento" value="{data['forma_pagamento']}" placeholder="Ex: Entrada PIX + Cartão" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-amber-500">
+                        </div>
+                        <div class="flex items-end">
+                            <button type="submit" class="w-full py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold transition-colors">
+                                Atualizar Pagamento
+                            </button>
+                        </div>
+                    </form>
+                    <div class="bg-slate-950 p-3 rounded-lg border border-slate-800 flex flex-wrap justify-between items-center text-xs">
+                        <span class="text-slate-300">Total Proposta: <b>R$ {dre['pv']:,.2f}</b> | Recebido: <b class="text-emerald-400">R$ {dre['valor_recebido']:,.2f}</b> | Saldo Devedor: <b class="text-rose-400">R$ {dre['saldo_devedor']:,.2f}</b></span>
+                        <span class="text-amber-400 font-semibold">{data['forma_pagamento']}</span>
+                    </div>
+                </div>
+
+                <!-- Documentos Oficiais da Proposta -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col justify-between space-y-4 shadow-lg">
+                    <h2 class="text-base font-semibold text-white">Documentos Oficiais & Emissão em PDF</h2>
+                    {markup_control}
+                    <div class="grid grid-cols-2 sm:grid-cols-6 gap-2">
+                        <form action="/salvar-banco" method="post" class="col-span-2 sm:col-span-1">
+                            <button type="submit" class="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center space-x-1 shadow-md">
+                                <span>💾 Salvar Banco</span>
+                            </button>
+                        </form>
+                        <a href="/gerar-pdf" class="py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center shadow-md">
+                            <span>📄 Orçamento</span>
+                        </a>
+                        <a href="/gerar-contrato" class="py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center shadow-md">
+                            <span>📑 Contrato</span>
+                        </a>
+                        <a href="/gerar-os" class="py-2.5 bg-blue-800 hover:bg-blue-700 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center shadow-md">
+                            <span>🛠️ O.S. Fábrica</span>
+                        </a>
+                        <a href="/gerar-recibo" class="py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center shadow-md">
+                            <span>🧾 Recibo</span>
+                        </a>
+                        <a href="/gerar-vistoria" class="py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center shadow-md">
+                            <span>📋 Vistoria</span>
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ABA 5: ESTOQUE & MATERIAIS -->
+            <div id="aba-estoque" class="tab-content space-y-6">
+                <div class="flex justify-between items-center bg-slate-900 p-4 rounded-xl border border-slate-800">
+                    <button onclick="mudarAba('aba-financeiro')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 transition-colors flex items-center space-x-1">
+                        <span>⬅️ Voltar para Financeiro</span>
+                    </button>
+                    <span class="text-xs text-sky-400 font-medium">Etapa: Controle de Insumos</span>
+                    <button onclick="mudarAba('aba-config')" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-lg shadow-md transition-colors flex items-center space-x-1">
+                        <span>Ir para Configurações ➡️</span>
+                    </button>
+                </div>
+
+                <!-- Controle de Estoque -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
+                        <div>
+                            <h2 class="text-base font-semibold text-white">📦 Controle de Estoque & Insumos da Marcenaria</h2>
+                            <p class="text-xs text-slate-400">Saldos atuais de materiais com alerta automático de reposição</p>
+                        </div>
+                        <span class="text-xs text-indigo-400 font-medium">Baixa automática vinculada à produção</span>
+                    </div>
+                    
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                        {estoque_cards_html}
+                    </div>
+
+                    <form action="/adicionar-estoque" method="post" class="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-wrap items-end gap-3">
+                        <div class="flex-1 min-w-[180px]">
+                            <label class="block text-[11px] font-medium text-slate-400 mb-1">Insumo / Material p/ Entrada</label>
+                            <select name="codigo" class="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white">
+                                <option value="mdf">Chapas de MDF (Chapas)</option>
+                                <option value="fita">Fita de Borda PVC (Metros)</option>
+                                <option value="dobradica">Dobradiças com Amortecedor (Un)</option>
+                                <option value="corredica">Corrediças Telescópicas (Pares)</option>
+                                <option value="puxador">Puxadores (Un)</option>
+                            </select>
+                        </div>
+                        <div class="w-32">
+                            <label class="block text-[11px] font-medium text-slate-400 mb-1">Qtd Comprada</label>
+                            <input type="number" step="1" min="1" name="quantidade" required value="10" class="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white">
+                        </div>
+                        <button type="submit" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shrink-0">
+                            + Dar Entrada no Estoque
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- ABA 6: CONFIGURAÇÕES & CUSTOS -->
+            <div id="aba-config" class="tab-content space-y-6">
+                <div class="flex justify-between items-center bg-slate-900 p-4 rounded-xl border border-slate-800">
+                    <button onclick="mudarAba('aba-estoque')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 transition-colors flex items-center space-x-1">
+                        <span>⬅️ Voltar para Estoque</span>
+                    </button>
+                    <span class="text-xs text-sky-400 font-medium">Configurações Gerais</span>
+                    <button onclick="mudarAba('aba-leads')" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-lg shadow-md transition-colors flex items-center space-x-1">
+                        <span>🏠 Ir ao Início (Painel Geral)</span>
+                    </button>
+                </div>
+
+                <!-- Dados da Marcenaria -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+                    <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                        <h2 class="text-base font-semibold text-white">🏢 Dados da Sua Marcenaria (Contrato, O.S., Recibo e Cabeçalho do PDF)</h2>
+                    </div>
+                    <form action="/salvar-empresa" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Nome Comercial / Razão Social</label>
+                            <input type="text" name="nome_empresa" value="{empresa['nome_empresa']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">CNPJ</label>
+                            <input type="text" name="cnpj" value="{empresa['cnpj']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Telefone / WhatsApp da Loja</label>
+                            <input type="text" name="telefone_empresa" value="{empresa['telefone_empresa']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Chave PIX p/ Pagamentos</label>
+                            <div class="flex gap-2">
+                                <input type="text" name="pix" value="{empresa['pix']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white">
+                                <button type="submit" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold shrink-0">
+                                    Salvar
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Mão de Obra e Operacionais -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+                    <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                        <h2 class="text-base font-semibold text-white">🔨 Mão de Obra & Custos Operacionais</h2>
+                    </div>
+                    <form action="/salvar-operacionais" method="post" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                        <div>
+                            <label class="block text-[11px] font-medium text-slate-400 mb-1">Dias Fabricação</label>
+                            <input type="number" step="1" min="0" name="dias_producao" value="{data['dias_producao']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-medium text-slate-400 mb-1">Diária Marceneiro (R$)</label>
+                            <input type="number" step="10" name="valor_diaria" value="{data['valor_diaria']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-medium text-slate-400 mb-1">Custo Frete (R$)</label>
+                            <input type="number" step="10" name="custo_frete" value="{data['custo_frete']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-medium text-slate-400 mb-1">Montagem Cliente (R$)</label>
+                            <input type="number" step="10" name="custo_montagem" value="{data['custo_montagem']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-medium text-slate-400 mb-1">Impostos (%)</label>
+                            <input type="number" step="0.5" min="0" max="30" name="imposto_pct" value="{data['imposto_pct']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div class="flex items-end">
+                            <button type="submit" class="w-full py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold transition-colors">
+                                Atualizar DRE
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Tabela de Custos Unitários de Insumos -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+                    <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                        <h2 class="text-base font-semibold text-white">⚙️ Tabela de Custos Unitários por Insumo</h2>
+                    </div>
+                    <form action="/salvar-precos" method="post" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                        <div>
+                            <label class="block text-[11px] font-medium text-slate-400 mb-1">MDF (m²)</label>
+                            <input type="number" step="0.5" name="mdf_m2" value="{precos['mdf_m2']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-medium text-slate-400 mb-1">Dobradiça (Un)</label>
+                            <input type="number" step="0.5" name="dobradica" value="{precos['dobradica']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-medium text-slate-400 mb-1">Corrediça (Par)</label>
+                            <input type="number" step="0.5" name="corredica" value="{precos['corredica']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-medium text-slate-400 mb-1">Fita Borda (m)</label>
+                            <input type="number" step="0.1" name="fita_borda_m" value="{precos['fita_borda_m']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-medium text-slate-400 mb-1">Puxador (Un)</label>
+                            <input type="number" step="0.5" name="puxador" value="{precos['puxador']}" class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        </div>
+                        <div class="flex items-end">
+                            <button type="submit" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-sky-400 border border-slate-700 rounded-lg text-xs font-semibold transition-colors">
+                                Salvar Config
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+        </main>
+
+        <script>
+            function mudarAba(abaId) {{
+                var contents = document.getElementsByClassName('tab-content');
+                for (var i = 0; i < contents.length; i++) {{
+                    contents[i].classList.remove('active');
+                }}
+                var btns = document.getElementsByClassName('tab-btn');
+                for (var i = 0; i < btns.length; i++) {{
+                    btns[i].classList.remove('active');
+                }}
+                var target = document.getElementById(abaId);
+                if (target) {{
+                    target.classList.add('active');
+                }}
+                var btn = document.getElementById('btn-' + abaId);
+                if (btn) {{
+                    btn.classList.add('active');
+                }}
+                window.scrollTo({{ top: 0, behavior: 'smooth' }});
+            }}
+
+            function filtrarTabela() {{
+                var input = document.getElementById("campoBusca");
+                var filter = input.value.toLowerCase();
+                var rows = document.getElementsByClassName("item-linha");
+                for (var i = 0; i < rows.length; i++) {{
+                    var data = rows[i].getAttribute("data-busca");
+                    if (data && data.indexOf(filter) > -1) {{
+                        rows[i].style.display = "";
+                    }} else {{
+                        rows[i].style.display = "none";
+                    }}
+                }}
+            }}
+        </script>
     </body>
     </html>
     """
