@@ -88,7 +88,8 @@ def init_db():
             ("valor_recebido", "REAL"),
             ("imagens_json", "TEXT"),
             ("ambientes_json", "TEXT"),
-            ("observacoes_tecnicas", "TEXT")
+            ("observacoes_tecnicas", "TEXT"),
+            ("items_json", "TEXT")
         ]
         for col, tipo in colunas:
             try:
@@ -294,7 +295,6 @@ def numero_extenso_reais(valor: float) -> str:
         texto += f" e {centavos}/100 centavos"
     return texto.capitalize()
 
-# MOTOR PARAMÉTRICO DE ENGENHARIA (COM SUPORTE A NÚMEROS DECIMAIS LIVRES)
 def gerar_engenharia_automatica(tipo_ambiente: str, metros_lineares: float, padrao_acabamento: str, precos: dict):
     items = []
     mult_acabamento = 1.0
@@ -346,7 +346,7 @@ def gerar_engenharia_automatica(tipo_ambiente: str, metros_lineares: float, padr
         items.append({"nome": "Dobradiças 110º com Amortecimento", "tipo": "Ferragem (Dobradiça)", "ambiente": tipo_ambiente, "largura": 0, "altura": 0, "dimensoes": "Ø35mm", "qtd": num_portas * 4, "valor": (num_portas * 4) * precos["dobradica"]})
         items.append({"nome": "Fita de Borda PVC 22mm", "tipo": "Fita de Borda", "ambiente": tipo_ambiente, "largura": 0, "altura": 0, "dimensoes": "-", "qtd": int(m_lin * 22), "valor": (m_lin * 22) * precos["fita_borda_m"]})
         
-    else: # Banheiro ou Painel Sala
+    else:
         items.append({"nome": f"Painel Estrutural ({tipo_ambiente})", "tipo": "Chapa MDF / Painel", "ambiente": tipo_ambiente, "largura": int(m_lin * 1000), "altura": 800, "dimensoes": f"{int(m_lin*1000)} x 800 x 18 mm", "qtd": 2, "valor": (m_lin * 0.8 * 2 * precos["mdf_m2"]) * mult_acabamento})
         items.append({"nome": "Gavetas / Portas Basculantes", "tipo": "Chapa MDF / Painel", "ambiente": tipo_ambiente, "largura": 600, "altura": 350, "dimensoes": "600 x 350 x 18 mm", "qtd": 2, "valor": 2 * (0.6 * 0.35 * precos["mdf_m2"]) * mult_acabamento})
         items.append({"nome": "Pistões a Gás / Corrediças", "tipo": "Ferragem (Corrediça)", "ambiente": tipo_ambiente, "largura": 0, "altura": 0, "dimensoes": "Kit", "qtd": 2, "valor": 2 * precos["corredica"]})
@@ -354,6 +354,46 @@ def gerar_engenharia_automatica(tipo_ambiente: str, metros_lineares: float, padr
 
     total_mat = sum(i["valor"] for i in items)
     return items, total_mat
+
+def render_login_page(msg_erro=""):
+    erro_tag = f"<p class='text-rose-400 text-xs text-center bg-rose-950/60 border border-rose-800 p-2 rounded-lg'>{msg_erro}</p>" if msg_erro else ""
+    return f"""
+    <!DOCTYPE html>
+    <html lang="pt-br">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Marcenaria SaaS - Login</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+    </head>
+    <body class="bg-slate-900 text-slate-100 flex items-center justify-center min-h-screen p-4 font-sans">
+        <div class="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-8 shadow-2xl space-y-6">
+            <div class="text-center space-y-2">
+                <h1 class="text-2xl font-bold tracking-tight text-white">Marcenaria Pro SaaS</h1>
+                <p class="text-xs text-slate-400">Gerador Inteligente Paramétrico & Produção DRE</p>
+            </div>
+            {erro_tag}
+            <form action="/painel" method="post" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">E-mail</label>
+                    <input type="email" name="username" required value="admin@marcenaria.com" class="w-full px-4 py-2.5 bg-slate-900 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-sky-500 text-slate-200">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Senha</label>
+                    <input type="password" name="password" required value="123456" class="w-full px-4 py-2.5 bg-slate-900 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-sky-500 text-slate-200">
+                </div>
+                <button type="submit" class="w-full py-3 bg-sky-600 hover:bg-sky-500 text-white font-semibold rounded-lg text-sm transition-colors shadow-lg shadow-sky-600/30">
+                    Acessar Painel de Controle
+                </button>
+            </form>
+            <div class="border-t border-slate-700/60 pt-4 text-center">
+                <a href="/solicitar-orcamento" target="_blank" class="text-xs text-emerald-400 hover:underline font-medium block mb-2">🔗 Ver Gerador Automático (Link Instagram)</a>
+                <p class="text-[11px] text-slate-400">Admin: <b>admin@marcenaria.com</b> | Senha: <b>123456</b></p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
 
 def render_pagina_captacao(sucesso=False, orc_id=None, estimativa=0.0):
     empresa = get_empresa_config()
@@ -1946,7 +1986,27 @@ async def upload_xml(file: UploadFile = File(...)):
 
                 qtd = int(elem.attrib.get("QUANTITY") or elem.attrib.get("quantidade") or 1)
                 
-                custo_total_item, tipo = calcular_custo_item(nome, largura, altura, qtd, precos)
+                n = nome.lower()
+                if any(k in n for k in ["dobradiça", "dobradica", "hinge"]):
+                    custo_total_item = precos.get("dobradica", 18.50) * qtd
+                    tipo = "Ferragem (Dobradiça)"
+                elif any(k in n for k in ["corrediça", "corredica", "slide", "gaveta"]):
+                    custo_total_item = precos.get("corredica", 38.00) * qtd
+                    tipo = "Ferragem (Corrediça)"
+                elif any(k in n for k in ["puxador", "handle", "perfil alumínio"]):
+                    custo_total_item = precos.get("puxador", 25.00) * qtd
+                    tipo = "Acessório (Puxador)"
+                elif any(k in n for k in ["fita", "borda", "edge"]):
+                    custo_total_item = precos.get("fita_borda_m", 3.20) * 2.0 * qtd
+                    tipo = "Fita de Borda"
+                elif largura > 0 and altura > 0:
+                    area_m2 = (largura / 1000.0) * (altura / 1000.0)
+                    custo_total_item = max(area_m2 * precos.get("mdf_m2", 65.0), 12.0) * qtd
+                    tipo = "Chapa MDF / Painel"
+                else:
+                    custo_total_item = precos.get("outros_insumos", 15.00) * qtd
+                    tipo = "Insumo Geral"
+
                 total_mat += custo_total_item
 
                 items.append({
