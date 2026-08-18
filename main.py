@@ -1,6 +1,5 @@
 from fastapi import FastAPI, Form, UploadFile, File, Response, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-import xml.etree.ElementTree as ET
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
@@ -16,19 +15,17 @@ import traceback
 from datetime import datetime, date, timedelta
 from typing import List
 
-app = FastAPI(title="MVI Móveis Planejados")
-DB_PATH = "mvi_production.db"
+app = FastAPI(title="MVI Móveis Planejados SaaS")
+DB_PATH = "mvi_production_v4.db"
 
-# Blindagem contra Internal Server Error
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     err = traceback.format_exc()
     return HTMLResponse(content=f"""
     <div style="background:#0f172a; color:#f8fafc; font-family:sans-serif; padding:30px; min-height:100vh;">
         <h2 style="color:#f59e0b;">⚠️ Diagnóstico do Sistema MVI</h2>
-        <p style="color:#94a3b8; font-size:13px;">Ocorreu uma exceção tratada no servidor. Detalhes técnicos:</p>
         <pre style="background:#1e293b; color:#f43f5e; padding:15px; border-radius:10px; font-size:12px; overflow-x:auto;">{err}</pre>
-        <a href="/" style="display:inline-block; margin-top:15px; padding:10px 20px; background:#f59e0b; color:#0f172a; font-weight:bold; border-radius:8px; text-decoration:none;">Ir para a Página Inicial</a>
+        <a href="/" style="display:inline-block; margin-top:15px; padding:10px 20px; background:#f59e0b; color:#0f172a; font-weight:bold; border-radius:8px; text-decoration:none;">Voltar ao Login</a>
     </div>
     """, status_code=500)
 
@@ -76,6 +73,9 @@ def init_db():
             empresa_id INTEGER DEFAULT 1,
             criado_em TEXT,
             cliente_nome TEXT,
+            cliente_cpf TEXT DEFAULT '',
+            cliente_email TEXT DEFAULT '',
+            cliente_endereco TEXT DEFAULT '',
             cliente_telefone TEXT,
             cliente_ambiente TEXT,
             prazo_entrega TEXT,
@@ -88,6 +88,8 @@ def init_db():
             comissao_pct REAL DEFAULT 4,
             markup REAL DEFAULT 2.2,
             preco_venda REAL DEFAULT 0,
+            desconto_pct REAL DEFAULT 0,
+            desconto_autorizado INTEGER DEFAULT 1,
             lucro_liquido REAL DEFAULT 0,
             entrada_valor REAL DEFAULT 0,
             num_parcelas INTEGER DEFAULT 1,
@@ -97,7 +99,10 @@ def init_db():
             imagens_json TEXT DEFAULT '[]',
             ambientes_json TEXT DEFAULT '[]',
             observacoes_tecnicas TEXT DEFAULT '',
-            items_json TEXT DEFAULT '[]'
+            items_json TEXT DEFAULT '[]',
+            contrato_assinado INTEGER DEFAULT 0,
+            assinatura_data TEXT DEFAULT '',
+            assinatura_img TEXT DEFAULT ''
         )
     """)
     conn.commit()
@@ -110,10 +115,10 @@ def init_db():
         }
         cursor.execute("""
             INSERT INTO empresas (id, slug, nome_empresa, cnpj, telefone, pix, precos_json)
-            VALUES (1, 'mvi', 'MVI Móveis Planejados', '00.000.000/0001-00', '(11) 98888-7777', 'contato@mvi.com', ?)
+            VALUES (1, 'mvi', 'MVI Móveis Planejados', '00.000.000/0001-00', '(11) 98888-7777', 'financeiro@mvi.com.br', ?)
         """, (json.dumps(precos_iniciais),))
         
-        cursor.execute("INSERT OR REPLACE INTO usuarios VALUES ('admin@mvi.com', '123456', 'Administrador MVI', 'admin_empresa', 1)")
+        cursor.execute("INSERT OR REPLACE INTO usuarios VALUES ('admin@mvi.com', '123456', 'Diretoria MVI (Admin)', 'admin', 1)")
         cursor.execute("INSERT OR REPLACE INTO usuarios VALUES ('vendedor@mvi.com', '123456', 'Vendedor MVI', 'vendedor', 1)")
         
         itens_estoque = [
@@ -132,8 +137,8 @@ init_db()
 
 CURRENT_SESSION = {
     "user_email": "admin@mvi.com",
-    "user_nome": "Administrador MVI",
-    "user_perfil": "admin_empresa",
+    "user_nome": "Diretoria MVI (Admin)",
+    "user_perfil": "admin",
     "empresa_id": 1
 }
 
@@ -149,7 +154,7 @@ def get_empresa_dados(empresa_id=1):
     return {
         "id": 1, "slug": "mvi", "nome_empresa": "MVI Móveis Planejados",
         "cnpj": "00.000.000/0001-00", "telefone": "(11) 98888-7777",
-        "pix": "contato@mvi.com", "precos_json": "{}"
+        "pix": "contato@mvi.com.br", "precos_json": "{}"
     }
 
 def get_metricas():
@@ -365,9 +370,9 @@ async def submit_lead(
     conn.close()
 
     msg_zap = f"""Olá! Meu nome é *{nome}*.
-Acabei de calcular meu projeto no site da *{empresa['nome_empresa']}* (Projeto #{novo_id:04d}).
+Acabei de simular meu projeto na *{empresa['nome_empresa']}* (Projeto #{novo_id:04d}).
 
-📋 *BRIEFING:*
+📋 *RESUMO DO PROJETO:*
 • *Cidade:* {cidade}
 • *Metragem:* {area_m2_total} m²
 • *Ambientes:* {nome_amb_str}
@@ -376,52 +381,116 @@ Acabei de calcular meu projeto no site da *{empresa['nome_empresa']}* (Projeto #
 • *Portas:* {modelo_portas}
 • *Estimativa:* R$ {calc['preco_venda']:,.2f}
 
-Já enviei a foto da planta baixa e gostaria de dar andamento!"""
+Enviei a foto da planta pelo simulador e gostaria de atendimento!"""
 
     tel_limpo = empresa["telefone"].replace("(", "").replace(")", "").replace("-", "").replace(" ", "")
     zap_url = f"https://api.whatsapp.com/send?phone=55{tel_limpo}&text={urllib.parse.quote(msg_zap)}"
 
     return render_sucesso(empresa, calc["preco_venda"], zap_url)
 
-@app.post("/salvar-empresa", response_class=HTMLResponse)
-def update_empresa(nome_empresa: str = Form(...), cnpj: str = Form(...), telefone: str = Form(...), pix: str = Form(...)):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE empresas SET nome_empresa = ?, cnpj = ?, telefone = ?, pix = ? WHERE id = 1", (nome_empresa, cnpj, telefone, pix))
-    conn.commit()
-    conn.close()
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/criar-usuario", response_class=HTMLResponse)
-def new_user(nome: str = Form(...), email: str = Form(...), senha: str = Form(...), perfil: str = Form(...)):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("INSERT OR REPLACE INTO usuarios VALUES (?, ?, ?, ?, 1)", (email, senha, nome, perfil))
-    conn.commit()
-    conn.close()
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.get("/exportar-csv")
-def export_csv():
-    output = io.StringIO()
-    writer = csv.writer(output, delimiter=';')
-    writer.writerow(["ID", "Data/Hora", "Cliente", "Telefone", "Ambiente", "Preco Venda (R$)", "Lucro (R$)"])
-    
+@app.post("/salvar-dados-cliente", response_class=HTMLResponse)
+def salvar_dados_cliente(
+    orcamento_id: int = Form(...),
+    cliente_nome: str = Form(...),
+    cliente_cpf: str = Form(...),
+    cliente_email: str = Form(...),
+    cliente_telefone: str = Form(...),
+    cliente_endereco: str = Form(...),
+    desconto_pct: float = Form(0.0),
+    forma_pagamento: str = Form("Entrada + Cartão"),
+    entrada_valor: float = Form(0.0),
+    num_parcelas: int = Form(1)
+):
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 ORDER BY id DESC")
-    for r in cursor.fetchall():
-        writer.writerow([r["id"], r["criado_em"], r["cliente_nome"], r["cliente_telefone"], r["cliente_ambiente"], f"{float(r['preco_venda'] or 0):.2f}", f"{float(r['lucro_liquido'] or 0):.2f}"])
+    
+    cursor.execute("SELECT preco_venda, custo_materiais, custo_mao_obra, custo_frete_montagem FROM orcamentos WHERE id = ?", (orcamento_id,))
+    orc = cursor.fetchone()
+    
+    if orc:
+        pv_original = float(orc["preco_venda"] or 0)
+        custo_total = float(orc["custo_materiais"] or 0) + float(orc["custo_mao_obra"] or 0) + float(orc["custo_frete_montagem"] or 0)
+        
+        # Regra de Desconto
+        precisa_aprovacao = (desconto_pct > 5.0 and CURRENT_SESSION["user_perfil"] == "vendedor")
+        desconto_autorizado = 0 if precisa_aprovacao else 1
+        status = "Aguardando Liberação de Desconto" if precisa_aprovacao else "Em Fechamento / Contrato"
+        
+        pv_final = pv_original * (1.0 - (desconto_pct / 100.0))
+        lucro_final = pv_final - (custo_total + (pv_final * 0.10))
+
+        cursor.execute("""
+            UPDATE orcamentos SET
+                cliente_nome = ?, cliente_cpf = ?, cliente_email = ?,
+                cliente_telefone = ?, cliente_endereco = ?, desconto_pct = ?,
+                desconto_autorizado = ?, status = ?, preco_venda = ?,
+                lucro_liquido = ?, forma_pagamento = ?, entrada_valor = ?,
+                num_parcelas = ?
+            WHERE id = ?
+        """, (
+            cliente_nome, cliente_cpf, cliente_email, cliente_telefone,
+            cliente_endereco, desconto_pct, desconto_autorizado, status,
+            pv_final, lucro_final, forma_pagamento, entrada_valor, num_parcelas, orcamento_id
+        ))
+        conn.commit()
+    conn.close()
+    return RedirectResponse(url="/painel-get", status_code=303)
+
+@app.post("/autorizar-desconto", response_class=HTMLResponse)
+def autorizar_desconto(orcamento_id: int = Form(...), acao: str = Form(...)):
+    if CURRENT_SESSION["user_perfil"] != "admin":
+        return RedirectResponse(url="/painel-get", status_code=303)
+        
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    if acao == "aprovar":
+        cursor.execute("UPDATE orcamentos SET desconto_autorizado = 1, status = 'Desconto Autorizado' WHERE id = ?", (orcamento_id,))
+    else:
+        cursor.execute("UPDATE orcamentos SET desconto_pct = 0, desconto_autorizado = 1, status = 'Desconto Recusado' WHERE id = ?", (orcamento_id,))
+    conn.commit()
+    conn.close()
+    return RedirectResponse(url="/painel-get", status_code=303)
+
+# ROTA PÚBLICA DE ASSINATURA VIRTUAL DO CLIENTE
+@app.get("/assinar/{orcamento_id}", response_class=HTMLResponse)
+def assinar_contrato_view(orcamento_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (orcamento_id,))
+    orc = cursor.fetchone()
     conn.close()
     
-    return Response(
-        content=output.getvalue().encode('utf-8-sig'),
-        media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=relatorio-mvi.csv"}
-    )
+    if not orc:
+        return HTMLResponse("Contrato não encontrado.", status_code=404)
+        
+    empresa = get_empresa_dados(orc["empresa_id"])
+    return render_assinatura_online(orc, empresa)
 
-# INTERFACES HTML
+@app.post("/confirmar-assinatura", response_class=HTMLResponse)
+def confirmar_assinatura(orcamento_id: int = Form(...), assinatura_base64: str = Form(...)):
+    agora = datetime.now().strftime("%d/%m/%Y às %H:%M:%S")
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE orcamentos SET
+            contrato_assinado = 1,
+            assinatura_data = ?,
+            assinatura_img = ?,
+            status = 'Contrato Assinado Digitalmente'
+        WHERE id = ?
+    """, (agora, assinatura_base64, orcamento_id))
+    conn.commit()
+    conn.close()
+    return HTMLResponse(f"""
+    <div style="background:#0f172a; color:#f8fafc; font-family:sans-serif; text-align:center; padding:50px; min-height:100vh;">
+        <h1 style="color:#10b981; font-size:28px;">🎉 Contrato Assinado com Sucesso!</h1>
+        <p style="color:#94a3b8; font-size:14px; margin-top:10px;">A via assinada digitalmente foi protocolada no sistema da MVI Móveis Planejados em {agora}.</p>
+    </div>
+    """)
+
+# TELAS HTML INTERATIVAS
 
 def render_login(msg=""):
     erro = f"<div class='p-3 bg-rose-950/70 border border-rose-800 text-rose-300 text-xs rounded-xl text-center'>{msg}</div>" if msg else ""
@@ -438,7 +507,7 @@ def render_login(msg=""):
         <div class="text-center space-y-2">
             <div class="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-black text-slate-950 text-2xl shadow-lg">MVI</div>
             <h1 class="text-xl font-bold tracking-tight text-white">MVI Móveis Planejados</h1>
-            <p class="text-xs text-slate-400">Sistema Corporativo de Vendas & Engenharia</p>
+            <p class="text-xs text-slate-400">Acesso Corporativo Seguro</p>
         </div>
         {erro}
         <form action="/painel" method="post" class="space-y-4">
@@ -451,27 +520,28 @@ def render_login(msg=""):
                 <input type="password" name="password" required value="123456" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm focus:outline-none focus:border-amber-500 text-slate-200">
             </div>
             <button type="submit" class="w-full py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-sm transition-all shadow-lg">
-                Acessar Painel MVI
+                Acessar Sistema MVI
             </button>
         </form>
         <div class="border-t border-slate-800 pt-4 text-center">
             <a href="/solicitar-orcamento" target="_blank" class="text-xs text-amber-400 hover:underline font-semibold block mb-1">🔗 Ver Simulador Público (Instagram)</a>
-            <p class="text-[11px] text-slate-500">Admin: <b>admin@mvi.com</b> | Senha: <b>123456</b></p>
+            <p class="text-[11px] text-slate-500">Admin: <b>admin@mvi.com</b> | Vendedor: <b>vendedor@mvi.com</b> (Senha: 123456)</p>
         </div>
     </div>
 </body>
 </html>"""
 
 def render_dashboard_view():
-    empresa = get_empresa_dados(1)
+    empresa = get_empresa_dados(CURRENT_SESSION.get("empresa_id", 1))
     met = get_metricas()
+    is_admin = (CURRENT_SESSION["user_perfil"] == "admin")
     
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 ORDER BY id DESC LIMIT 25")
+    cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = ? ORDER BY id DESC LIMIT 25", (CURRENT_SESSION["empresa_id"],))
     leads = cursor.fetchall()
-    cursor.execute("SELECT * FROM usuarios WHERE empresa_id = 1")
+    cursor.execute("SELECT * FROM usuarios WHERE empresa_id = ?", (CURRENT_SESSION["empresa_id"],))
     equipe = cursor.fetchall()
     conn.close()
 
@@ -480,30 +550,60 @@ def render_dashboard_view():
         pv = float(h["preco_venda"] or 0)
         lucro = float(h["lucro_liquido"] or 0)
         st = h["status"] or "Em Negociação"
+        desc = float(h["desconto_pct"] or 0)
+        autorizado = int(h["desconto_autorizado"] or 1)
+        
+        # Ação de Liberação de Desconto para Admin
+        acao_desconto = ""
+        if not autorizado and is_admin:
+            acao_desconto = f"""
+            <form action="/autorizar-desconto" method="post" class="inline-flex gap-1">
+                <input type="hidden" name="orcamento_id" value="{h['id']}">
+                <button type="submit" name="acao" value="aprovar" class="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-bold">Aprovar {desc:.1f}%</button>
+                <button type="submit" name="acao" value="recusar" class="px-2 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded text-[10px] font-bold">Recusar</button>
+            </form>
+            """
+        elif not autorizado:
+            acao_desconto = f"<span class='text-[10px] text-amber-400 font-bold'>Aguardando Admin ({desc:.1f}%)</span>"
+
+        link_assinatura = f"/assinar/{h['id']}"
+        status_contrato = "<span class='text-emerald-400 font-bold'>✓ Assinado</span>" if h["contrato_assinado"] else f"<a href='{link_assinatura}' target='_blank' class='text-sky-400 underline font-bold'>✍️ Assinar Online</a>"
+
+        lucro_col = f"<td class='py-3 px-4 text-right text-emerald-400 font-bold'>R$ {lucro:,.2f}</td>" if is_admin else "<td class='py-3 px-4 text-right text-slate-500'>—</td>"
+
         leads_html += f"""
         <tr class="border-b border-slate-800 hover:bg-slate-800/40 text-xs">
             <td class="py-3 px-4 font-mono text-slate-400">#{h['id']}</td>
             <td class="py-3 px-4 text-slate-300">{h['criado_em']}</td>
-            <td class="py-3 px-4 text-white font-medium">{h['cliente_nome']}</td>
+            <td class="py-3 px-4 text-white font-medium">
+                {h['cliente_nome']}
+                <span class="block text-[10px] text-slate-400">{h['cliente_telefone']}</span>
+            </td>
             <td class="py-3 px-4 text-slate-300">{h['cliente_ambiente']}</td>
             <td class="py-3 px-4 text-right text-amber-400 font-bold">R$ {pv:,.2f}</td>
-            <td class="py-3 px-4 text-right text-emerald-400 font-bold">R$ {lucro:,.2f}</td>
-            <td class="py-3 px-4 text-center"><span class="px-2 py-1 bg-slate-950 border border-slate-700 rounded text-[10px]">{st}</span></td>
+            {lucro_col}
+            <td class="py-3 px-4 text-center">{acao_desconto if acao_desconto else st}</td>
+            <td class="py-3 px-4 text-center">{status_contrato}</td>
         </tr>
         """
 
     if not leads_html:
-        leads_html = "<tr><td colspan='7' class='py-8 text-center text-xs text-slate-500'>Nenhum lead recebido ainda. Divulgue o link da MVI.</td></tr>"
+        leads_html = "<tr><td colspan='8' class='py-8 text-center text-xs text-slate-500'>Nenhum lead recebido ainda.</td></tr>"
 
     equipe_html = ""
     for u in equipe:
-        perfil = "Admin" if u["perfil"] == "admin_empresa" else "Vendedor"
+        perfil = "Administrador" if u["perfil"] == "admin" else "Vendedor"
         equipe_html += f"""
         <li class="flex items-center justify-between py-2.5 border-b border-slate-800 text-xs">
             <div><span class="font-semibold text-white">{u['nome']}</span><span class="text-slate-400 block text-[11px]">{u['email']}</span></div>
             <span class="text-[10px] bg-amber-950 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-xl">{perfil}</span>
         </li>
         """
+
+    admin_tabs_menu = """
+    <button onclick="mudarAba('aba-equipe')" id="btn-aba-equipe" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 shrink-0">👥 Equipe & Vendedores</button>
+    <button onclick="mudarAba('aba-config')" id="btn-aba-config" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 shrink-0">⚙️ Configurações & Custos</button>
+    """ if is_admin else ""
 
     return f"""<!DOCTYPE html>
 <html lang="pt-br">
@@ -523,23 +623,25 @@ def render_dashboard_view():
         <div class="flex items-center space-x-3">
             <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-black text-slate-950 text-lg shadow">MVI</div>
             <span class="font-bold text-lg text-white">{empresa['nome_empresa']}</span>
+            <span class="text-xs bg-slate-800 border border-slate-700 text-amber-400 px-2.5 py-1 rounded-full font-bold">Perfil: {CURRENT_SESSION['user_perfil'].upper()}</span>
         </div>
         <div class="flex items-center space-x-3">
             <a href="/solicitar-orcamento" target="_blank" class="text-xs bg-amber-950 text-amber-300 border border-amber-500/40 px-3 py-1.5 rounded-xl hover:bg-amber-900/60">🔗 Link Instagram</a>
-            <span class="text-xs text-slate-400">Usuário: <b class="text-amber-400">{CURRENT_SESSION['user_nome']}</b></span>
+            <span class="text-xs text-slate-400">Operador: <b class="text-amber-400">{CURRENT_SESSION['user_nome']}</b></span>
             <a href="/" class="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-xl text-slate-300 border border-slate-700">Sair</a>
         </div>
     </header>
 
     <nav class="bg-slate-900/80 border-b border-slate-800 px-6 py-3 sticky top-0 z-50 backdrop-blur-md">
         <div class="max-w-7xl mx-auto flex items-center gap-2 overflow-x-auto">
-            <button onclick="mudarAba('aba-leads')" id="btn-aba-leads" class="tab-btn active px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 shrink-0">🏠 Leads & Orçamentos</button>
-            <button onclick="mudarAba('aba-equipe')" id="btn-aba-equipe" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 shrink-0">👥 Equipe & Vendedores</button>
-            <button onclick="mudarAba('aba-config')" id="btn-aba-config" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 shrink-0">⚙️ Dados da Empresa</button>
+            <button onclick="mudarAba('aba-leads')" id="btn-aba-leads" class="tab-btn active px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 shrink-0">🏠 Leads & Fechamento</button>
+            <button onclick="mudarAba('aba-contrato')" id="btn-aba-contrato" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 shrink-0">📑 Gerador de Contrato Pós-Venda</button>
+            {admin_tabs_menu}
         </div>
     </nav>
 
     <main class="max-w-7xl mx-auto p-6 space-y-6">
+        <!-- ABA LEADS -->
         <div id="aba-leads" class="tab-content active space-y-6">
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow">
@@ -547,22 +649,22 @@ def render_dashboard_view():
                     <p class="text-xl font-bold text-amber-400">R$ {met['faturamento']:,.2f}</p>
                 </div>
                 <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow">
-                    <p class="text-[11px] font-semibold text-slate-400 uppercase">Lucro Líquido</p>
-                    <p class="text-xl font-bold text-emerald-400">R$ {met['lucro']:,.2f}</p>
+                    <p class="text-[11px] font-semibold text-slate-400 uppercase">Lucro Projetado</p>
+                    <p class="text-xl font-bold text-emerald-400">{'R$ ' + f"{met['lucro']:,.2f}" if is_admin else 'Restrito'}</p>
                 </div>
                 <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow">
                     <p class="text-[11px] font-semibold text-slate-400 uppercase">Ticket Médio</p>
                     <p class="text-xl font-bold text-white">R$ {met['ticket']:,.2f}</p>
                 </div>
                 <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow">
-                    <p class="text-[11px] font-semibold text-slate-400 uppercase">Conversão</p>
-                    <p class="text-xl font-bold text-amber-400">{met['taxa']:.1f}%</p>
+                    <p class="text-[11px] font-semibold text-slate-400 uppercase">Projetos Fechados</p>
+                    <p class="text-xl font-bold text-amber-400">{met['aprovados']} contratos</p>
                 </div>
             </div>
 
             <div class="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow">
                 <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-850">
-                    <h3 class="text-sm font-semibold text-white">📁 Pedidos & Leads Recebidos</h3>
+                    <h3 class="text-sm font-semibold text-white">📁 Gestão de Leads & Status de Contratos</h3>
                     <a href="/exportar-csv" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold">📊 Exportar CSV</a>
                 </div>
                 <div class="overflow-x-auto">
@@ -570,12 +672,13 @@ def render_dashboard_view():
                         <thead>
                             <tr class="bg-slate-800/40 border-b border-slate-800 text-xs font-semibold text-slate-400 uppercase">
                                 <th class="py-3 px-4"># ID</th>
-                                <th class="py-3 px-4">Data/Hora</th>
+                                <th class="py-3 px-4">Data</th>
                                 <th class="py-3 px-4">Cliente</th>
                                 <th class="py-3 px-4">Ambiente</th>
                                 <th class="py-3 px-4 text-right">Valor Venda</th>
                                 <th class="py-3 px-4 text-right">Lucro</th>
-                                <th class="py-3 px-4 text-center">Status</th>
+                                <th class="py-3 px-4 text-center">Status / Desconto</th>
+                                <th class="py-3 px-4 text-center">Assinatura Digital</th>
                             </tr>
                         </thead>
                         <tbody>{leads_html}</tbody>
@@ -584,13 +687,68 @@ def render_dashboard_view():
             </div>
         </div>
 
+        <!-- ABA CONTRATOS PÓS-VENDA -->
+        <div id="aba-contrato" class="tab-content space-y-6">
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow space-y-4">
+                <h2 class="text-base font-semibold text-white">Preenchimento de Dados do Cliente para Contrato & Envio</h2>
+                <p class="text-xs text-slate-400">Preencha o CPF, endereço e condições de pagamento para liberar o link de assinatura virtual ao cliente.</p>
+                
+                <form action="/salvar-dados-cliente" method="post" class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                    <div>
+                        <label class="block text-slate-400 mb-1">Selecione o Projeto / Lead (#ID)</label>
+                        <select name="orcamento_id" class="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                            {"".join([f"<option value='{h['id']}'>#{h['id']} - {h['cliente_nome']} ({h['cliente_ambiente']})</option>" for h in leads])}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 mb-1">Nome Completo do Cliente</label>
+                        <input type="text" name="cliente_nome" required placeholder="Ex: Mariana da Silva Santos" class="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 mb-1">CPF do Cliente</label>
+                        <input type="text" name="cliente_cpf" required placeholder="000.000.000-00" class="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 mb-1">E-mail para Envio do Contrato</label>
+                        <input type="email" name="cliente_email" required placeholder="mariana@gmail.com" class="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 mb-1">WhatsApp de Contato</label>
+                        <input type="text" name="cliente_telefone" required placeholder="(11) 99999-9999" class="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 mb-1">Endereço Completo da Obra</label>
+                        <input type="text" name="cliente_endereco" required placeholder="Rua das Flores, 123 - Apto 45" class="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 mb-1">Desconto Comercial (%) - Máx 5% sem autorização</label>
+                        <input type="number" step="0.5" min="0" max="30" name="desconto_pct" value="0.0" class="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 mb-1">Forma de Pagamento</label>
+                        <input type="text" name="forma_pagamento" value="Entrada no PIX + 5x no Cartão" class="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 mb-1">Valor de Entrada (R$)</label>
+                        <input type="number" step="100" name="entrada_valor" value="5000" class="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                    </div>
+                    <div class="col-span-full pt-2">
+                        <button type="submit" class="px-6 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-xs">
+                            💾 Formalizar Contrato e Gerar Link de Assinatura Online
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- ABA EQUIPE (ADMIN) -->
         <div id="aba-equipe" class="tab-content space-y-6">
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow space-y-4">
-                    <h2 class="text-base font-semibold text-white">Cadastrar Funcionário</h2>
+                    <h2 class="text-base font-semibold text-white">Cadastrar Funcionário / Vendedor</h2>
                     <form action="/criar-usuario" method="post" class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                         <div>
-                            <label class="block text-slate-400 mb-1">Nome</label>
+                            <label class="block text-slate-400 mb-1">Nome Completo</label>
                             <input type="text" name="nome" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
                         </div>
                         <div>
@@ -602,10 +760,10 @@ def render_dashboard_view():
                             <input type="password" name="senha" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
                         </div>
                         <div>
-                            <label class="block text-slate-400 mb-1">Perfil</label>
+                            <label class="block text-slate-400 mb-1">Nível de Permissão</label>
                             <select name="perfil" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                                <option value="vendedor">Vendedor</option>
-                                <option value="admin_empresa">Gerente / Administrador</option>
+                                <option value="vendedor">Vendedor (Sem acesso a margem/custos)</option>
+                                <option value="admin">Administrador (Acesso total)</option>
                             </select>
                         </div>
                         <div class="col-span-full pt-2">
@@ -620,9 +778,10 @@ def render_dashboard_view():
             </div>
         </div>
 
+        <!-- ABA CONFIG (ADMIN) -->
         <div id="aba-config" class="tab-content space-y-6">
             <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow space-y-4">
-                <h2 class="text-base font-semibold text-white">Dados da Empresa</h2>
+                <h2 class="text-base font-semibold text-white">Dados da Empresa Licenciada</h2>
                 <form action="/salvar-empresa" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
                     <div>
                         <label class="block text-slate-400 mb-1">Nome Fantasia</label>
@@ -633,7 +792,7 @@ def render_dashboard_view():
                         <input type="text" name="cnpj" value="{empresa['cnpj']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
                     </div>
                     <div>
-                        <label class="block text-slate-400 mb-1">WhatsApp de Atendimento</label>
+                        <label class="block text-slate-400 mb-1">WhatsApp da Empresa</label>
                         <input type="text" name="telefone" value="{empresa['telefone']}" required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
                     </div>
                     <div>
@@ -670,7 +829,7 @@ def render_form_captacao(empresa):
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{empresa['nome_empresa']} - Simulador</title>
+    <title>{empresa['nome_empresa']} - Simulador de Projetos</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-between font-sans">
@@ -685,8 +844,8 @@ def render_form_captacao(empresa):
     <main class="max-w-3xl w-full mx-auto p-4 sm:p-6 my-auto">
         <form action="/enviar-solicitacao-lead" method="post" enctype="multipart/form-data" class="space-y-4 bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl">
             <div class="space-y-1 border-b border-slate-800 pb-3">
-                <h2 class="text-lg font-bold text-white">Simulador MVI de Móveis Sob Medida</h2>
-                <p class="text-xs text-slate-400">Suporte a plantas compactas e grandes projetos residenciais (acima de 160m²).</p>
+                <h2 class="text-lg font-bold text-white">Simulador de Marcenaria Sob Medida</h2>
+                <p class="text-xs text-slate-400">Envie sua planta e especificações para receber um orçamento preliminar.</p>
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -712,7 +871,7 @@ def render_form_captacao(empresa):
             </div>
 
             <div>
-                <label class="block text-xs font-semibold text-slate-300 uppercase mb-2">Ambientes Inclusos no Projeto:</label>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-2">Ambientes Inclusos:</label>
                 <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                     <label class="flex items-center space-x-2 bg-slate-950 p-2.5 rounded-xl border border-slate-800 cursor-pointer hover:border-amber-500">
                         <input type="checkbox" name="ambientes_check" value="Cozinha c/ Ilha" checked class="rounded text-amber-500">
@@ -762,6 +921,7 @@ def render_form_captacao(empresa):
                             <option value="Blum (Linha Blumotion Áustria)">Blum (Áustria / Alto Padrão)</option>
                             <option value="Hettich (Linha Sensys Alemanha)">Hettich (Alemanha)</option>
                             <option value="Häfele (Linha Matrix Box)">Häfele</option>
+                            <option value="FGVTN (Linha Slowmotion)">FGVTN</option>
                             <option value="Standard com Amortecedor">Standard</option>
                         </select>
                     </div>
@@ -841,5 +1001,75 @@ def render_sucesso(empresa, estimativa, zap_url):
             }}, 2000);
         </script>
     </div>
+</body>
+</html>"""
+
+def render_assinatura_online(orc, empresa):
+    return f"""<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Assinatura Digital de Contrato - {empresa['nome_empresa']}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen p-4 sm:p-8 font-sans">
+    <div class="max-w-4xl mx-auto bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-10 shadow-2xl space-y-6">
+        <div class="flex justify-between items-center border-b border-slate-800 pb-4">
+            <div>
+                <h1 class="text-xl font-bold text-white">CONTRATO DE PRESTAÇÃO DE SERVIÇOS DE MARCENARIA</h1>
+                <p class="text-xs text-amber-400">{empresa['nome_empresa']} | CNPJ: {empresa['cnpj']}</p>
+            </div>
+            <span class="px-3 py-1 bg-amber-950 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-bold">Contrato #{orc['id']:04d}</span>
+        </div>
+
+        <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 text-xs space-y-4 leading-relaxed text-slate-300 max-h-96 overflow-y-auto">
+            <p><b>1. DAS PARTES:</b> De um lado, <b>{empresa['nome_empresa']}</b>, e de outro lado como CONTRATANTE, <b>{orc['cliente_nome']}</b>, inscrito no CPF sob o nº <b>{orc['cliente_cpf']}</b>, residente no endereço da obra: <b>{orc['cliente_endereco']}</b>.</p>
+            <p><b>2. DO OBJETO:</b> A CONTRATADA compromete-se a fabricar, entregar e instalar os móveis planejados sob medida para os ambientes: <b>{orc['cliente_ambiente']}</b>.</p>
+            <p><b>3. DO VALOR E PAGAMENTO:</b> Pela execução do projeto, o CONTRATANTE pagará o valor global líquido de <b>R$ {float(orc['preco_venda'] or 0):,.2f}</b>, nas seguintes condições: <b>{orc['forma_pagamento']}</b>, sendo Entrada de R$ {float(orc['entrada_valor'] or 0):,.2f}.</p>
+            <p><b>4. DOS PRAZOS:</b> O prazo estimado para fabricação e montagem é de <b>{orc['prazo_entrega']}</b>, contados a partir da aprovação do projeto executivo no local.</p>
+            <p><b>5. DA GARANTIA:</b> A CONTRATADA oferece garantia de 5 (cinco) anos para as ferragens estruturais e 1 (um) ano para os painéis de MDF contra defeitos de fabricação.</p>
+        </div>
+
+        <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 space-y-3">
+            <h3 class="text-xs font-bold text-white uppercase">✍️ Assinatura Digital do Contratante</h3>
+            <p class="text-[11px] text-slate-400">Desenhe sua assinatura no quadro abaixo utilizando o dedo ou caneta touch no celular:</p>
+            
+            <div class="border-2 border-dashed border-slate-700 rounded-xl bg-white flex justify-center">
+                <canvas id="signature-pad" width="600" height="200" class="touch-none cursor-crosshair w-full max-w-[600px] h-[200px]"></canvas>
+            </div>
+            
+            <div class="flex justify-between items-center pt-2">
+                <button type="button" id="clear-btn" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs">Limpar Assinatura</button>
+                <form id="sign-form" action="/confirmar-assinatura" method="post">
+                    <input type="hidden" name="orcamento_id" value="{orc['id']}">
+                    <input type="hidden" name="assinatura_base64" id="assinatura_base64">
+                    <button type="button" id="save-btn" class="px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 font-bold rounded-xl text-xs shadow-lg">
+                        Confirmar e Assinar Contrato Digitalmente
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        var canvas = document.getElementById('signature-pad');
+        var signaturePad = new SignaturePad(canvas, {{ backgroundColor: 'rgb(255, 255, 255)' }});
+        
+        document.getElementById('clear-btn').addEventListener('click', function () {{
+            signaturePad.clear();
+        }});
+
+        document.getElementById('save-btn').addEventListener('click', function () {{
+            if (signaturePad.isEmpty()) {{
+                alert("Por favor, faça sua assinatura antes de confirmar.");
+            }} else {{
+                var dataURL = signaturePad.toDataURL();
+                document.getElementById('assinatura_base64').value = dataURL;
+                document.getElementById('sign-form').submit();
+            }}
+        }});
+    </script>
 </body>
 </html>"""
