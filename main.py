@@ -18,7 +18,7 @@ from datetime import datetime, date, timedelta
 from typing import List
 
 app = FastAPI(title="MVI Móveis Planejados - Master SaaS")
-DB_PATH = "mvi_production_stable.db"
+DB_PATH = "mvi_production_v12.db"
 
 # ==============================================================================
 # 1. TRATAMENTO DE ERROS GLOBAL
@@ -284,11 +284,6 @@ def calcular_engenharia(ambientes: list, area_m2: float, exp_caixa: str, exp_tam
             "tipo": "Ferragem", "ambiente": amb, "qtd": 4,
             "valor": 4 * corr_preco * corr_mult
         })
-        items.append({
-            "nome": f"Fita de Borda PVC ({fab_mdf})",
-            "tipo": "Insumo", "ambiente": amb, "qtd": int(m_lin * 20),
-            "valor": int(m_lin * 20) * fita_preco
-        })
         desc_promob_auto.append(f"{amb}: {num_mod} módulos caixaria {exp_caixa}, portas {fab_mdf} ({cor_mdf}), ferragens {marca_ferr} com amortecimento.")
 
     total_materiais = sum(i["valor"] for i in items)
@@ -405,7 +400,7 @@ def render_login(msg=""):
                 <input type="password" name="password" required value="123456" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm focus:outline-none focus:border-amber-500 text-slate-200">
             </div>
             <button type="submit" class="w-full py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-sm transition-all shadow-lg">
-                Acessar Painel Master
+                Acessar Painel
             </button>
         </form>
         <div class="border-t border-slate-800 pt-4 text-center">
@@ -502,8 +497,19 @@ def render_dashboard_view():
         token = u["token_primeiro_acesso"]
         concluido = u["primeiro_acesso_concluido"]
         
-        status_acesso = "<span class='text-emerald-400 font-bold'>✓ Ativo</span>" if concluido else f"""
-        <a href="/primeiro-acesso/{token}" target="_blank" class="px-2 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded text-[10px] underline">Link Convite</a>
+        status_acesso = f"""
+        <div class="flex items-center gap-2">
+            <span class='text-emerald-400 font-bold'>✓ Ativo</span>
+            <form action="/redefinir-senha-funcionario" method="post" class="inline">
+                <input type="hidden" name="email_funcionario" value="{u['email']}">
+                <button type="submit" class="px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded text-[10px]">🔄 Resetar Senha</button>
+            </form>
+        </div>
+        """ if concluido else f"""
+        <div class="flex items-center gap-2">
+            <span class='text-amber-400 font-bold'>Pendente</span>
+            <a href="/primeiro-acesso/{token}" target="_blank" class="px-2 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded text-[10px] underline">Abrir Link</a>
+        </div>
         """
 
         equipe_html += f"""
@@ -1335,402 +1341,25 @@ def render_assinatura_online(orc, empresa):
 </html>"""
 
 # ==============================================================================
-# 5. ROTAS DE CADASTRO, AUTORIZAÇÃO E CONFIGURAÇÕES
+# 5. ROTAS DE RESET DE SENHA E EXPORTAÇÃO
 # ==============================================================================
-@app.get("/", response_class=HTMLResponse)
-@app.get("/login", response_class=HTMLResponse)
-def root():
-    return render_login()
-
-@app.post("/painel", response_class=HTMLResponse)
-def login_route(username: str = Form(...), password: str = Form(...)):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM usuarios WHERE email = ? AND senha = ?", (username, password))
-    user = cursor.fetchone()
-    conn.close()
-
-    if not user:
-        return render_login("E-mail ou senha incorretos. Tente novamente.")
-
-    CURRENT_SESSION["user_email"] = user["email"]
-    CURRENT_SESSION["user_nome"] = user["nome"]
-    CURRENT_SESSION["user_perfil"] = user["perfil"]
-    CURRENT_SESSION["empresa_id"] = user["empresa_id"]
-
-    return render_dashboard_view()
-
-@app.get("/painel", response_class=HTMLResponse)
-@app.get("/painel-get", response_class=HTMLResponse)
-def painel_view():
-    return render_dashboard_view()
-
-@app.get("/solicitar-orcamento", response_class=HTMLResponse)
-@app.get("/solicitar-orcamento/{slug}", response_class=HTMLResponse)
-def captacao_view(slug: str = "mvi"):
-    empresa = get_empresa_dados(1)
-    return render_form_captacao(empresa)
-
-@app.post("/importar-promob", response_class=HTMLResponse)
-async def importar_promob(
-    cliente_nome: str = Form(...),
-    cliente_telefone: str = Form(...),
-    cliente_ambiente: str = Form(...),
-    arquivo_promob: UploadFile = File(...)
-):
-    conteudo_bytes = await arquivo_promob.read()
-    conteudo_texto = conteudo_bytes.decode("utf-8", errors="ignore")
-    
-    calc = processar_arquivo_promob(conteudo_texto, arquivo_promob.filename)
-    agora = datetime.now().strftime("%d/%m/%Y %H:%M")
-    
-    desc_auto = f"Projeto importado do Promob ({arquivo_promob.filename}). {len(calc['items'])} componentes detectados com plano de corte e ferragens."
-
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO orcamentos (
-            empresa_id, criado_em, cliente_nome, cliente_telefone, cliente_ambiente,
-            prazo_entrega, data_entrega_prevista, status, custo_materiais,
-            custo_mao_obra, custo_frete_montagem, imposto_pct, comissao_pct,
-            markup, preco_venda, lucro_liquido, entrada_valor, num_parcelas,
-            forma_pagamento, valor_recebido, imagens_json, ambientes_json,
-            observacoes_tecnicas, items_json, descricao_promob, liberado_financeiro
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-    """, (
-        1, agora, cliente_nome, cliente_telefone, cliente_ambiente,
-        "25 dias úteis", (date.today() + timedelta(days=25)).strftime("%Y-%m-%d"),
-        "Importado do Promob (CRM)", calc["total_mat"], calc["custo_mo"], calc["custo_frete"],
-        6.0, 4.0, 2.2, calc["preco_venda"], calc["lucro"], calc["preco_venda"] * 0.3, 3,
-        "Entrada + 3x Cartão", 0.0, "[]", json.dumps([cliente_ambiente]),
-        desc_auto, json.dumps(calc["items"]), desc_auto
-    ))
-    conn.commit()
-    conn.close()
-
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/enviar-solicitacao-lead", response_class=HTMLResponse)
-async def submit_lead(
-    nome: str = Form(...),
-    whatsapp: str = Form(...),
-    area_m2_total: float = Form(180.0),
-    espessura_caixa: str = Form("MDF 18mm"),
-    espessura_tamponamento: str = Form("Tamponamento 25mm"),
-    fabricante_mdf: str = Form("Duratex"),
-    cor_mdf: str = Form("Freijó Puro / Natural"),
-    modelo_portas: str = Form("Perfil Gola em Alumínio (Rometal)"),
-    marca_ferragens: str = Form("Blum (Linha Blumotion Áustria)"),
-    ambientes_check: List[str] = Form(["Cozinha c/ Ilha", "Suíte Master c/ Closet"]),
-    cidade: str = Form(...),
-    descricao: str = Form(""),
-    planta: UploadFile = File(...),
-    inspiracao: UploadFile = File(None)
-):
-    empresa = get_empresa_dados(1)
-    calc = calcular_engenharia(
-        ambientes_check, area_m2_total, espessura_caixa, espessura_tamponamento,
-        fabricante_mdf, cor_mdf, modelo_portas, marca_ferragens
-    )
-
-    agora = datetime.now().strftime("%d/%m/%Y %H:%M")
-    imagens = []
-    
-    content_planta = await planta.read()
-    if content_planta:
-        imagens.append(base64.b64encode(content_planta).decode("utf-8"))
-
-    if inspiracao:
-        try:
-            content_insp = await inspiracao.read()
-            if content_insp:
-                imagens.append(base64.b64encode(content_insp).decode("utf-8"))
-        except Exception:
-            pass
-
-    nome_amb_str = " + ".join(ambientes_check)
-    obs = f"Lead {area_m2_total}m² ({cidade}) | MDF: {fabricante_mdf} ({cor_mdf}) | Ferragens: {marca_ferragens} | Portas: {modelo_portas}"
-    if descricao:
-        obs += f" | Obs: {descricao}"
-
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO orcamentos (
-            empresa_id, criado_em, cliente_nome, cliente_telefone, cliente_ambiente,
-            prazo_entrega, data_entrega_prevista, status, custo_materiais,
-            custo_mao_obra, custo_frete_montagem, imposto_pct, comissao_pct,
-            markup, preco_venda, lucro_liquido, entrada_valor, num_parcelas,
-            forma_pagamento, valor_recebido, imagens_json, ambientes_json,
-            observacoes_tecnicas, items_json, descricao_promob, liberado_financeiro
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-    """, (
-        1, agora, nome, whatsapp, nome_amb_str,
-        "30 dias úteis", (date.today() + timedelta(days=30)).strftime("%Y-%m-%d"),
-        "Novo Lead Instagram", calc["total_mat"], calc["custo_mo"], calc["custo_frete"],
-        6.0, 4.0, 2.2, calc["preco_venda"], calc["lucro"], calc["preco_venda"] * 0.3, 3,
-        "Entrada + 3x Cartão", 0.0, json.dumps(imagens), json.dumps(ambientes_check),
-        obs, json.dumps(calc["items"]), calc["desc_promob"]
-    ))
-    conn.commit()
-    novo_id = cursor.lastrowid
-    conn.close()
-
-    msg_zap = f"""Olá! Meu nome é *{nome}*.
-Simulei meu projeto na *{empresa['nome_empresa']}* (Projeto #{novo_id:04d}).
-
-📋 *RESUMO DO PROJETO:*
-• *Cidade:* {cidade}
-• *Metragem:* {area_m2_total} m²
-• *Ambientes:* {nome_amb_str}
-• *MDF:* {fabricante_mdf} ({cor_mdf})
-• *Ferragens:* {marca_ferragens}
-• *Portas:* {modelo_portas}
-• *Caixaria/Tamponamento:* {espessura_caixa} / {espessura_tamponamento}
-• *Estimativa:* R$ {calc['preco_venda']:,.2f}
-
-Enviei a foto da planta pelo simulador e gostaria de atendimento!"""
-
-    tel_limpo = empresa["telefone"].replace("(", "").replace(")", "").replace("-", "").replace(" ", "")
-    zap_url = f"https://api.whatsapp.com/send?phone=55{tel_limpo}&text={urllib.parse.quote(msg_zap)}"
-
-    return render_sucesso(empresa, calc["preco_venda"], zap_url)
-
-@app.post("/salvar-dados-completos-cliente", response_class=HTMLResponse)
-def salvar_dados_completos_cliente(
-    orcamento_id: int = Form(...),
-    cliente_nome: str = Form(...),
-    cliente_cpf: str = Form(...),
-    cliente_rg: str = Form(...),
-    cliente_rg_emissor: str = Form(...),
-    cliente_nascimento: str = Form(...),
-    cliente_pais: str = Form("Brasil"),
-    cliente_cidade: str = Form(...),
-    cliente_email: str = Form(...),
-    cliente_telefone: str = Form(...),
-    cliente_telefone_2: str = Form(""),
-    cliente_cep_postal: str = Form(""),
-    cliente_endereco_postal: str = Form(""),
-    cliente_cep_entrega: str = Form(""),
-    cliente_endereco_entrega: str = Form(""),
-    cliente_banco: str = Form(""),
-    cliente_agencia: str = Form(""),
-    cliente_conta: str = Form(""),
-    cliente_renda: str = Form(""),
-    ref_nome_1: str = Form(""),
-    ref_tel_1: str = Form(""),
-    ref_nome_2: str = Form(""),
-    ref_tel_2: str = Form(""),
-    descricao_manual: str = Form(""),
-    desconto_pct: float = Form(0.0),
-    forma_pagamento: str = Form("Entrada + Cartão"),
-    entrada_valor: float = Form(0.0),
-    num_parcelas: int = Form(1)
-):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT preco_venda, custo_materiais, custo_mao_obra, custo_frete_montagem FROM orcamentos WHERE id = ?", (orcamento_id,))
-    orc = cursor.fetchone()
-    
-    if orc:
-        pv_orig = float(orc["preco_venda"] or 0)
-        custo_tot = float(orc["custo_materiais"] or 0) + float(orc["custo_mao_obra"] or 0) + float(orc["custo_frete_montagem"] or 0)
-        
-        precisa_aprov = (desconto_pct > 3.0 and CURRENT_SESSION["user_perfil"] == "vendedor")
-        desconto_autorizado = 0 if precisa_aprov else 1
-        status = "Aguardando Liberação de Desconto" if precisa_aprov else "Contrato Pronto para Assinatura"
-        
-        pv_final = pv_orig * (1.0 - (desconto_pct / 100.0))
-        lucro_final = pv_final - (custo_tot + (pv_final * 0.10))
-
-        cursor.execute("""
-            UPDATE orcamentos SET
-                cliente_nome = ?, cliente_cpf = ?, cliente_rg = ?, cliente_rg_emissor = ?,
-                cliente_nascimento = ?, cliente_pais = ?, cliente_cidade = ?, cliente_email = ?,
-                cliente_telefone = ?, cliente_telefone_2 = ?, cliente_cep_postal = ?, cliente_endereco_postal = ?,
-                cliente_cep_entrega = ?, cliente_endereco_entrega = ?, cliente_banco = ?, cliente_agencia = ?,
-                cliente_conta = ?, cliente_renda = ?, ref_nome_1 = ?, ref_tel_1 = ?, ref_nome_2 = ?, ref_tel_2 = ?,
-                descricao_manual = ?, desconto_pct = ?, desconto_autorizado = ?, status = ?, preco_venda = ?,
-                lucro_liquido = ?, forma_pagamento = ?, entrada_valor = ?, num_parcelas = ?
-            WHERE id = ?
-        """, (
-            cliente_nome, cliente_cpf, cliente_rg, cliente_rg_emissor,
-            cliente_nascimento, cliente_pais, cliente_cidade, cliente_email,
-            cliente_telefone, cliente_telefone_2, cliente_cep_postal, cliente_endereco_postal,
-            cliente_cep_entrega, cliente_endereco_entrega, cliente_banco, cliente_agencia,
-            cliente_conta, cliente_renda, ref_nome_1, ref_tel_1, ref_nome_2, ref_tel_2,
-            descricao_manual, desconto_pct, desconto_autorizado, status, pv_final,
-            lucro_final, forma_pagamento, entrada_valor, num_parcelas, orcamento_id
-        ))
-        conn.commit()
-    conn.close()
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/salvar-adendo", response_class=HTMLResponse)
-def salvar_adendo(
-    orcamento_id: int = Form(...),
-    adendo_descricao: str = Form(...),
-    adendo_valor: float = Form(0.0)
-):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE orcamentos SET
-            adendo_descricao = ?,
-            adendo_valor = ?,
-            status = 'Contrato com Adendo Adicionado'
-        WHERE id = ?
-    """, (adendo_descricao, adendo_valor, orcamento_id))
-    conn.commit()
-    conn.close()
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/autorizar-com-chave", response_class=HTMLResponse)
-def autorizar_com_chave(
-    orcamento_id: int = Form(...),
-    chave_digitada: str = Form(...),
-    tipo_acao: str = Form(...)
-):
-    empresa = get_empresa_dados(CURRENT_SESSION.get("empresa_id", 1))
-    chave_oficial = empresa.get("chave_mestra", "MVI2026")
-    
-    if chave_digitada.strip() != chave_oficial.strip():
-        return HTMLResponse("""
-        <div style="background:#0f172a; color:#f8fafc; font-family:sans-serif; text-align:center; padding:50px; min-height:100vh;">
-            <h1 style="color:#ef4444; font-size:26px;">❌ Chave Mestra Incorreta</h1>
-            <p style="color:#94a3b8; font-size:14px; margin-top:10px;">Apenas o Administrador possui a chave de liberação.</p>
-            <a href="/painel" style="display:inline-block; margin-top:20px; padding:10px 25px; background:#f59e0b; color:#0f172a; font-weight:bold; border-radius:10px; text-decoration:none;">Voltar ao Painel</a>
-        </div>
-        """, status_code=403)
-
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    if tipo_acao == "desconto":
-        cursor.execute("UPDATE orcamentos SET desconto_autorizado = 1, status = 'Desconto Autorizado pela Diretoria' WHERE id = ?", (orcamento_id,))
-    elif tipo_acao == "financeiro":
-        cursor.execute("UPDATE orcamentos SET liberado_financeiro = 1, status = 'Liberado para Financeiro & Fábrica' WHERE id = ?", (orcamento_id,))
-    conn.commit()
-    conn.close()
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.get("/assinar/{orcamento_id}", response_class=HTMLResponse)
-def assinar_contrato_view(orcamento_id: int):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (orcamento_id,))
-    orc = cursor.fetchone()
-    conn.close()
-    
-    if not orc:
-        return HTMLResponse("Contrato não encontrado.", status_code=404)
-        
-    empresa = get_empresa_dados(orc["empresa_id"])
-    return render_assinatura_online(orc, empresa)
-
-@app.post("/confirmar-assinatura", response_class=HTMLResponse)
-def confirmar_assinatura(orcamento_id: int = Form(...), assinatura_base64: str = Form(...)):
-    agora = datetime.now().strftime("%d/%m/%Y às %H:%M:%S")
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE orcamentos SET
-            contrato_assinado = 1,
-            assinatura_data = ?,
-            assinatura_img = ?,
-            status = 'Contrato Assinado Digitalmente'
-        WHERE id = ?
-    """, (agora, assinatura_base64, orcamento_id))
-    conn.commit()
-    conn.close()
-    return HTMLResponse(f"""
-    <div style="background:#0f172a; color:#f8fafc; font-family:sans-serif; text-align:center; padding:50px; min-height:100vh;">
-        <h1 style="color:#10b981; font-size:28px;">🎉 Contrato Assinado Digitalmente com Sucesso!</h1>
-        <p style="color:#94a3b8; font-size:14px; margin-top:10px;">Protocolado no sistema da MVI Móveis Planejados em {agora}.</p>
-    </div>
-    """)
-
-@app.post("/criar-usuario", response_class=HTMLResponse)
-def criar_usuario_com_convite(request: Request, nome: str = Form(...), email: str = Form(...), perfil: str = Form(...), telefone: str = Form("")):
+@app.post("/redefinir-senha-funcionario", response_class=HTMLResponse)
+def redefinir_senha_funcionario(request: Request, email_funcionario: str = Form(...)):
     if CURRENT_SESSION.get("user_perfil") != "admin":
         return RedirectResponse(url="/painel-get", status_code=303)
         
-    token_convite = secrets.token_urlsafe(16)
+    novo_token = secrets.token_urlsafe(16)
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT OR REPLACE INTO usuarios (email, senha, nome, perfil, empresa_id, token_primeiro_acesso, primeiro_acesso_concluido)
-        VALUES (?, '', ?, ?, 1, ?, 0)
-    """, (email.strip().lower(), nome, perfil, token_convite))
+        UPDATE usuarios SET
+            token_primeiro_acesso = ?,
+            primeiro_acesso_concluido = 0
+        WHERE email = ?
+    """, (novo_token, email_funcionario))
     conn.commit()
     conn.close()
 
     base_url = str(request.base_url).rstrip("/")
-    link_primeiro_acesso = f"{base_url}/primeiro-acesso/{token_convite}"
-    return render_convite_gerado(nome, email, perfil, telefone, link_primeiro_acesso)
-
-@app.get("/primeiro-acesso/{token}", response_class=HTMLResponse)
-def tela_primeiro_acesso(token: str):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM usuarios WHERE token_primeiro_acesso = ?", (token,))
-    user = cursor.fetchone()
-    conn.close()
-
-    if not user:
-        return HTMLResponse("Link inválido ou já utilizado.", status_code=404)
-    return render_tela_nova_senha(user, token)
-
-@app.post("/salvar-nova-senha", response_class=HTMLResponse)
-def salvar_nova_senha(token: str = Form(...), nova_senha: str = Form(...), confirma_senha: str = Form(...)):
-    if nova_senha != confirma_senha or len(nova_senha) < 6:
-        return HTMLResponse("<script>alert('As senhas não coincidem ou possuem menos de 6 caracteres!'); history.back();</script>")
-
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE usuarios SET senha = ?, token_primeiro_acesso = '', primeiro_acesso_concluido = 1 WHERE token_primeiro_acesso = ?", (nova_senha, token))
-    conn.commit()
-    conn.close()
-
-    return HTMLResponse("""
-    <div style="background:#0f172a; color:#f8fafc; font-family:sans-serif; text-align:center; padding:50px; min-height:100vh;">
-        <h1 style="color:#10b981; font-size:28px;">🎉 Senha Criada com Sucesso!</h1>
-        <p style="color:#94a3b8; font-size:14px; margin-top:10px;">Sua conta foi ativada. Você já pode acessar o painel.</p>
-        <a href="/" style="display:inline-block; margin-top:20px; padding:12px 30px; background:#f59e0b; color:#0f172a; font-weight:bold; border-radius:10px; text-decoration:none;">Acessar o Painel Agora</a>
-    </div>
-    """)
-
-@app.post("/salvar-empresa", response_class=HTMLResponse)
-def update_empresa(nome_empresa: str = Form(...), cnpj: str = Form(...), telefone: str = Form(...), pix: str = Form(...), chave_mestra: str = Form("MVI2026")):
-    if CURRENT_SESSION.get("user_perfil") != "admin":
-        return RedirectResponse(url="/painel-get", status_code=303)
-        
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE empresas SET nome_empresa = ?, cnpj = ?, telefone = ?, pix = ?, chave_mestra = ? WHERE id = 1", (nome_empresa, cnpj, telefone, pix, chave_mestra))
-    conn.commit()
-    conn.close()
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.get("/exportar-csv")
-def export_csv():
-    output = io.StringIO()
-    writer = csv.writer(output, delimiter=';')
-    writer.writerow(["ID", "Data/Hora", "Cliente", "CPF", "Telefone", "Ambiente", "Preco Venda (R$)", "Status"])
-    
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 ORDER BY id DESC")
-    for r in cursor.fetchall():
-        writer.writerow([r["id"], r["criado_em"], r["cliente_nome"], r["cliente_cpf"], r["cliente_telefone"], r["cliente_ambiente"], f"{float(r['preco_venda'] or 0):.2f}", r["status"]])
-    conn.close()
-    
-    return Response(
-        content=output.getvalue().encode('utf-8-sig'),
-        media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=relatorio-mvi.csv"}
-    )
+    link_reset = f"{base_url}/primeiro-acesso/{novo_token}"
+    return render_convite_gerado("Funcionário MVI", email_funcionario, "Redefinição de Senha", "", link_reset)
