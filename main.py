@@ -18,7 +18,7 @@ from datetime import datetime, date, timedelta
 from typing import List
 
 app = FastAPI(title="MVI Móveis Planejados - Master SaaS")
-DB_PATH = "mvi_production_v10.db"
+DB_PATH = "mvi_saas_final.db"
 
 # ==========================================
 # 1. TRATAMENTO DE ERROS GLOBAL
@@ -30,12 +30,12 @@ async def global_exception_handler(request: Request, exc: Exception):
     <div style="background:#0f172a; color:#f8fafc; font-family:sans-serif; padding:30px; min-height:100vh;">
         <h2 style="color:#f59e0b;">⚠️ Diagnóstico do Sistema MVI</h2>
         <pre style="background:#1e293b; color:#f43f5e; padding:15px; border-radius:10px; font-size:12px; overflow-x:auto;">{err}</pre>
-        <a href="/" style="display:inline-block; margin-top:15px; padding:10px 20px; background:#f59e0b; color:#0f172a; font-weight:bold; border-radius:8px; text-decoration:none;">Voltar ao Login</a>
+        <a href="/" style="display:inline-block; margin-top:15px; padding:10px 20px; background:#f59e0b; color:#0f172a; font-weight:bold; border-radius:8px; text-decoration:none;">Voltar ao Início</a>
     </div>
     """, status_code=500)
 
 # ==========================================
-# 2. BANCO DE DADOS & SESSÃO
+# 2. BANCO DE DADOS
 # ==========================================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -367,46 +367,410 @@ def processar_arquivo_promob(conteudo_texto: str, nome_arquivo: str):
     }
 
 # ==========================================
-# 3. FUNÇÕES DE RENDERIZAÇÃO HTML (DECLARADAS ANTES DAS ROTAS)
+# 3. ROTAS DECLARADAS COM PRIORIDADE TOTAL
 # ==========================================
-def render_login(msg=""):
-    erro = f"<div class='p-3 bg-rose-950/70 border border-rose-800 text-rose-300 text-xs rounded-xl text-center'>{msg}</div>" if msg else ""
-    return f"""<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MVI Móveis Planejados - Login</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4 font-sans">
-    <div class="max-w-md w-full bg-slate-900 border border-amber-500/30 rounded-3xl p-8 shadow-2xl space-y-6">
-        <div class="text-center space-y-2">
-            <div class="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-black text-slate-950 text-2xl shadow-lg">MVI</div>
-            <h1 class="text-xl font-bold tracking-tight text-white">MVI Móveis Planejados</h1>
-            <p class="text-xs text-slate-400">Hub Integrador Promob & Gestão Contratual</p>
+
+@app.get("/", response_class=HTMLResponse)
+@app.get("/login", response_class=HTMLResponse)
+def root():
+    return render_login()
+
+@app.post("/painel", response_class=HTMLResponse)
+def login(username: str = Form(...), password: str = Form(...)):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM usuarios WHERE email = ? AND senha = ?", (username, password))
+    user = cursor.fetchone()
+    conn.close()
+
+    if not user:
+        return render_login("E-mail ou senha incorretos. Tente novamente.")
+
+    CURRENT_SESSION["user_email"] = user["email"]
+    CURRENT_SESSION["user_nome"] = user["nome"]
+    CURRENT_SESSION["user_perfil"] = user["perfil"]
+    CURRENT_SESSION["empresa_id"] = user["empresa_id"]
+
+    return render_dashboard_view()
+
+@app.get("/painel", response_class=HTMLResponse)
+@app.get("/painel-get", response_class=HTMLResponse)
+def painel_view():
+    return render_dashboard_view()
+
+@app.get("/solicitar-orcamento", response_class=HTMLResponse)
+@app.get("/solicitar-orcamento/{slug}", response_class=HTMLResponse)
+def captacao_view(slug: str = "mvi"):
+    empresa = get_empresa_dados(1)
+    return render_form_captacao(empresa)
+
+@app.post("/importar-promob", response_class=HTMLResponse)
+async def importar_promob(
+    cliente_nome: str = Form(...),
+    cliente_telefone: str = Form(...),
+    cliente_ambiente: str = Form(...),
+    arquivo_promob: UploadFile = File(...)
+):
+    conteudo_bytes = await arquivo_promob.read()
+    conteudo_texto = conteudo_bytes.decode("utf-8", errors="ignore")
+    
+    calc = processar_arquivo_promob(conteudo_texto, arquivo_promob.filename)
+    agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+    
+    desc_auto = f"Projeto importado do Promob ({arquivo_promob.filename}). {len(calc['items'])} componentes detectados com plano de corte e ferragens."
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO orcamentos (
+            empresa_id, criado_em, cliente_nome, cliente_telefone, cliente_ambiente,
+            prazo_entrega, data_entrega_prevista, status, custo_materiais,
+            custo_mao_obra, custo_frete_montagem, imposto_pct, comissao_pct,
+            markup, preco_venda, lucro_liquido, entrada_valor, num_parcelas,
+            forma_pagamento, valor_recebido, imagens_json, ambientes_json,
+            observacoes_tecnicas, items_json, descricao_promob, liberado_financeiro
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+    """, (
+        1, agora, cliente_nome, cliente_telefone, cliente_ambiente,
+        "25 dias úteis", (date.today() + timedelta(days=25)).strftime("%Y-%m-%d"),
+        "Importado do Promob (CRM)", calc["total_mat"], calc["custo_mo"], calc["custo_frete"],
+        6.0, 4.0, 2.2, calc["preco_venda"], calc["lucro"], calc["preco_venda"] * 0.3, 3,
+        "Entrada + 3x Cartão", 0.0, "[]", json.dumps([cliente_ambiente]),
+        desc_auto, json.dumps(calc["items"]), desc_auto
+    ))
+    conn.commit()
+    conn.close()
+
+    return RedirectResponse(url="/painel-get", status_code=303)
+
+@app.post("/enviar-solicitacao-lead", response_class=HTMLResponse)
+async def submit_lead(
+    nome: str = Form(...),
+    whatsapp: str = Form(...),
+    area_m2_total: float = Form(180.0),
+    espessura_caixa: str = Form("MDF 18mm"),
+    espessura_tamponamento: str = Form("Tamponamento 25mm"),
+    fabricante_mdf: str = Form("Duratex"),
+    cor_mdf: str = Form("Freijó"),
+    modelo_portas: str = Form("Perfil Gola em Alumínio"),
+    marca_ferragens: str = Form("Blum (Linha Blumotion Áustria)"),
+    ambientes_check: List[str] = Form(["Cozinha c/ Ilha", "Suíte Master c/ Closet"]),
+    cidade: str = Form(...),
+    descricao: str = Form(""),
+    planta: UploadFile = File(...),
+    inspiracao: UploadFile = File(None)
+):
+    empresa = get_empresa_dados(1)
+    calc = calcular_engenharia(
+        ambientes_check, area_m2_total, espessura_caixa, espessura_tamponamento,
+        fabricante_mdf, cor_mdf, modelo_portas, marca_ferragens
+    )
+
+    agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+    imagens = []
+    
+    content_planta = await planta.read()
+    if content_planta:
+        imagens.append(base64.b64encode(content_planta).decode("utf-8"))
+
+    if inspiracao:
+        try:
+            content_insp = await inspiracao.read()
+            if content_insp:
+                imagens.append(base64.b64encode(content_insp).decode("utf-8"))
+        except Exception:
+            pass
+
+    nome_amb_str = " + ".join(ambientes_check)
+    obs = f"Lead {area_m2_total}m² ({cidade}) | MDF: {fabricante_mdf} ({cor_mdf}) | Ferragens: {marca_ferragens} | Portas: {modelo_portas}"
+    if descricao:
+        obs += f" | Obs: {descricao}"
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO orcamentos (
+            empresa_id, criado_em, cliente_nome, cliente_telefone, cliente_ambiente,
+            prazo_entrega, data_entrega_prevista, status, custo_materiais,
+            custo_mao_obra, custo_frete_montagem, imposto_pct, comissao_pct,
+            markup, preco_venda, lucro_liquido, entrada_valor, num_parcelas,
+            forma_pagamento, valor_recebido, imagens_json, ambientes_json,
+            observacoes_tecnicas, items_json, descricao_promob, liberado_financeiro
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+    """, (
+        1, agora, nome, whatsapp, nome_amb_str,
+        "30 dias úteis", (date.today() + timedelta(days=30)).strftime("%Y-%m-%d"),
+        "Novo Lead Instagram", calc["total_mat"], calc["custo_mo"], calc["custo_frete"],
+        6.0, 4.0, 2.2, calc["preco_venda"], calc["lucro"], calc["preco_venda"] * 0.3, 3,
+        "Entrada + 3x Cartão", 0.0, json.dumps(imagens), json.dumps(ambientes_check),
+        obs, json.dumps(calc["items"]), calc["desc_promob"]
+    ))
+    conn.commit()
+    novo_id = cursor.lastrowid
+    conn.close()
+
+    msg_zap = f"""Olá! Meu nome é *{nome}*.
+Simulei meu projeto na *{empresa['nome_empresa']}* (Projeto #{novo_id:04d}).
+
+📋 *RESUMO DO PROJETO:*
+• *Cidade:* {cidade}
+• *Metragem:* {area_m2_total} m²
+• *Ambientes:* {nome_amb_str}
+• *MDF:* {fabricante_mdf} ({cor_mdf})
+• *Ferragens:* {marca_ferragens}
+• *Portas:* {modelo_portas}
+• *Caixaria/Tamponamento:* {espessura_caixa} / {espessura_tamponamento}
+• *Estimativa:* R$ {calc['preco_venda']:,.2f}
+
+Enviei a foto da planta pelo simulador e gostaria de atendimento!"""
+
+    tel_limpo = empresa["telefone"].replace("(", "").replace(")", "").replace("-", "").replace(" ", "")
+    zap_url = f"https://api.whatsapp.com/send?phone=55{tel_limpo}&text={urllib.parse.quote(msg_zap)}"
+
+    return render_sucesso(empresa, calc["preco_venda"], zap_url)
+
+@app.post("/salvar-dados-completos-cliente", response_class=HTMLResponse)
+def salvar_dados_completos_cliente(
+    orcamento_id: int = Form(...),
+    cliente_nome: str = Form(...),
+    cliente_cpf: str = Form(...),
+    cliente_rg: str = Form(...),
+    cliente_rg_emissor: str = Form(...),
+    cliente_nascimento: str = Form(...),
+    cliente_pais: str = Form("Brasil"),
+    cliente_cidade: str = Form(...),
+    cliente_email: str = Form(...),
+    cliente_telefone: str = Form(...),
+    cliente_telefone_2: str = Form(""),
+    cliente_cep_postal: str = Form(""),
+    cliente_endereco_postal: str = Form(""),
+    cliente_cep_entrega: str = Form(""),
+    cliente_endereco_entrega: str = Form(""),
+    cliente_banco: str = Form(""),
+    cliente_agencia: str = Form(""),
+    cliente_conta: str = Form(""),
+    cliente_renda: str = Form(""),
+    ref_nome_1: str = Form(""),
+    ref_tel_1: str = Form(""),
+    ref_nome_2: str = Form(""),
+    ref_tel_2: str = Form(""),
+    descricao_manual: str = Form(""),
+    desconto_pct: float = Form(0.0),
+    forma_pagamento: str = Form("Entrada + Cartão"),
+    entrada_valor: float = Form(0.0),
+    num_parcelas: int = Form(1)
+):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT preco_venda, custo_materiais, custo_mao_obra, custo_frete_montagem FROM orcamentos WHERE id = ?", (orcamento_id,))
+    orc = cursor.fetchone()
+    
+    if orc:
+        pv_orig = float(orc["preco_venda"] or 0)
+        custo_tot = float(orc["custo_materiais"] or 0) + float(orc["custo_mao_obra"] or 0) + float(orc["custo_frete_montagem"] or 0)
+        
+        precisa_aprov = (desconto_pct > 3.0 and CURRENT_SESSION["user_perfil"] == "vendedor")
+        desconto_autorizado = 0 if precisa_aprov else 1
+        status = "Aguardando Liberação de Desconto" if precisa_aprov else "Contrato Pronto para Assinatura"
+        
+        pv_final = pv_orig * (1.0 - (desconto_pct / 100.0))
+        lucro_final = pv_final - (custo_tot + (pv_final * 0.10))
+
+        cursor.execute("""
+            UPDATE orcamentos SET
+                cliente_nome = ?, cliente_cpf = ?, cliente_rg = ?, cliente_rg_emissor = ?,
+                cliente_nascimento = ?, cliente_pais = ?, cliente_cidade = ?, cliente_email = ?,
+                cliente_telefone = ?, cliente_telefone_2 = ?, cliente_cep_postal = ?, cliente_endereco_postal = ?,
+                cliente_cep_entrega = ?, cliente_endereco_entrega = ?, cliente_banco = ?, cliente_agencia = ?,
+                cliente_conta = ?, cliente_renda = ?, ref_nome_1 = ?, ref_tel_1 = ?, ref_nome_2 = ?, ref_tel_2 = ?,
+                descricao_manual = ?, desconto_pct = ?, desconto_autorizado = ?, status = ?, preco_venda = ?,
+                lucro_liquido = ?, forma_pagamento = ?, entrada_valor = ?, num_parcelas = ?
+            WHERE id = ?
+        """, (
+            cliente_nome, cliente_cpf, cliente_rg, cliente_rg_emissor,
+            cliente_nascimento, cliente_pais, cliente_cidade, cliente_email,
+            cliente_telefone, cliente_telefone_2, cliente_cep_postal, cliente_endereco_postal,
+            cliente_cep_entrega, cliente_endereco_entrega, cliente_banco, cliente_agencia,
+            cliente_conta, cliente_renda, ref_nome_1, ref_tel_1, ref_nome_2, ref_tel_2,
+            descricao_manual, desconto_pct, desconto_autorizado, status, pv_final,
+            lucro_final, forma_pagamento, entrada_valor, num_parcelas, orcamento_id
+        ))
+        conn.commit()
+    conn.close()
+    return RedirectResponse(url="/painel-get", status_code=303)
+
+@app.post("/salvar-adendo", response_class=HTMLResponse)
+def salvar_adendo(
+    orcamento_id: int = Form(...),
+    adendo_descricao: str = Form(...),
+    adendo_valor: float = Form(0.0)
+):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE orcamentos SET
+            adendo_descricao = ?,
+            adendo_valor = ?,
+            status = 'Contrato com Adendo Adicionado'
+        WHERE id = ?
+    """, (adendo_descricao, adendo_valor, orcamento_id))
+    conn.commit()
+    conn.close()
+    return RedirectResponse(url="/painel-get", status_code=303)
+
+@app.post("/autorizar-com-chave", response_class=HTMLResponse)
+def autorizar_com_chave(
+    orcamento_id: int = Form(...),
+    chave_digitada: str = Form(...),
+    tipo_acao: str = Form(...)
+):
+    empresa = get_empresa_dados(CURRENT_SESSION.get("empresa_id", 1))
+    chave_oficial = empresa.get("chave_mestra", "MVI2026")
+    
+    if chave_digitada.strip() != chave_oficial.strip():
+        return HTMLResponse("""
+        <div style="background:#0f172a; color:#f8fafc; font-family:sans-serif; text-align:center; padding:50px; min-height:100vh;">
+            <h1 style="color:#ef4444; font-size:26px;">❌ Chave Mestra Incorreta</h1>
+            <p style="color:#94a3b8; font-size:14px; margin-top:10px;">Apenas o Administrador possui a chave de liberação.</p>
+            <a href="/painel" style="display:inline-block; margin-top:20px; padding:10px 25px; background:#f59e0b; color:#0f172a; font-weight:bold; border-radius:10px; text-decoration:none;">Voltar ao Painel</a>
         </div>
-        {erro}
-        <form action="/painel" method="post" class="space-y-4">
-            <div>
-                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">E-mail</label>
-                <input type="email" name="username" required value="admin@mvi.com" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm focus:outline-none focus:border-amber-500 text-slate-200">
-            </div>
-            <div>
-                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Senha</label>
-                <input type="password" name="password" required value="123456" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm focus:outline-none focus:border-amber-500 text-slate-200">
-            </div>
-            <button type="submit" class="w-full py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-sm transition-all shadow-lg">
-                Acessar Painel
-            </button>
-        </form>
-        <div class="border-t border-slate-800 pt-4 text-center">
-            <a href="/solicitar-orcamento" target="_blank" class="text-xs text-amber-400 hover:underline font-semibold block mb-1">🔗 Ver Simulador Público (Instagram)</a>
-            <p class="text-[11px] text-slate-500">Admin: <b>admin@mvi.com</b> | Vendedor: <b>vendedor@mvi.com</b> (Senha: 123456)</p>
-        </div>
+        """, status_code=403)
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    if tipo_acao == "desconto":
+        cursor.execute("UPDATE orcamentos SET desconto_autorizado = 1, status = 'Desconto Autorizado pela Diretoria' WHERE id = ?", (orcamento_id,))
+    elif tipo_acao == "financeiro":
+        cursor.execute("UPDATE orcamentos SET liberado_financeiro = 1, status = 'Liberado para Financeiro & Fábrica' WHERE id = ?", (orcamento_id,))
+    conn.commit()
+    conn.close()
+    return RedirectResponse(url="/painel-get", status_code=303)
+
+@app.get("/assinar/{orcamento_id}", response_class=HTMLResponse)
+def assinar_contrato_view(orcamento_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (orcamento_id,))
+    orc = cursor.fetchone()
+    conn.close()
+    
+    if not orc:
+        return HTMLResponse("Contrato não encontrado.", status_code=404)
+        
+    empresa = get_empresa_dados(orc["empresa_id"])
+    return render_assinatura_online(orc, empresa)
+
+@app.post("/confirmar-assinatura", response_class=HTMLResponse)
+def confirmar_assinatura(orcamento_id: int = Form(...), assinatura_base64: str = Form(...)):
+    agora = datetime.now().strftime("%d/%m/%Y às %H:%M:%S")
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE orcamentos SET
+            contrato_assinado = 1,
+            assinatura_data = ?,
+            assinatura_img = ?,
+            status = 'Contrato Assinado Digitalmente'
+        WHERE id = ?
+    """, (agora, assinatura_base64, orcamento_id))
+    conn.commit()
+    conn.close()
+    return HTMLResponse(f"""
+    <div style="background:#0f172a; color:#f8fafc; font-family:sans-serif; text-align:center; padding:50px; min-height:100vh;">
+        <h1 style="color:#10b981; font-size:28px;">🎉 Contrato Assinado Digitalmente com Sucesso!</h1>
+        <p style="color:#94a3b8; font-size:14px; margin-top:10px;">Protocolado no sistema da MVI Móveis Planejados em {agora}.</p>
     </div>
-</body>
-</html>"""
+    """)
+
+@app.post("/criar-usuario", response_class=HTMLResponse)
+def criar_usuario_com_convite(request: Request, nome: str = Form(...), email: str = Form(...), perfil: str = Form(...), telefone: str = Form("")):
+    if CURRENT_SESSION.get("user_perfil") != "admin":
+        return RedirectResponse(url="/painel-get", status_code=303)
+        
+    token_convite = secrets.token_urlsafe(16)
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT OR REPLACE INTO usuarios (email, senha, nome, perfil, empresa_id, token_primeiro_acesso, primeiro_acesso_concluido)
+        VALUES (?, '', ?, ?, 1, ?, 0)
+    """, (email.strip().lower(), nome, perfil, token_convite))
+    conn.commit()
+    conn.close()
+
+    base_url = str(request.base_url).rstrip("/")
+    link_primeiro_acesso = f"{base_url}/primeiro-acesso/{token_convite}"
+    return render_convite_gerado(nome, email, perfil, telefone, link_primeiro_acesso)
+
+@app.get("/primeiro-acesso/{token}", response_class=HTMLResponse)
+def tela_primeiro_acesso(token: str):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM usuarios WHERE token_primeiro_acesso = ?", (token,))
+    user = cursor.fetchone()
+    conn.close()
+
+    if not user:
+        return HTMLResponse("Link inválido ou já utilizado.", status_code=404)
+    return render_tela_nova_senha(user, token)
+
+@app.post("/salvar-nova-senha", response_class=HTMLResponse)
+def salvar_nova_senha(token: str = Form(...), nova_senha: str = Form(...), confirma_senha: str = Form(...)):
+    if nova_senha != confirma_senha or len(nova_senha) < 6:
+        return HTMLResponse("<script>alert('As senhas não coincidem ou possuem menos de 6 caracteres!'); history.back();</script>")
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE usuarios SET senha = ?, token_primeiro_acesso = '', primeiro_acesso_concluido = 1 WHERE token_primeiro_acesso = ?", (nova_senha, token))
+    conn.commit()
+    conn.close()
+
+    return HTMLResponse("""
+    <div style="background:#0f172a; color:#f8fafc; font-family:sans-serif; text-align:center; padding:50px; min-height:100vh;">
+        <h1 style="color:#10b981; font-size:28px;">🎉 Senha Criada com Sucesso!</h1>
+        <p style="color:#94a3b8; font-size:14px; margin-top:10px;">Sua conta foi ativada. Você já pode acessar o painel.</p>
+        <a href="/" style="display:inline-block; margin-top:20px; padding:12px 30px; background:#f59e0b; color:#0f172a; font-weight:bold; border-radius:10px; text-decoration:none;">Acessar o Painel Agora</a>
+    </div>
+    """)
+
+@app.post("/salvar-empresa", response_class=HTMLResponse)
+def update_empresa(nome_empresa: str = Form(...), cnpj: str = Form(...), telefone: str = Form(...), pix: str = Form(...), chave_mestra: str = Form("MVI2026")):
+    if CURRENT_SESSION.get("user_perfil") != "admin":
+        return RedirectResponse(url="/painel-get", status_code=303)
+        
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE empresas SET nome_empresa = ?, cnpj = ?, telefone = ?, pix = ?, chave_mestra = ? WHERE id = 1", (nome_empresa, cnpj, telefone, pix, chave_mestra))
+    conn.commit()
+    conn.close()
+    return RedirectResponse(url="/painel-get", status_code=303)
+
+@app.get("/exportar-csv")
+def export_csv():
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=';')
+    writer.writerow(["ID", "Data/Hora", "Cliente", "CPF", "Telefone", "Ambiente", "Preco Venda (R$)", "Status"])
+    
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 ORDER BY id DESC")
+    for r in cursor.fetchall():
+        writer.writerow([r["id"], r["criado_em"], r["cliente_nome"], r["cliente_cpf"], r["cliente_telefone"], r["cliente_ambiente"], f"{float(r['preco_venda'] or 0):.2f}", r["status"]])
+    conn.close()
+    
+    return Response(
+        content=output.getvalue().encode('utf-8-sig'),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=relatorio-mvi.csv"}
+    )
+
+# ==========================================
+# 4. RENDERIZAÇÃO DO COCKPIT & FORMULÁRIOS
+# ==========================================
 
 def render_dashboard_view():
     empresa = get_empresa_dados(1)
@@ -486,7 +850,7 @@ def render_dashboard_view():
         """
 
     if not leads_html:
-        leads_html = "<tr><td colspan='8' class='py-8 text-center text-xs text-slate-500'>Nenhum lead recebido ainda.</td></tr>"
+        leads_html = "<tr><td colspan='8' class='py-8 text-center text-xs text-slate-500'>Nenhum projeto registrado ainda.</td></tr>"
 
     equipe_html = ""
     for u in equipe:
@@ -551,11 +915,11 @@ def render_dashboard_view():
     </nav>
 
     <main class="max-w-7xl mx-auto p-6 space-y-6">
-        <!-- ABA PRINCIPAL -->
+        <!-- ABA LEADS -->
         <div id="aba-leads" class="tab-content active space-y-6">
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow">
-                    <p class="text-[11px] font-semibold text-slate-400 uppercase">Faturamento Liberado</p>
+                    <p class="text-[11px] font-semibold text-slate-400 uppercase">Faturamento Geral</p>
                     <p class="text-xl font-bold text-amber-400">R$ {met['faturamento']:,.2f}</p>
                 </div>
                 <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow">
@@ -567,15 +931,15 @@ def render_dashboard_view():
                     <p class="text-xl font-bold text-white">R$ {met['ticket']:,.2f}</p>
                 </div>
                 <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow">
-                    <p class="text-[11px] font-semibold text-slate-400 uppercase">Conversão</p>
-                    <p class="text-xl font-bold text-amber-400">{met['taxa']:.1f}%</p>
+                    <p class="text-[11px] font-semibold text-slate-400 uppercase">Contratos Fechados</p>
+                    <p class="text-xl font-bold text-amber-400">{met['aprovados']} contratos</p>
                 </div>
             </div>
 
             <div class="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow">
                 <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-850">
                     <div>
-                        <h3 class="text-sm font-semibold text-white">📁 Processos Online & Fila de Liberações</h3>
+                        <h3 class="text-sm font-semibold text-white">📁 Processos de Venda & Orçamentos</h3>
                         <p class="text-xs text-slate-400">Autorização de descontos e liberação financeira</p>
                     </div>
                     <a href="/exportar-csv" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold">📊 Exportar CSV</a>
@@ -588,9 +952,8 @@ def render_dashboard_view():
                                 <th class="py-3 px-4">Data</th>
                                 <th class="py-3 px-4">Cliente</th>
                                 <th class="py-3 px-4">Ambiente</th>
-                                <th class="py-3 px-4 text-right">Valor Venda</th>
-                                <th class="py-3 px-4 text-right">Lucro</th>
-                                <th class="py-3 px-4 text-center">Fila de Liberação</th>
+                                <th class="py-3 px-4 text-right">Valor Contrato</th>
+                                <th class="py-3 px-4 text-center">Status</th>
                                 <th class="py-3 px-4 text-center">Assinatura Digital</th>
                             </tr>
                         </thead>
@@ -1014,7 +1377,6 @@ def render_form_captacao(empresa):
                 </div>
             </div>
 
-            <!-- CATÁLOGO DE FABRICANTES E CORES DE MADEIRA -->
             <div class="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3 text-xs">
                 <h3 class="text-xs font-bold text-amber-400 uppercase tracking-wide">🪵 Catálogo de Fabricantes, Madeiras & Ferragens</h3>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
