@@ -126,7 +126,6 @@ def init_db():
             }
             cursor.execute("INSERT INTO configuracoes (chave, valor) VALUES ('precos', ?)", (json.dumps(default_precos),))
 
-        # Configuração Oficial com a marca MVI
         default_empresa = {
             "nome_empresa": "MVI Móveis Planejados",
             "cnpj": "00.000.000/0001-00",
@@ -195,10 +194,10 @@ def get_metricas_financeiras():
         aprovados = 0
         
         for r in rows:
-            st = r["status"] or "Em Negociação"
+            st = r["status"] if "status" in r.keys() and r["status"] else "Em Negociação"
             pv = float(r["preco_venda"] or 0.0)
             lucro = float(r["lucro_liquido"] or 0.0)
-            rec = float(r["valor_recebido"] or 0.0)
+            rec = float(r["valor_recebido"] or 0.0) if "valor_recebido" in r.keys() else 0.0
             
             if st in ["Aprovado", "Em Produção", "Entregue"]:
                 faturamento_total += pv
@@ -399,6 +398,143 @@ def calcular_engenharia_avancada(
     total_mat = sum(i["valor"] for i in items)
     return items, total_mat
 
+def calcular_dre_completa(d: dict):
+    custo_mat = d.get("custo_materiais", 0.0)
+    custo_mo = d.get("dias_producao", 0) * d.get("valor_diaria", 0.0)
+    custo_frete_mont = d.get("custo_frete", 0.0) + d.get("custo_montagem", 0.0)
+    custo_direto_total = custo_mat + custo_mo + custo_frete_mont
+    
+    markup = d.get("markup", 2.2)
+    pv = custo_direto_total * markup if custo_direto_total > 0 else 0.0
+    
+    imposto_val = (d.get("imposto_pct", 0.0) / 100.0) * pv
+    comissao_val = (d.get("comissao_pct", 0.0) / 100.0) * pv
+    
+    lucro_liquido = pv - (custo_direto_total + imposto_val + comissao_val) if pv > 0 else 0.0
+    margem_liq_pct = (lucro_liquido / pv * 100.0) if pv > 0 else 0.0
+    
+    entrada = min(float(d.get("entrada_valor", 0.0)), pv)
+    saldo_restante = max(pv - entrada, 0.0)
+    n_parc = max(int(d.get("num_parcelas", 1)), 1)
+    valor_parcela = saldo_restante / n_parc if n_parc > 0 else 0.0
+    
+    valor_recebido = float(d.get("valor_recebido", 0.0))
+    saldo_devedor = max(pv - valor_recebido, 0.0)
+
+    return {
+        "custo_mat": custo_mat,
+        "custo_mo": custo_mo,
+        "custo_frete_mont": custo_frete_mont,
+        "custo_direto_total": custo_direto_total,
+        "pv": pv,
+        "imposto_val": imposto_val,
+        "comissao_val": comissao_val,
+        "lucro_liquido": lucro_liquido,
+        "margem_liq_pct": margem_liq_pct,
+        "entrada": entrada,
+        "saldo_restante": saldo_restante,
+        "n_parc": n_parc,
+        "valor_parcela": valor_parcela,
+        "valor_recebido": valor_recebido,
+        "saldo_devedor": saldo_devedor
+    }
+
+def consolidar_compras_e_nesting(items: list):
+    CHAPA_LARGURA = 2750.0
+    CHAPA_ALTURA = 1830.0
+    
+    pecas_corte = []
+    area_total_m2 = 0.0
+    dobradicas = 0
+    corredicas = 0
+    puxadores = 0
+    fita_metros = 0.0
+    outros = 0
+
+    for it in items:
+        tipo = it.get("tipo", "")
+        qtd = it.get("qtd", 1)
+        largura = float(it.get("largura", 0.0))
+        altura = float(it.get("altura", 0.0))
+
+        if "MDF" in tipo and largura > 0 and altura > 0:
+            area_item = (largura / 1000.0) * (altura / 1000.0) * qtd
+            area_total_m2 += area_item
+            fita_metros += (((largura + altura) * 2) / 1000.0) * qtd * 0.5
+            for _ in range(qtd):
+                pecas_corte.append({
+                    "nome": it.get("nome", "Peça"),
+                    "ambiente": it.get("ambiente", "Geral"),
+                    "largura": largura,
+                    "altura": altura
+                })
+        elif "Dobradiça" in tipo:
+            dobradicas += qtd
+        elif "Corrediça" in tipo:
+            corredicas += qtd
+        elif "Puxador" in tipo:
+            puxadores += qtd
+        elif "Fita" in tipo:
+            fita_metros += qtd * 10.0
+        else:
+            outros += qtd
+
+    chapas = []
+    pecas_ordenadas = sorted(pecas_corte, key=lambda p: p["largura"] * p["altura"], reverse=True)
+    
+    for p in pecas_ordenadas:
+        w = min(p["largura"], CHAPA_LARGURA)
+        h = min(p["altura"], CHAPA_ALTURA)
+        colocada = False
+        
+        for ch in chapas:
+            if ch["cur_x"] + w <= CHAPA_LARGURA and ch["cur_y"] + h <= CHAPA_ALTURA:
+                ch["pecas"].append({
+                    "nome": p["nome"], "x": ch["cur_x"], "y": ch["cur_y"], "w": w, "h": h
+                })
+                ch["cur_x"] += w + 10
+                ch["row_max_h"] = max(ch["row_max_h"], h)
+                ch["area_utilizada"] += (w / 1000.0) * (h / 1000.0)
+                colocada = True
+                break
+            elif ch["cur_y"] + ch["row_max_h"] + h <= CHAPA_ALTURA and w <= CHAPA_LARGURA:
+                ch["cur_y"] += ch["row_max_h"] + 10
+                ch["cur_x"] = 0.0
+                ch["row_max_h"] = h
+                ch["pecas"].append({
+                    "nome": p["nome"], "x": ch["cur_x"], "y": ch["cur_y"], "w": w, "h": h
+                })
+                ch["cur_x"] += w + 10
+                ch["area_utilizada"] += (w / 1000.0) * (h / 1000.0)
+                colocada = True
+                break
+        
+        if not colocada:
+            nova_chapa = {
+                "id": len(chapas) + 1,
+                "cur_x": w + 10,
+                "cur_y": 0.0,
+                "row_max_h": h,
+                "area_utilizada": (w / 1000.0) * (h / 1000.0),
+                "pecas": [{
+                    "nome": p["nome"], "x": 0.0, "y": 0.0, "w": w, "h": h
+                }]
+            }
+            chapas.append(nova_chapa)
+
+    total_chapas = max(len(chapas), 1 if items else 0)
+
+    return {
+        "area_m2": area_total_m2,
+        "chapas_mdf": total_chapas,
+        "fita_metros": round(fita_metros, 1),
+        "dobradicas": dobradicas,
+        "corredicas": corredicas,
+        "puxadores": puxadores,
+        "outros": outros,
+        "chapas_nesting": chapas
+    }
+
 def render_login_page(msg_erro=""):
     erro_tag = f"<p class='text-rose-400 text-xs text-center bg-rose-950/60 border border-rose-800 p-2 rounded-lg'>{msg_erro}</p>" if msg_erro else ""
     return f"""<!DOCTYPE html>
@@ -416,7 +552,7 @@ def render_login_page(msg_erro=""):
                 MVI
             </div>
             <h1 class="text-xl font-bold tracking-tight text-white">MVI Móveis Planejados</h1>
-            <p class="text-xs text-slate-400">Sistema de Engenharia, Vendas & Produção</p>
+            <p class="text-xs text-slate-400">Sistema de Gestão, Engenharia & Produção</p>
         </div>
         {erro_tag}
         <form action="/painel" method="post" class="space-y-4">
@@ -753,14 +889,15 @@ def render_dashboard(data: dict):
     
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, criado_em, cliente_nome, cliente_ambiente, preco_venda, lucro_liquido, status, estoque_baixado, data_entrega_prevista, valor_recebido FROM orcamentos ORDER BY id DESC LIMIT 25")
+        cursor.execute("SELECT * FROM orcamentos ORDER BY id DESC LIMIT 25")
         historico_rows = cursor.fetchall()
         
         for h in historico_rows:
-            current_st = h['status'] or 'Em Negociação'
-            data_prev = h['data_entrega_prevista'] or (hoje + timedelta(days=20)).strftime("%Y-%m-%d")
-            pv_item = float(h['preco_venda'] or 0.0)
-            rec_item = float(h['valor_recebido'] or 0.0)
+            keys = h.keys()
+            current_st = h['status'] if 'status' in keys and h['status'] else 'Em Negociação'
+            data_prev = h['data_entrega_prevista'] if 'data_entrega_prevista' in keys and h['data_entrega_prevista'] else (hoje + timedelta(days=20)).strftime("%Y-%m-%d")
+            pv_item = float(h['preco_venda'] or 0.0) if 'preco_venda' in keys else 0.0
+            rec_item = float(h['valor_recebido'] or 0.0) if 'valor_recebido' in keys and h['valor_recebido'] else 0.0
             
             if pv_item > 0 and rec_item >= pv_item:
                 tag_pgto = "<span class='px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950 text-emerald-300 border border-emerald-800'>🟢 Quitado</span>"
@@ -787,24 +924,28 @@ def render_dashboard(data: dict):
                     badge_tempo = f"<span class='text-emerald-400 font-bold'>🟢 {dias_restantes} dias restantes</span>"
                     card_border = "border-slate-800 bg-slate-950"
 
+                c_nome_str = h['cliente_nome'] if 'cliente_nome' in keys and h['cliente_nome'] else 'Cliente'
+                c_amb_str = h['cliente_ambiente'] if 'cliente_ambiente' in keys and h['cliente_ambiente'] else 'Ambiente'
+
                 cronograma_cards_html += f"""
                 <div class="p-3.5 rounded-2xl border {card_border} flex flex-col justify-between space-y-2">
                     <div class="flex justify-between items-start">
                         <div>
-                            <span class="font-bold text-white text-xs block">{h['cliente_nome']}</span>
-                            <span class="text-[11px] text-amber-400">{h['cliente_ambiente']}</span>
+                            <span class="font-bold text-white text-xs block">{c_nome_str}</span>
+                            <span class="text-[11px] text-amber-400">{c_amb_str}</span>
                         </div>
                         {badge_tempo}
                     </div>
                     <div class="flex justify-between items-center text-[11px] text-slate-400 border-t border-slate-800/80 pt-2">
                         <span>Montagem: <b>{dt_obj.strftime('%d/%m/%Y')}</b></span>
-                        <span class="text-white font-semibold">R$ {h['preco_venda']:,.2f}</span>
+                        <span class="text-white font-semibold">R$ {pv_item:,.2f}</span>
                     </div>
                 </div>
                 """
 
-            lucro_col = f"<td class='py-3 px-4 text-right text-emerald-400 font-semibold'>R$ {h['lucro_liquido']:,.2f}</td>" if is_admin else "<td class='py-3 px-4 text-right text-slate-500'>—</td>"
-            baixado = int(h['estoque_baixado'] or 0)
+            lucro_item = float(h['lucro_liquido'] or 0.0) if 'lucro_liquido' in keys else 0.0
+            lucro_col = f"<td class='py-3 px-4 text-right text-emerald-400 font-semibold'>R$ {lucro_item:,.2f}</td>" if is_admin else "<td class='py-3 px-4 text-right text-slate-500'>—</td>"
+            baixado = int(h['estoque_baixado'] or 0) if 'estoque_baixado' in keys else 0
             
             btn_baixa = "<span class='text-[10px] text-emerald-400 font-medium px-2 py-0.5 bg-emerald-950/60 rounded border border-emerald-800'>Baixado</span>" if baixado else f"""
             <form action="/dar-baixa-estoque" method="post" class="inline" onsubmit="return confirm('Confirmar baixa automática dos materiais no estoque?');">
@@ -814,14 +955,17 @@ def render_dashboard(data: dict):
             """
 
             badge_lead = "<span class='px-2 py-0.5 bg-amber-950 text-amber-300 border border-amber-500/40 rounded text-[10px] font-bold'>⚡ Lead MVI</span>" if current_st == "Novo Lead Instagram" else ""
+            h_cliente_nome = h['cliente_nome'] if 'cliente_nome' in keys and h['cliente_nome'] else 'Cliente'
+            h_cliente_ambiente = h['cliente_ambiente'] if 'cliente_ambiente' in keys and h['cliente_ambiente'] else 'Ambiente'
+            h_criado_em = h['criado_em'] if 'criado_em' in keys and h['criado_em'] else '-'
 
             historico_html += f"""
-            <tr class="border-b border-slate-800 hover:bg-slate-800/40 text-xs item-linha" data-busca="{h['cliente_nome'].lower()} {h['cliente_ambiente'].lower()} {current_st.lower()}">
+            <tr class="border-b border-slate-800 hover:bg-slate-800/40 text-xs item-linha" data-busca="{h_cliente_nome.lower()} {h_cliente_ambiente.lower()} {current_st.lower()}">
                 <td class="py-3 px-4 text-slate-400 font-mono">#{h['id']}</td>
-                <td class="py-3 px-4 text-slate-300">{h['criado_em']}</td>
-                <td class="py-3 px-4 text-white font-medium">{h['cliente_nome']} {badge_lead}</td>
-                <td class="py-3 px-4 text-slate-300">{h['cliente_ambiente']}</td>
-                <td class="py-3 px-4 text-right text-amber-400 font-bold">R$ {h['preco_venda']:,.2f}</td>
+                <td class="py-3 px-4 text-slate-300">{h_criado_em}</td>
+                <td class="py-3 px-4 text-white font-medium">{h_cliente_nome} {badge_lead}</td>
+                <td class="py-3 px-4 text-slate-300">{h_cliente_ambiente}</td>
+                <td class="py-3 px-4 text-right text-amber-400 font-bold">R$ {pv_item:,.2f}</td>
                 {lucro_col}
                 <td class="py-3 px-4 text-center">
                     <form action="/atualizar-status" method="post" class="inline">
@@ -964,7 +1108,7 @@ def render_dashboard(data: dict):
 <body class="bg-slate-950 text-slate-100 min-h-screen font-sans">
     <header class="bg-slate-900 border-b border-slate-800 px-6 py-4 flex flex-wrap items-center justify-between gap-3">
         <div class="flex items-center space-x-3">
-            <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-black text-slate-950 text-lg shadow-md">MVI</div>
+            <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-black text-slate-950 text-lg shadow-md">MVI</div>
             <span class="font-bold text-lg text-white tracking-wide">MVI Móveis Planejados</span>
             """ + status_tag + """
         </div>
@@ -977,7 +1121,6 @@ def render_dashboard(data: dict):
         </div>
     </header>
 
-    <!-- MENU DE NAVEGAÇÃO POR ABAS -->
     <nav class="bg-slate-900/80 border-b border-slate-800 px-6 py-3 sticky top-0 z-50 backdrop-blur-md">
         <div class="max-w-7xl mx-auto flex items-center gap-2 overflow-x-auto">
             <button onclick="mudarAba('aba-leads')" id="btn-aba-leads" class="tab-btn active px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 transition-all flex items-center space-x-1.5 shrink-0">
@@ -1003,11 +1146,9 @@ def render_dashboard(data: dict):
 
     <main class="max-w-7xl mx-auto p-6 space-y-6">
 
-        <!-- ABA 1: PAINEL GERAL & LEADS -->
         <div id="aba-leads" class="tab-content active space-y-6">
             """ + dre_cards + """
 
-            <!-- Central de Notificações WhatsApp -->
             <div class="bg-slate-900 border border-amber-500/30 rounded-3xl p-6 shadow-lg space-y-3">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
                     <div>
@@ -1048,7 +1189,6 @@ def render_dashboard(data: dict):
                 </div>
             </div>
 
-            <!-- Histórico de Orçamentos e Leads do Instagram -->
             <div class="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-lg">
                 <div class="p-4 border-b border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-slate-850">
                     <div>
@@ -1092,7 +1232,6 @@ def render_dashboard(data: dict):
             </div>
         </div>
 
-        <!-- ABA 2: ENGENHARIA & AMBIENTES -->
         <div id="aba-engenharia" class="tab-content space-y-6">
             <div class="flex justify-between items-center bg-slate-900 p-4 rounded-2xl border border-slate-800">
                 <button onclick="mudarAba('aba-leads')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl border border-slate-700 transition-colors flex items-center space-x-1">
@@ -1104,7 +1243,6 @@ def render_dashboard(data: dict):
                 </button>
             </div>
 
-            <!-- Dados do Cliente & Instruções Técnicas -->
             <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-lg space-y-4">
                 <div class="flex justify-between items-center border-b border-slate-800 pb-3">
                     <h2 class="text-base font-semibold text-white">👤 Dados do Cliente & Proposta</h2>
@@ -1154,7 +1292,6 @@ def render_dashboard(data: dict):
                 </form>
             </div>
 
-            <!-- Ambientes Inclusos -->
             <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-lg space-y-4">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
                     <div>
@@ -1173,7 +1310,6 @@ def render_dashboard(data: dict):
                 </div>
             </div>
 
-            <!-- Galeria de Imagens / Plantas / Inspirações -->
             <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-lg space-y-4">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
                     <div>
@@ -1181,7 +1317,7 @@ def render_dashboard(data: dict):
                         <p class="text-xs text-slate-400">Fotos enviadas pelo cliente ou renders anexados</p>
                     </div>
                     <form action="/upload-imagem" method="post" enctype="multipart/form-data" class="flex items-center gap-2">
-                        <input type="file" name="foto" accept="image/*" required class="block w-full text-xs text-slate-400 file:mr-2 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-200 hover:file:bg-slate-700 cursor-pointer">
+                        <input type="file" name="foto" accept="image/*" required class="block w-full text-xs text-slate-400 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-200 hover:file:bg-slate-700 cursor-pointer">
                         <button type="submit" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-bold shrink-0">
                             + Anexar Imagem
                         </button>
@@ -1192,7 +1328,6 @@ def render_dashboard(data: dict):
                 </div>
             </div>
 
-            <!-- Listagem de Peças -->
             <div class="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-lg">
                 <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-850">
                     <h3 class="text-sm font-semibold text-white">Listagem de Peças e Insumos (""" + str(data['cliente_ambiente']) + """)</h3>
@@ -1216,7 +1351,6 @@ def render_dashboard(data: dict):
             </div>
         </div>
 
-        <!-- ABA 3: FÁBRICA & PLANO DE CORTE -->
         <div id="aba-fabrica" class="tab-content space-y-6">
             <div class="flex justify-between items-center bg-slate-900 p-4 rounded-2xl border border-slate-800">
                 <button onclick="mudarAba('aba-engenharia')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl border border-slate-700 transition-colors flex items-center space-x-1">
@@ -1228,7 +1362,6 @@ def render_dashboard(data: dict):
                 </button>
             </div>
 
-            <!-- Cronograma de Fábrica -->
             <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-lg space-y-4">
                 <div class="flex justify-between items-center border-b border-slate-800 pb-3">
                     <div>
@@ -1242,7 +1375,6 @@ def render_dashboard(data: dict):
                 </div>
             </div>
 
-            <!-- Resumo de Compras para Fornecedores -->
             <div class="bg-slate-900 border border-amber-500/30 rounded-3xl p-6 shadow-lg space-y-4">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
                     <div>
@@ -1289,7 +1421,6 @@ def render_dashboard(data: dict):
                 </div>
             </div>
 
-            <!-- Módulo Visual de Plano de Corte Gráfico (2D Nesting) -->
             <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-lg space-y-4">
                 <div class="flex justify-between items-center border-b border-slate-800 pb-3">
                     <div>
@@ -1304,7 +1435,6 @@ def render_dashboard(data: dict):
             </div>
         </div>
 
-        <!-- ABA 4: FINANCEIRO & CONTRATOS -->
         <div id="aba-financeiro" class="tab-content space-y-6">
             <div class="flex justify-between items-center bg-slate-900 p-4 rounded-2xl border border-slate-800">
                 <button onclick="mudarAba('aba-fabrica')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl border border-slate-700 transition-colors flex items-center space-x-1">
@@ -1316,7 +1446,6 @@ def render_dashboard(data: dict):
                 </button>
             </div>
 
-            <!-- Contas a Receber & Simulador de Pagamento -->
             <div class="bg-slate-900 border border-amber-900/50 rounded-3xl p-6 shadow-lg space-y-4">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
                     <div>
@@ -1362,7 +1491,6 @@ def render_dashboard(data: dict):
                 </div>
             </div>
 
-            <!-- Documentos Oficiais da Proposta -->
             <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 flex flex-col justify-between space-y-4 shadow-lg">
                 <h2 class="text-base font-semibold text-white">Documentos Oficiais & Emissão em PDF (MVI)</h2>
                 """ + markup_control + """
@@ -1391,7 +1519,6 @@ def render_dashboard(data: dict):
             </div>
         </div>
 
-        <!-- ABA 5: ESTOQUE & MATERIAIS -->
         <div id="aba-estoque" class="tab-content space-y-6">
             <div class="flex justify-between items-center bg-slate-900 p-4 rounded-2xl border border-slate-800">
                 <button onclick="mudarAba('aba-financeiro')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl border border-slate-700 transition-colors flex items-center space-x-1">
@@ -1403,7 +1530,6 @@ def render_dashboard(data: dict):
                 </button>
             </div>
 
-            <!-- Controle de Estoque -->
             <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-lg space-y-4">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
                     <div>
@@ -1439,7 +1565,6 @@ def render_dashboard(data: dict):
             </div>
         </div>
 
-        <!-- ABA 6: CONFIGURAÇÕES & CUSTOS -->
         <div id="aba-config" class="tab-content space-y-6">
             <div class="flex justify-between items-center bg-slate-900 p-4 rounded-2xl border border-slate-800">
                 <button onclick="mudarAba('aba-estoque')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl border border-slate-700 transition-colors flex items-center space-x-1">
@@ -1451,7 +1576,6 @@ def render_dashboard(data: dict):
                 </button>
             </div>
 
-            <!-- Dados da Marcenaria -->
             <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-lg space-y-4">
                 <div class="flex justify-between items-center border-b border-slate-800 pb-3">
                     <h2 class="text-base font-semibold text-white">🏢 Dados da Empresa (Contrato, O.S., Recibo e PDFs MVI)</h2>
@@ -1481,7 +1605,6 @@ def render_dashboard(data: dict):
                 </form>
             </div>
 
-            <!-- Mão de Obra e Operacionais -->
             <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-lg space-y-4">
                 <div class="flex justify-between items-center border-b border-slate-800 pb-3">
                     <h2 class="text-base font-semibold text-white">🔨 Mão de Obra & Custos Operacionais</h2>
@@ -1515,7 +1638,6 @@ def render_dashboard(data: dict):
                 </form>
             </div>
 
-            <!-- Tabela de Custos Unitários de Insumos -->
             <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-lg space-y-4">
                 <div class="flex justify-between items-center border-b border-slate-800 pb-3">
                     <h2 class="text-base font-semibold text-white">⚙️ Tabela de Custos Unitários por Insumo</h2>
@@ -1753,13 +1875,29 @@ def exportar_csv():
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM orcamentos ORDER BY id DESC")
         for r in cursor.fetchall():
+            keys = r.keys()
             writer.writerow([
-                r["id"], r["criado_em"], r["cliente_nome"], r["cliente_telefone"], r["cliente_ambiente"],
-                r["prazo_entrega"], r["data_entrega_prevista"] or "-", r["status"], f"{r['custo_materiais']:.2f}",
-                f"{r['custo_mao_obra']:.2f}", f"{r['custo_frete_montagem']:.2f}", r["imposto_pct"],
-                r["comissao_pct"], r["markup"], f"{r['preco_venda']:.2f}", f"{r['lucro_liquido']:.2f}",
-                f"{r['entrada_valor'] or 0.0:.2f}", r["num_parcelas"] or 1, f"{r['valor_recebido'] or 0.0:.2f}",
-                r["forma_pagamento"] or "PIX", "Sim" if r["estoque_baixado"] else "Nao"
+                r["id"],
+                r["criado_em"] if "criado_em" in keys else "-",
+                r["cliente_nome"] if "cliente_nome" in keys else "-",
+                r["cliente_telefone"] if "cliente_telefone" in keys else "-",
+                r["cliente_ambiente"] if "cliente_ambiente" in keys else "-",
+                r["prazo_entrega"] if "prazo_entrega" in keys else "-",
+                r["data_entrega_prevista"] if "data_entrega_prevista" in keys and r["data_entrega_prevista"] else "-",
+                r["status"] if "status" in keys else "-",
+                f"{r['custo_materiais']:.2f}" if "custo_materiais" in keys and r["custo_materiais"] else "0.00",
+                f"{r['custo_mao_obra']:.2f}" if "custo_mao_obra" in keys and r["custo_mao_obra"] else "0.00",
+                f"{r['custo_frete_montagem']:.2f}" if "custo_frete_montagem" in keys and r["custo_frete_montagem"] else "0.00",
+                r["imposto_pct"] if "imposto_pct" in keys else "0",
+                r["comissao_pct"] if "comissao_pct" in keys else "0",
+                r["markup"] if "markup" in keys else "1.0",
+                f"{r['preco_venda']:.2f}" if "preco_venda" in keys and r["preco_venda"] else "0.00",
+                f"{r['lucro_liquido']:.2f}" if "lucro_liquido" in keys and r["lucro_liquido"] else "0.00",
+                f"{r['entrada_valor']:.2f}" if "entrada_valor" in keys and r["entrada_valor"] else "0.00",
+                r["num_parcelas"] if "num_parcelas" in keys and r["num_parcelas"] else 1,
+                f"{r['valor_recebido']:.2f}" if "valor_recebido" in keys and r["valor_recebido"] else "0.00",
+                r["forma_pagamento"] if "forma_pagamento" in keys and r["forma_pagamento"] else "PIX",
+                "Sim" if "estoque_baixado" in keys and r["estoque_baixado"] else "Nao"
             ])
             
     output.seek(0)
@@ -1984,29 +2122,30 @@ def carregar_orcamento(orcamento_id: int = Form(...)):
         cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (orcamento_id,))
         row = cursor.fetchone()
         if row:
+            keys = row.keys()
             CURRENT_DATA["orcamento_id"] = row["id"]
-            CURRENT_DATA["status"] = row["status"] or "Em Negociação"
-            CURRENT_DATA["cliente_nome"] = row["cliente_nome"]
-            CURRENT_DATA["cliente_telefone"] = row["cliente_telefone"]
-            CURRENT_DATA["cliente_ambiente"] = row["cliente_ambiente"]
-            CURRENT_DATA["prazo_entrega"] = row["prazo_entrega"]
-            CURRENT_DATA["data_entrega_prevista"] = row["data_entrega_prevista"] or (date.today() + timedelta(days=20)).strftime("%Y-%m-%d")
-            CURRENT_DATA["custo_materiais"] = row["custo_materiais"]
-            CURRENT_DATA["imposto_pct"] = row["imposto_pct"] or 6.0
-            CURRENT_DATA["comissao_pct"] = row["comissao_pct"] or 4.0
-            CURRENT_DATA["markup"] = row["markup"] or 2.2
+            CURRENT_DATA["status"] = row["status"] if "status" in keys and row["status"] else "Em Negociação"
+            CURRENT_DATA["cliente_nome"] = row["cliente_nome"] if "cliente_nome" in keys and row["cliente_nome"] else "Cliente"
+            CURRENT_DATA["cliente_telefone"] = row["cliente_telefone"] if "cliente_telefone" in keys and row["cliente_telefone"] else ""
+            CURRENT_DATA["cliente_ambiente"] = row["cliente_ambiente"] if "cliente_ambiente" in keys and row["cliente_ambiente"] else "Ambiente"
+            CURRENT_DATA["prazo_entrega"] = row["prazo_entrega"] if "prazo_entrega" in keys and row["prazo_entrega"] else "20 dias úteis"
+            CURRENT_DATA["data_entrega_prevista"] = row["data_entrega_prevista"] if "data_entrega_prevista" in keys and row["data_entrega_prevista"] else (date.today() + timedelta(days=20)).strftime("%Y-%m-%d")
+            CURRENT_DATA["custo_materiais"] = float(row["custo_materiais"] or 0.0) if "custo_materiais" in keys else 0.0
+            CURRENT_DATA["imposto_pct"] = float(row["imposto_pct"] or 6.0) if "imposto_pct" in keys else 6.0
+            CURRENT_DATA["comissao_pct"] = float(row["comissao_pct"] or 4.0) if "comissao_pct" in keys else 4.0
+            CURRENT_DATA["markup"] = float(row["markup"] or 2.2) if "markup" in keys else 2.2
             try:
-                CURRENT_DATA["entrada_valor"] = float(row["entrada_valor"] or 0.0)
-                CURRENT_DATA["num_parcelas"] = int(row["num_parcelas"] or 1)
-                CURRENT_DATA["forma_pagamento"] = row["forma_pagamento"] or "PIX"
-                CURRENT_DATA["valor_recebido"] = float(row["valor_recebido"] or 0.0)
-                CURRENT_DATA["estoque_baixado"] = int(row["estoque_baixado"] or 0)
-                CURRENT_DATA["imagens"] = json.loads(row["imagens_json"]) if row["imagens_json"] else []
-                CURRENT_DATA["ambientes"] = json.loads(row["ambientes_json"]) if row["ambientes_json"] else [row["cliente_ambiente"]]
-                CURRENT_DATA["observacoes_tecnicas"] = row["observacoes_tecnicas"] or ""
+                CURRENT_DATA["entrada_valor"] = float(row["entrada_valor"] or 0.0) if "entrada_valor" in keys else 0.0
+                CURRENT_DATA["num_parcelas"] = int(row["num_parcelas"] or 1) if "num_parcelas" in keys else 1
+                CURRENT_DATA["forma_pagamento"] = row["forma_pagamento"] if "forma_pagamento" in keys and row["forma_pagamento"] else "PIX"
+                CURRENT_DATA["valor_recebido"] = float(row["valor_recebido"] or 0.0) if "valor_recebido" in keys else 0.0
+                CURRENT_DATA["estoque_baixado"] = int(row["estoque_baixado"] or 0) if "estoque_baixado" in keys else 0
+                CURRENT_DATA["imagens"] = json.loads(row["imagens_json"]) if "imagens_json" in keys and row["imagens_json"] else []
+                CURRENT_DATA["ambientes"] = json.loads(row["ambientes_json"]) if "ambientes_json" in keys and row["ambientes_json"] else [CURRENT_DATA["cliente_ambiente"]]
+                CURRENT_DATA["observacoes_tecnicas"] = row["observacoes_tecnicas"] if "observacoes_tecnicas" in keys and row["observacoes_tecnicas"] else ""
             except Exception:
                 pass
-            CURRENT_DATA["items"] = json.loads(row["items_json"]) if row["items_json"] else []
+            CURRENT_DATA["items"] = json.loads(row["items_json"]) if "items_json" in keys and row["items_json"] else []
 
     return RedirectResponse(url="/painel-get", status_code=303)
 
@@ -2082,15 +2221,16 @@ def gerar_os(id: int = None):
             cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (id,))
             row = cursor.fetchone()
             if row:
-                c_nome = row["cliente_nome"]
-                c_tel = row["cliente_telefone"]
-                c_amb = row["cliente_ambiente"]
+                keys = row.keys()
+                c_nome = row["cliente_nome"] if "cliente_nome" in keys and row["cliente_nome"] else "Cliente"
+                c_tel = row["cliente_telefone"] if "cliente_telefone" in keys and row["cliente_telefone"] else ""
+                c_amb = row["cliente_ambiente"] if "cliente_ambiente" in keys and row["cliente_ambiente"] else "Ambiente"
                 orc_id = row["id"]
-                c_prazo = row["prazo_entrega"]
-                c_data = row["data_entrega_prevista"] or date.today().strftime("%Y-%m-%d")
-                obs = row["observacoes_tecnicas"] or "Sem observações especiais."
-                ambientes_list = json.loads(row["ambientes_json"]) if row["ambientes_json"] else [c_amb]
-                items = json.loads(row["items_json"]) if row["items_json"] else []
+                c_prazo = row["prazo_entrega"] if "prazo_entrega" in keys and row["prazo_entrega"] else "20 dias úteis"
+                c_data = row["data_entrega_prevista"] if "data_entrega_prevista" in keys and row["data_entrega_prevista"] else date.today().strftime("%Y-%m-%d")
+                obs = row["observacoes_tecnicas"] if "observacoes_tecnicas" in keys and row["observacoes_tecnicas"] else "Sem observações especiais."
+                ambientes_list = json.loads(row["ambientes_json"]) if "ambientes_json" in keys and row["ambientes_json"] else [c_amb]
+                items = json.loads(row["items_json"]) if "items_json" in keys and row["items_json"] else []
             else:
                 return Response(content="Orçamento não encontrado", status_code=404)
     else:
@@ -2211,18 +2351,19 @@ def gerar_pdf(id: int = None):
             cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (id,))
             row = cursor.fetchone()
             if row:
-                c_nome = row["cliente_nome"]
-                c_tel = row["cliente_telefone"]
-                c_amb = row["cliente_ambiente"]
-                c_prazo = row["prazo_entrega"]
-                c_status = row["status"] or "Em Negociação"
-                pv = row["preco_venda"]
-                entrada = float(row["entrada_valor"] or 0.0)
-                n_parc = int(row["num_parcelas"] or 1)
-                forma_pgto = row["forma_pagamento"] or "PIX"
-                imagens = json.loads(row["imagens_json"]) if row["imagens_json"] else []
-                ambientes_list = json.loads(row["ambientes_json"]) if row["ambientes_json"] else [c_amb]
-                items = json.loads(row["items_json"]) if row["items_json"] else []
+                keys = row.keys()
+                c_nome = row["cliente_nome"] if "cliente_nome" in keys and row["cliente_nome"] else "Cliente"
+                c_tel = row["cliente_telefone"] if "cliente_telefone" in keys and row["cliente_telefone"] else ""
+                c_amb = row["cliente_ambiente"] if "cliente_ambiente" in keys and row["cliente_ambiente"] else "Ambiente"
+                c_prazo = row["prazo_entrega"] if "prazo_entrega" in keys and row["prazo_entrega"] else "20 dias úteis"
+                c_status = row["status"] if "status" in keys and row["status"] else "Em Negociação"
+                pv = float(row["preco_venda"] or 0.0) if "preco_venda" in keys else 0.0
+                entrada = float(row["entrada_valor"] or 0.0) if "entrada_valor" in keys else 0.0
+                n_parc = int(row["num_parcelas"] or 1) if "num_parcelas" in keys else 1
+                forma_pgto = row["forma_pagamento"] if "forma_pagamento" in keys and row["forma_pagamento"] else "PIX"
+                imagens = json.loads(row["imagens_json"]) if "imagens_json" in keys and row["imagens_json"] else []
+                ambientes_list = json.loads(row["ambientes_json"]) if "ambientes_json" in keys and row["ambientes_json"] else [c_amb]
+                items = json.loads(row["items_json"]) if "items_json" in keys and row["items_json"] else []
             else:
                 return Response(content="Orçamento não encontrado", status_code=404)
     else:
@@ -2339,13 +2480,14 @@ def gerar_recibo(id: int = None):
             cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (id,))
             row = cursor.fetchone()
             if row:
-                c_nome = row["cliente_nome"]
-                c_tel = row["cliente_telefone"]
-                c_amb = row["cliente_ambiente"]
+                keys = row.keys()
+                c_nome = row["cliente_nome"] if "cliente_nome" in keys and row["cliente_nome"] else "Cliente"
+                c_tel = row["cliente_telefone"] if "cliente_telefone" in keys and row["cliente_telefone"] else ""
+                c_amb = row["cliente_ambiente"] if "cliente_ambiente" in keys and row["cliente_ambiente"] else "Ambiente"
                 orc_id = row["id"]
-                pv = row["preco_venda"]
-                rec = float(row["valor_recebido"] or row["entrada_valor"] or row["preco_venda"])
-                forma_pgto = row["forma_pagamento"] or "PIX"
+                pv = float(row["preco_venda"] or 0.0) if "preco_venda" in keys else 0.0
+                rec = float(row["valor_recebido"] or row["entrada_valor"] or row["preco_venda"] or 0.0) if "valor_recebido" in keys else pv
+                forma_pgto = row["forma_pagamento"] if "forma_pagamento" in keys and row["forma_pagamento"] else "PIX"
             else:
                 return Response(content="Orçamento não encontrado", status_code=404)
     else:
@@ -2428,11 +2570,12 @@ def gerar_vistoria(id: int = None):
             cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (id,))
             row = cursor.fetchone()
             if row:
-                c_nome = row["cliente_nome"]
-                c_tel = row["cliente_telefone"]
-                c_amb = row["cliente_ambiente"]
-                ambientes_list = json.loads(row["ambientes_json"]) if row["ambientes_json"] else [c_amb]
-                c_data = row["data_entrega_prevista"] or date.today().strftime("%Y-%m-%d")
+                keys = row.keys()
+                c_nome = row["cliente_nome"] if "cliente_nome" in keys and row["cliente_nome"] else "Cliente"
+                c_tel = row["cliente_telefone"] if "cliente_telefone" in keys and row["cliente_telefone"] else ""
+                c_amb = row["cliente_ambiente"] if "cliente_ambiente" in keys and row["cliente_ambiente"] else "Ambiente"
+                ambientes_list = json.loads(row["ambientes_json"]) if "ambientes_json" in keys and row["ambientes_json"] else [c_amb]
+                c_data = row["data_entrega_prevista"] if "data_entrega_prevista" in keys and row["data_entrega_prevista"] else date.today().strftime("%Y-%m-%d")
             else:
                 return Response(content="Orçamento não encontrado", status_code=404)
     else:
@@ -2526,10 +2669,11 @@ def gerar_etiquetas(id: int = None):
             cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (id,))
             row = cursor.fetchone()
             if row:
-                c_nome = row["cliente_nome"]
-                c_amb = row["cliente_ambiente"]
+                keys = row.keys()
+                c_nome = row["cliente_nome"] if "cliente_nome" in keys and row["cliente_nome"] else "Cliente"
+                c_amb = row["cliente_ambiente"] if "cliente_ambiente" in keys and row["cliente_ambiente"] else "Ambiente"
                 orc_id = row["id"]
-                items = json.loads(row["items_json"]) if row["items_json"] else []
+                items = json.loads(row["items_json"]) if "items_json" in keys and row["items_json"] else []
             else:
                 return Response(content="Orçamento não encontrado", status_code=404)
     else:
@@ -2626,15 +2770,16 @@ def gerar_contrato(id: int = None):
             cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (id,))
             row = cursor.fetchone()
             if row:
-                c_nome = row["cliente_nome"]
-                c_tel = row["cliente_telefone"]
-                c_amb = row["cliente_ambiente"]
-                ambientes_list = json.loads(row["ambientes_json"]) if row["ambientes_json"] else [c_amb]
-                c_prazo = row["prazo_entrega"]
-                pv = row["preco_venda"]
-                entrada = float(row["entrada_valor"] or 0.0)
-                n_parc = int(row["num_parcelas"] or 1)
-                forma_pgto = row["forma_pagamento"] or "PIX"
+                keys = row.keys()
+                c_nome = row["cliente_nome"] if "cliente_nome" in keys and row["cliente_nome"] else "Cliente"
+                c_tel = row["cliente_telefone"] if "cliente_telefone" in keys and row["cliente_telefone"] else ""
+                c_amb = row["cliente_ambiente"] if "cliente_ambiente" in keys and row["cliente_ambiente"] else "Ambiente"
+                ambientes_list = json.loads(row["ambientes_json"]) if "ambientes_json" in keys and row["ambientes_json"] else [c_amb]
+                c_prazo = row["prazo_entrega"] if "prazo_entrega" in keys and row["prazo_entrega"] else "20 dias úteis"
+                pv = float(row["preco_venda"] or 0.0) if "preco_venda" in keys else 0.0
+                entrada = float(row["entrada_valor"] or 0.0) if "entrada_valor" in keys else 0.0
+                n_parc = int(row["num_parcelas"] or 1) if "num_parcelas" in keys else 1
+                forma_pgto = row["forma_pagamento"] if "forma_pagamento" in keys and row["forma_pagamento"] else "PIX"
             else:
                 return Response(content="Orçamento não encontrado", status_code=404)
     else:
@@ -2719,9 +2864,10 @@ def gerar_pdf_compras(id: int = None):
             cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (id,))
             row = cursor.fetchone()
             if row:
-                c_nome = row["cliente_nome"]
-                c_amb = row["cliente_ambiente"]
-                items = json.loads(row["items_json"]) if row["items_json"] else []
+                keys = row.keys()
+                c_nome = row["cliente_nome"] if "cliente_nome" in keys and row["cliente_nome"] else "Cliente"
+                c_amb = row["cliente_ambiente"] if "cliente_ambiente" in keys and row["cliente_ambiente"] else "Ambiente"
+                items = json.loads(row["items_json"]) if "items_json" in keys and row["items_json"] else []
             else:
                 return Response(content="Orçamento não encontrado", status_code=404)
     else:
