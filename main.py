@@ -18,7 +18,7 @@ from datetime import datetime, date, timedelta
 from typing import List
 
 app = FastAPI(title="MVI Móveis Planejados - Master SaaS")
-DB_PATH = "mvi_production_v15.db"
+DB_PATH = "mvi_production_v16.db"
 
 # ==============================================================================
 # 1. TRATAMENTO DE ERROS GLOBAL
@@ -354,7 +354,7 @@ def processar_arquivo_promob(conteudo_texto: str, nome_arquivo: str):
     return {"items": items, "total_mat": total_mat, "custo_mo": custo_mo, "custo_frete": custo_frete, "preco_bruto": preco_bruto, "preco_venda": preco_venda, "lucro": lucro}
 
 # ==============================================================================
-# 4. FUNÇÕES DE RENDERIZAÇÃO HTML (DECLARADAS ANTES DAS ROTAS)
+# 4. FUNÇÕES DE RENDERIZAÇÃO HTML
 # ==============================================================================
 def render_login(msg=""):
     erro = f"<div class='p-3 bg-rose-950/70 border border-rose-800 text-rose-300 text-xs rounded-xl text-center'>{msg}</div>" if msg else ""
@@ -400,7 +400,6 @@ def render_dashboard_view():
     equipe = cursor.fetchall()
     conn.close()
 
-    # Identificar o cliente ativo para a Mesa de Negociação
     cliente_ativo = None
     if CURRENT_SESSION.get("cliente_ativo_id"):
         for h in leads:
@@ -411,7 +410,6 @@ def render_dashboard_view():
         cliente_ativo = leads[0]
         CURRENT_SESSION["cliente_ativo_id"] = cliente_ativo["id"]
 
-    # Valores calculados da Mesa de Negociação Ativa
     c_id = cliente_ativo["id"] if cliente_ativo else 0
     c_nome = cliente_ativo["cliente_nome"] if cliente_ativo else "Selecione um Cliente"
     c_amb = cliente_ativo["cliente_ambiente"] if cliente_ativo else "Geral"
@@ -430,7 +428,6 @@ def render_dashboard_view():
     leads_html = ""
     for h in leads:
         pv = float(h["preco_venda"] or 0)
-        p_bruto = float(h["preco_bruto"] or h["preco_venda"] or 0)
         adendo = float(h["adendo_valor"] or 0)
         pv_total = pv + adendo
         lucro = float(h["lucro_liquido"] or 0)
@@ -564,7 +561,6 @@ def render_dashboard_view():
     <main class="max-w-7xl mx-auto p-6 space-y-6">
         <!-- ABA PRINCIPAL (MESA DE NEGOCIAÇÃO INTEGRADA) -->
         <div id="aba-leads" class="tab-content active space-y-6">
-            <!-- CARDS TOTAIS -->
             <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow"><p class="text-[11px] font-bold text-slate-400 uppercase">Faturamento Liberado</p><p class="text-xl font-bold text-amber-400">R$ {met['faturamento']:,.2f}</p></div>
                 {lucro_card}
@@ -590,13 +586,11 @@ def render_dashboard_view():
                     <input type="hidden" name="orcamento_id" value="{c_id}">
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <!-- VALOR BRUTO -->
                         <div class="bg-slate-950 p-4 border border-slate-800 rounded-2xl space-y-1">
                             <label class="text-[11px] text-slate-400 font-bold uppercase block">1. Valor Bruto (Tabela / Projeto)</label>
                             <input type="number" step="0.01" name="preco_bruto" id="preco_bruto" value="{c_p_bruto:.2f}" oninput="recalcularMesa()" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold text-base focus:border-amber-500">
                         </div>
 
-                        <!-- DESCONTO COMERCIAL -->
                         <div class="bg-slate-950 p-4 border border-slate-800 rounded-2xl space-y-1">
                             <label class="text-[11px] text-slate-400 font-bold uppercase block">2. Desconto Aplicado (%)</label>
                             <div class="flex gap-2">
@@ -605,20 +599,17 @@ def render_dashboard_view():
                             </div>
                         </div>
 
-                        <!-- VALOR LÍQUIDO FINAL -->
                         <div class="bg-slate-950 p-4 border border-amber-500/30 rounded-2xl space-y-1">
                             <label class="text-[11px] text-amber-400 font-bold uppercase block">3. Valor Líquido de Fechamento</label>
                             <input type="number" step="0.01" name="preco_venda" id="preco_venda" value="{c_p_venda:.2f}" readonly class="w-full px-3 py-2 bg-slate-900 border border-amber-500/50 rounded-xl text-amber-300 font-black text-xl">
                         </div>
 
-                        <!-- MARGEM / MARKUP -->
                         <div class="bg-slate-950 p-4 border border-slate-800 rounded-2xl space-y-1">
                             <label class="text-[11px] text-slate-400 font-bold uppercase block">4. Margem / Markup Venda</label>
                             <input type="number" step="0.1" min="1.0" max="5.0" name="markup" value="{c_markup:.1f}" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold text-base">
                         </div>
                     </div>
 
-                    <!-- SIMULADOR DE CONDIÇÕES DE PAGAMENTO -->
                     <div class="p-5 bg-slate-950 border border-slate-800 rounded-2xl space-y-3">
                         <h3 class="text-xs font-bold text-amber-400 uppercase tracking-wide">💳 Condições de Pagamento & Parcelamento</h3>
                         <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
@@ -641,7 +632,6 @@ def render_dashboard_view():
                             </div>
                         </div>
 
-                        <!-- RESUMO DINÂMICO DE PARCELAS -->
                         <div class="p-3 bg-slate-900 rounded-xl border border-slate-800 flex flex-wrap justify-between items-center text-xs">
                             <span class="text-slate-300">
                                 Simulação: Entrada de <b>R$ {c_entrada:,.2f}</b> + <b>{c_parc}x de <span id="txt_parcela" class="text-amber-400 font-bold">R$ {valor_por_parcela:,.2f}</span></b>
@@ -723,16 +713,16 @@ def render_dashboard_view():
                         <h3 class="text-xs font-bold text-amber-400 uppercase tracking-wide">1. Identificação Pessoal</h3>
                         <div class="grid sm:grid-cols-4 gap-3">
                             <input type="text" name="cliente_nome" value="{c_nome if c_id else ''}" required placeholder="Nome Completo" class="sm:col-span-2 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                            <input type="text" name="cliente_cpf" value="{cliente_ativo['cliente_cpf'] if cliente_ativo else ''}" required placeholder="CPF" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                            <input type="text" name="cliente_cpf" value="{cliente_ativo['cliente_cpf'] if cliente_ativo else ''}" placeholder="CPF" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
                             <div class="flex gap-1">
                                 <input type="text" name="cliente_rg" value="{cliente_ativo['cliente_rg'] if cliente_ativo else ''}" placeholder="RG" class="w-2/3 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
                                 <input type="text" name="cliente_rg_emissor" value="{cliente_ativo['cliente_rg_emissor'] if cliente_ativo else ''}" placeholder="SSP/SP" class="w-1/3 px-2 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
                             </div>
                             <input type="date" name="cliente_nascimento" value="{cliente_ativo['cliente_nascimento'] if cliente_ativo else ''}" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                            <input type="text" name="cliente_pais" value="Brasil" required placeholder="País" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                            <input type="text" name="cliente_pais" value="Brasil" placeholder="País" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
                             <input type="text" name="cliente_cidade" value="{cliente_ativo['cliente_cidade'] if cliente_ativo else ''}" placeholder="Cidade / UF" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
                             <input type="email" name="cliente_email" value="{cliente_ativo['cliente_email'] if cliente_ativo else ''}" placeholder="E-mail" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                            <input type="text" name="cliente_telefone" value="{cliente_ativo['cliente_telefone'] if cliente_ativo else ''}" required placeholder="WhatsApp Principal" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                            <input type="text" name="cliente_telefone" value="{cliente_ativo['cliente_telefone'] if cliente_ativo else ''}" placeholder="WhatsApp Principal" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
                             <input type="text" name="cliente_telefone_2" value="{cliente_ativo['cliente_telefone_2'] if cliente_ativo else ''}" placeholder="Telefone 2 / Recado" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
                         </div>
                     </div>
@@ -790,7 +780,7 @@ def render_dashboard_view():
                         </div>
                     </div>
 
-                    <button type="submit" class="w-full py-3.5 bg-amber-500 font-bold rounded-xl text-slate-950 text-sm shadow-lg">💾 Salvar Ficha Cadastral e Liberar Contrato</button>
+                    <button type="submit" class="w-full py-3.5 bg-amber-500 font-bold rounded-xl text-slate-950">💾 Salvar Ficha Cadastral e Liberar Contrato</button>
                 </form>
             </div>
         </div>
@@ -959,7 +949,11 @@ def render_assinatura_online(orc, empresa):
 </body></html>"""
 
 def render_convite_gerado(nome, email, p, tel, link):
-    return f"<html><body style='background:#0f172a; color:#fff; text-align:center; padding:50px;'><h1 style='color:#f59e0b;'>Convite Gerado</h1><p>Link: {link}</p><a href='/painel' style='color:#38bdf8;'>Voltar ao Painel</a></body></html>"
+    return f"""<html><body style='background:#0f172a; color:#fff; text-align:center; padding:50px; font-family:sans-serif;'>
+        <h1 style='color:#f59e0b;'>Convite de Acesso Gerado</h1>
+        <p style='margin:20px 0;'>Link Seguro: <br><b style='color:#38bdf8;'>{link}</b></p>
+        <a href='/painel' style='color:#f59e0b;'>Voltar ao Painel</a>
+    </body></html>"""
 
 def render_tela_nova_senha(user, token):
     return f"""<!DOCTYPE html>
@@ -967,7 +961,7 @@ def render_tela_nova_senha(user, token):
 <head><title>Nova Senha</title><script src="https://cdn.tailwindcss.com"></script></head>
 <body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4">
     <form action="/salvar-nova-senha" method="post" class="bg-slate-900 p-8 rounded-3xl space-y-4 max-w-sm w-full shadow-2xl">
-        <h1 class="text-xl font-bold">Definir Senha</h1>
+        <h1 class="text-xl font-bold">Definir Nova Senha</h1>
         <input type="hidden" name="token" value="{token}">
         <input type="password" name="nova_senha" required placeholder="Nova Senha" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white">
         <input type="password" name="confirma_senha" required placeholder="Confirme Senha" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white">
@@ -1019,9 +1013,9 @@ def selecionar_cliente_trabalho(orcamento_id: int = Form(...)):
 @app.post("/salvar-negociacao-mesa", response_class=HTMLResponse)
 def salvar_negociacao_mesa(
     orcamento_id: int = Form(...),
-    preco_bruto: float = Form(...),
+    preco_bruto: float = Form(0.0),
     desconto_pct: float = Form(0.0),
-    preco_venda: float = Form(...),
+    preco_venda: float = Form(0.0),
     markup: float = Form(2.2),
     modalidade_pagamento: str = Form("Cartão de Crédito em até 12x"),
     entrada_valor: float = Form(0.0),
@@ -1071,9 +1065,9 @@ def captacao_route(slug: str = "mvi"):
 
 @app.post("/importar-promob", response_class=HTMLResponse)
 async def importar_promob_route(
-    cliente_nome: str = Form(...),
-    cliente_telefone: str = Form(...),
-    cliente_ambiente: str = Form(...),
+    cliente_nome: str = Form(""),
+    cliente_telefone: str = Form(""),
+    cliente_ambiente: str = Form(""),
     arquivo_promob: UploadFile = File(...)
 ):
     conteudo_bytes = await arquivo_promob.read()
@@ -1147,20 +1141,34 @@ async def submit_lead_route(
     zap_url = f"https://api.whatsapp.com/send?phone=55{empresa['telefone'].replace('-','').replace(' ','').replace('(','').replace(')','')}&text=Olá! Calculei meu projeto de {area_m2_total}m² no site da MVI!"
     return render_sucesso(empresa, calc["preco_venda"], zap_url)
 
+# ==============================================================================
+# ROTA SALVAR DADOS COMPLETOS CORRIGIDA COM DEFAULTS SEGUROS
+# ==============================================================================
 @app.post("/salvar-dados-completos-cliente", response_class=HTMLResponse)
 def salvar_dados_completos_cliente_route(
-    orcamento_id: int = Form(...),
-    cliente_nome: str = Form(...),
-    cliente_cpf: str = Form(...),
-    cliente_rg: str = Form(...),
-    cliente_rg_emissor: str = Form(...),
-    cliente_nascimento: str = Form(...),
-    cliente_email: str = Form(...),
-    cliente_telefone: str = Form(...),
+    orcamento_id: int = Form(0),
+    cliente_nome: str = Form(""),
+    cliente_cpf: str = Form(""),
+    cliente_rg: str = Form(""),
+    cliente_rg_emissor: str = Form(""),
+    cliente_nascimento: str = Form(""),
+    cliente_pais: str = Form("Brasil"),
+    cliente_cidade: str = Form(""),
+    cliente_email: str = Form(""),
+    cliente_telefone: str = Form(""),
+    cliente_telefone_2: str = Form(""),
     cliente_cep_postal: str = Form(""),
     cliente_endereco_postal: str = Form(""),
     cliente_cep_entrega: str = Form(""),
     cliente_endereco_entrega: str = Form(""),
+    cliente_banco: str = Form(""),
+    cliente_agencia: str = Form(""),
+    cliente_conta: str = Form(""),
+    cliente_renda: str = Form(""),
+    ref_nome_1: str = Form(""),
+    ref_tel_1: str = Form(""),
+    ref_nome_2: str = Form(""),
+    ref_tel_2: str = Form(""),
     descricao_manual: str = Form(""),
     desconto_pct: float = Form(0.0),
     forma_pagamento: str = Form("Cartão de Crédito até 12x"),
@@ -1180,20 +1188,24 @@ def salvar_dados_completos_cliente_route(
         cursor.execute("""
             INSERT INTO orcamentos (
                 empresa_id, criado_em, cliente_nome, cliente_cpf, cliente_rg, cliente_rg_emissor,
-                cliente_nascimento, cliente_email, cliente_telefone, cliente_cep_postal, cliente_endereco_postal,
-                cliente_cep_entrega, cliente_endereco_entrega, cliente_ambiente, descricao_manual, desconto_pct,
-                desconto_autorizado, status, preco_bruto, preco_venda, lucro_liquido, forma_pagamento, entrada_valor,
-                num_parcelas, prazo_entrega, data_entrega_prevista
+                cliente_nascimento, cliente_pais, cliente_cidade, cliente_email,
+                cliente_telefone, cliente_telefone_2, cliente_cep_postal, cliente_endereco_postal,
+                cliente_cep_entrega, cliente_endereco_entrega, cliente_banco, cliente_agencia,
+                cliente_conta, cliente_renda, ref_nome_1, ref_tel_1, ref_nome_2, ref_tel_2,
+                cliente_ambiente, descricao_manual, desconto_pct, desconto_autorizado, status, preco_bruto,
+                preco_venda, lucro_liquido, forma_pagamento, entrada_valor, num_parcelas, prazo_entrega, data_entrega_prevista
             ) VALUES (
-                1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Projeto Sob Medida', ?, ?, 1, 'Contrato Pronto para Assinatura',
-                ?, ?, ?, ?, ?, ?, '30 dias úteis', ?
+                1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                'Projeto Sob Medida', ?, ?, 1, 'Contrato Pronto para Assinatura', ?, ?, ?, ?, ?, ?, '30 dias úteis', ?
             )
         """, (
-            agora, cliente_nome, cliente_cpf, cliente_rg, cliente_rg_emissor, cliente_nascimento,
-            cliente_email, cliente_telefone, cliente_cep_postal, cliente_endereco_postal,
-            cliente_cep_entrega, cliente_endereco_entrega, descricao_manual, desconto_pct,
-            pv_base, pv_final, lucro_final, forma_pagamento, entrada_valor, num_parcelas,
-            (date.today() + timedelta(days=30)).strftime("%Y-%m-%d")
+            agora, cliente_nome, cliente_cpf, cliente_rg, cliente_rg_emissor,
+            cliente_nascimento, cliente_pais, cliente_cidade, cliente_email,
+            cliente_telefone, cliente_telefone_2, cliente_cep_postal, cliente_endereco_postal,
+            cliente_cep_entrega, cliente_endereco_entrega, cliente_banco, cliente_agencia,
+            cliente_conta, cliente_renda, ref_nome_1, ref_tel_1, ref_nome_2, ref_tel_2,
+            descricao_manual, desconto_pct, pv_base, pv_final, lucro_final, forma_pagamento,
+            entrada_valor, num_parcelas, (date.today() + timedelta(days=30)).strftime("%Y-%m-%d")
         ))
         conn.commit()
         CURRENT_SESSION["cliente_ativo_id"] = cursor.lastrowid
@@ -1209,17 +1221,21 @@ def salvar_dados_completos_cliente_route(
             cursor.execute("""
                 UPDATE orcamentos SET
                     cliente_nome = ?, cliente_cpf = ?, cliente_rg = ?, cliente_rg_emissor = ?,
-                    cliente_nascimento = ?, cliente_email = ?, cliente_telefone = ?,
-                    cliente_cep_postal = ?, cliente_endereco_postal = ?, cliente_cep_entrega = ?, 
-                    cliente_endereco_entrega = ?, descricao_manual = ?, desconto_pct = ?, 
-                    status = 'Contrato Pronto para Assinatura', preco_venda = ?, lucro_liquido = ?, 
-                    forma_pagamento = ?, entrada_valor = ?, num_parcelas = ?
+                    cliente_nascimento = ?, cliente_pais = ?, cliente_cidade = ?, cliente_email = ?,
+                    cliente_telefone = ?, cliente_telefone_2 = ?, cliente_cep_postal = ?, cliente_endereco_postal = ?,
+                    cliente_cep_entrega = ?, cliente_endereco_entrega = ?, cliente_banco = ?, cliente_agencia = ?,
+                    cliente_conta = ?, cliente_renda = ?, ref_nome_1 = ?, ref_tel_1 = ?, ref_nome_2 = ?, ref_tel_2 = ?,
+                    descricao_manual = ?, desconto_pct = ?, status = 'Contrato Pronto para Assinatura',
+                    preco_venda = ?, lucro_liquido = ?, forma_pagamento = ?, entrada_valor = ?, num_parcelas = ?
                 WHERE id = ?
             """, (
-                cliente_nome, cliente_cpf, cliente_rg, cliente_rg_emissor, cliente_nascimento, 
-                cliente_email, cliente_telefone, cliente_cep_postal, cliente_endereco_postal, 
-                cliente_cep_entrega, cliente_endereco_entrega, descricao_manual, desconto_pct, 
-                pv_final, lucro_final, forma_pagamento, entrada_valor, num_parcelas, orcamento_id
+                cliente_nome, cliente_cpf, cliente_rg, cliente_rg_emissor,
+                cliente_nascimento, cliente_pais, cliente_cidade, cliente_email,
+                cliente_telefone, cliente_telefone_2, cliente_cep_postal, cliente_endereco_postal,
+                cliente_cep_entrega, cliente_endereco_entrega, cliente_banco, cliente_agencia,
+                cliente_conta, cliente_renda, ref_nome_1, ref_tel_1, ref_nome_2, ref_tel_2,
+                descricao_manual, desconto_pct, pv_final, lucro_final, forma_pagamento,
+                entrada_valor, num_parcelas, orcamento_id
             ))
             conn.commit()
             CURRENT_SESSION["cliente_ativo_id"] = orcamento_id
@@ -1228,7 +1244,7 @@ def salvar_dados_completos_cliente_route(
     return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.post("/salvar-adendo", response_class=HTMLResponse)
-def salvar_adendo_route(orcamento_id: int = Form(...), adendo_descricao: str = Form(...), adendo_valor: float = Form(0.0)):
+def salvar_adendo_route(orcamento_id: int = Form(0), adendo_descricao: str = Form(""), adendo_valor: float = Form(0.0)):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("UPDATE orcamentos SET adendo_descricao = ?, adendo_valor = ?, status = 'Adendo Adicionado' WHERE id = ?", (adendo_descricao, adendo_valor, orcamento_id))
@@ -1245,9 +1261,9 @@ def autorizar_com_chave_route(orcamento_id: int = Form(...), chave_digitada: str
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     if tipo_acao == "desconto":
-        cursor.execute("UPDATE orcamentos SET desconto_autorizado = 1, status = 'Desconto Autorizado' WHERE id = ?", (orcamento_id,))
+        cursor.execute("UPDATE orcamentos SET desconto_autorizado = 1, status = 'Desconto Autorizado pela Diretoria' WHERE id = ?", (orcamento_id,))
     elif tipo_acao == "financeiro":
-        cursor.execute("UPDATE orcamentos SET liberado_financeiro = 1, status = 'Liberado para Financeiro' WHERE id = ?", (orcamento_id,))
+        cursor.execute("UPDATE orcamentos SET liberado_financeiro = 1, status = 'Liberado para Financeiro & Fábrica' WHERE id = ?", (orcamento_id,))
     conn.commit()
     conn.close()
     return RedirectResponse(url="/painel-get", status_code=303)
@@ -1260,7 +1276,7 @@ def assinar_contrato_view(orcamento_id: int):
     cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (orcamento_id,))
     orc = cursor.fetchone()
     conn.close()
-    if not orc: return HTMLResponse("Not Found", status_code=404)
+    if not orc: return HTMLResponse("Contrato não encontrado.", status_code=404)
     return render_assinatura_online(orc, get_empresa_dados(1))
 
 @app.post("/confirmar-assinatura", response_class=HTMLResponse)
@@ -1271,10 +1287,10 @@ def confirmar_assinatura_route(orcamento_id: int = Form(...), assinatura_base64:
     cursor.execute("UPDATE orcamentos SET contrato_assinado = 1, assinatura_data = ?, assinatura_img = ?, status = 'Contrato Assinado Digitalmente' WHERE id = ?", (agora, assinatura_base64, orcamento_id))
     conn.commit()
     conn.close()
-    return HTMLResponse("<div style='text-align:center; padding:50px; background:#0f172a; color:#10b981; min-height:100vh;'><h1>🎉 Contrato Assinado com Sucesso!</h1></div>")
+    return HTMLResponse("<div style='text-align:center; padding:50px; background:#0f172a; color:#10b981; min-height:100vh; font-family:sans-serif;'><h1>🎉 Contrato Assinado com Sucesso!</h1><p style='color:#94a3b8;'>Registrado digitalmente no sistema MVI.</p></div>")
 
 @app.post("/criar-usuario", response_class=HTMLResponse)
-def criar_usuario_route(request: Request, nome: str = Form(...), email: str = Form(...), perfil: str = Form(...), telefone: str = Form("")):
+def criar_usuario_route(request: Request, nome: str = Form(...), email: str = Form(...), perfil: str = Form("vendedor"), telefone: str = Form("")):
     token = secrets.token_urlsafe(16)
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -1335,10 +1351,10 @@ def alternar_status_funcionario(email_funcionario: str = Form(...)):
     return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.post("/salvar-empresa", response_class=HTMLResponse)
-def update_empresa(nome_empresa: str = Form(...), cnpj: str = Form(...), telefone: str = Form(...), chave_mestra: str = Form("MVI2026")):
+def update_empresa(nome_empresa: str = Form(...), cnpj: str = Form(...), telefone: str = Form(...), pix: str = Form(""), chave_mestra: str = Form("MVI2026")):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("UPDATE empresas SET nome_empresa = ?, cnpj = ?, telefone = ?, chave_mestra = ? WHERE id = 1", (nome_empresa, cnpj, telefone, chave_mestra))
+    cursor.execute("UPDATE empresas SET nome_empresa = ?, cnpj = ?, telefone = ?, pix = ?, chave_mestra = ? WHERE id = 1", (nome_empresa, cnpj, telefone, pix, chave_mestra))
     conn.commit()
     conn.close()
     return RedirectResponse(url="/painel-get", status_code=303)
