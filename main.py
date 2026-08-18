@@ -15,7 +15,7 @@ import base64
 from datetime import datetime, date, timedelta
 from typing import List
 
-app = FastAPI(title="Sistema Marcenaria Inteligente")
+app = FastAPI(title="MVI - Sistema de Marcenaria Inteligente")
 DB_PATH = "marcenaria.db"
 
 def get_db():
@@ -109,10 +109,10 @@ def init_db():
             ]
             cursor.executemany("INSERT INTO estoque VALUES (?, ?, ?, ?, ?)", itens_padrao)
 
-        cursor.execute("SELECT email FROM usuarios WHERE email = 'admin@marcenaria.com'")
+        cursor.execute("SELECT email FROM usuarios WHERE email = 'admin@mvi.com'")
         if not cursor.fetchone():
-            cursor.execute("INSERT INTO usuarios VALUES ('admin@marcenaria.com', '123456', 'Administrador', 'admin')")
-            cursor.execute("INSERT INTO usuarios VALUES ('vendedor@marcenaria.com', '123456', 'Vendedor da Loja', 'vendedor')")
+            cursor.execute("INSERT INTO usuarios VALUES ('admin@mvi.com', '123456', 'Administrador MVI', 'admin')")
+            cursor.execute("INSERT INTO usuarios VALUES ('vendedor@mvi.com', '123456', 'Vendedor MVI', 'vendedor')")
 
         cursor.execute("SELECT valor FROM configuracoes WHERE chave = 'precos'")
         if not cursor.fetchone():
@@ -126,15 +126,14 @@ def init_db():
             }
             cursor.execute("INSERT INTO configuracoes (chave, valor) VALUES ('precos', ?)", (json.dumps(default_precos),))
 
-        cursor.execute("SELECT valor FROM configuracoes WHERE chave = 'dados_empresa'")
-        if not cursor.fetchone():
-            default_empresa = {
-                "nome_empresa": "Marcenaria Pro Móveis Planejados",
-                "cnpj": "00.000.000/0001-00",
-                "telefone_empresa": "(11) 98888-7777",
-                "pix": "contato@marcenaria.com"
-            }
-            cursor.execute("INSERT INTO configuracoes (chave, valor) VALUES ('dados_empresa', ?)", (json.dumps(default_empresa),))
+        # Configuração Oficial com a marca MVI
+        default_empresa = {
+            "nome_empresa": "MVI Móveis Planejados",
+            "cnpj": "00.000.000/0001-00",
+            "telefone_empresa": "(11) 98888-7777",
+            "pix": "contato@mviplanejados.com.br"
+        }
+        cursor.execute("INSERT OR REPLACE INTO configuracoes (chave, valor) VALUES ('dados_empresa', ?)", (json.dumps(default_empresa),))
         conn.commit()
 
 init_db()
@@ -165,10 +164,10 @@ def get_empresa_config():
         if row:
             return json.loads(row["valor"])
     return {
-        "nome_empresa": "Marcenaria Pro Móveis Planejados",
+        "nome_empresa": "MVI Móveis Planejados",
         "cnpj": "00.000.000/0001-00",
         "telefone_empresa": "(11) 98888-7777",
-        "pix": "contato@marcenaria.com"
+        "pix": "contato@mviplanejados.com.br"
     }
 
 def set_empresa_config(dados: dict):
@@ -223,14 +222,14 @@ def get_metricas_financeiras():
         }
 
 CURRENT_DATA = {
-    "user": "admin@marcenaria.com",
+    "user": "admin@mvi.com",
     "user_perfil": "admin",
-    "user_nome": "Administrador",
+    "user_nome": "Administrador MVI",
     "orcamento_id": None,
     "status": "Em Negociação",
     "cliente_nome": "Cliente Exemplo",
     "cliente_telefone": "11999998888",
-    "cliente_ambiente": "Casa Completa / Múltiplos Ambientes",
+    "cliente_ambiente": "Casa Completa / MVI",
     "prazo_entrega": "25 dias úteis",
     "data_entrega_prevista": (date.today() + timedelta(days=25)).strftime("%Y-%m-%d"),
     "entrada_valor": 1000.0,
@@ -400,142 +399,224 @@ def calcular_engenharia_avancada(
     total_mat = sum(i["valor"] for i in items)
     return items, total_mat
 
-def calcular_dre_completa(d: dict):
-    custo_mat = d.get("custo_materiais", 0.0)
-    custo_mo = d.get("dias_producao", 0) * d.get("valor_diaria", 0.0)
-    custo_frete_mont = d.get("custo_frete", 0.0) + d.get("custo_montagem", 0.0)
-    custo_direto_total = custo_mat + custo_mo + custo_frete_mont
-    
-    markup = d.get("markup", 2.2)
-    pv = custo_direto_total * markup if custo_direto_total > 0 else 0.0
-    
-    imposto_val = (d.get("imposto_pct", 0.0) / 100.0) * pv
-    comissao_val = (d.get("comissao_pct", 0.0) / 100.0) * pv
-    
-    lucro_liquido = pv - (custo_direto_total + imposto_val + comissao_val) if pv > 0 else 0.0
-    margem_liq_pct = (lucro_liquido / pv * 100.0) if pv > 0 else 0.0
-    
-    entrada = min(float(d.get("entrada_valor", 0.0)), pv)
-    saldo_restante = max(pv - entrada, 0.0)
-    n_parc = max(int(d.get("num_parcelas", 1)), 1)
-    valor_parcela = saldo_restante / n_parc if n_parc > 0 else 0.0
-    
-    valor_recebido = float(d.get("valor_recebido", 0.0))
-    saldo_devedor = max(pv - valor_recebido, 0.0)
+def render_login_page(msg_erro=""):
+    erro_tag = f"<p class='text-rose-400 text-xs text-center bg-rose-950/60 border border-rose-800 p-2 rounded-lg'>{msg_erro}</p>" if msg_erro else ""
+    return f"""<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MVI Móveis Planejados - Login</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4 font-sans">
+    <div class="max-w-md w-full bg-slate-900 border border-amber-500/30 rounded-3xl p-8 shadow-2xl space-y-6">
+        <div class="text-center space-y-2">
+            <div class="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-black text-slate-950 text-2xl shadow-lg shadow-amber-500/20">
+                MVI
+            </div>
+            <h1 class="text-xl font-bold tracking-tight text-white">MVI Móveis Planejados</h1>
+            <p class="text-xs text-slate-400">Sistema de Engenharia, Vendas & Produção</p>
+        </div>
+        {erro_tag}
+        <form action="/painel" method="post" class="space-y-4">
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">E-mail</label>
+                <input type="email" name="username" required value="admin@mvi.com" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm focus:outline-none focus:border-amber-500 text-slate-200">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Senha</label>
+                <input type="password" name="password" required value="123456" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm focus:outline-none focus:border-amber-500 text-slate-200">
+            </div>
+            <button type="submit" class="w-full py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-sm transition-all shadow-lg shadow-amber-500/20">
+                Acessar Painel MVI
+            </button>
+        </form>
+        <div class="border-t border-slate-800 pt-4 text-center">
+            <a href="/solicitar-orcamento" target="_blank" class="text-xs text-amber-400 hover:underline font-semibold block mb-1">🔗 Ver Simulador Público (Instagram)</a>
+            <p class="text-[11px] text-slate-500">Admin: <b>admin@mvi.com</b> | Senha: <b>123456</b></p>
+        </div>
+    </div>
+</body>
+</html>"""
 
-    return {
-        "custo_mat": custo_mat,
-        "custo_mo": custo_mo,
-        "custo_frete_mont": custo_frete_mont,
-        "custo_direto_total": custo_direto_total,
-        "pv": pv,
-        "imposto_val": imposto_val,
-        "comissao_val": comissao_val,
-        "lucro_liquido": lucro_liquido,
-        "margem_liq_pct": margem_liq_pct,
-        "entrada": entrada,
-        "saldo_restante": saldo_restante,
-        "n_parc": n_parc,
-        "valor_parcela": valor_parcela,
-        "valor_recebido": valor_recebido,
-        "saldo_devedor": saldo_devedor
-    }
+def render_pagina_captacao(sucesso=False, orc_id=None, estimativa=0.0):
+    empresa = get_empresa_config()
+    msg_sucesso = f"""
+    <div class="bg-amber-950/40 border border-amber-500/50 p-6 rounded-3xl text-center space-y-4 shadow-2xl">
+        <span class="text-5xl block">✨</span>
+        <h2 class="text-xl font-bold text-white">Planta & Projeto Recebidos pela MVI!</h2>
+        <div class="bg-slate-950 p-4 rounded-2xl border border-amber-500/30 inline-block text-left space-y-1">
+            <p class="text-xs text-slate-400">Estimativa do Projeto Personalizado:</p>
+            <p class="text-2xl font-bold text-amber-400">R$ {estimativa:,.2f}</p>
+            <p class="text-[11px] text-slate-400">Entrada facilitada + Parcelamento em até 12x</p>
+        </div>
+        <p class="text-xs text-slate-300">Nossa equipe de projetistas da <b>{empresa['nome_empresa']}</b> já recebeu suas especificações e entrará em contato via WhatsApp.</p>
+        <a href="https://api.whatsapp.com/send?phone=55{empresa['telefone_empresa'].replace('(', '').replace(')', '').replace('-', '').replace(' ', '')}&text=Olá! Enviei minha planta no site da MVI (Projeto #{orc_id}) e gostaria de dar andamento!" target="_blank" class="inline-block px-6 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-bold rounded-xl shadow-lg transition-colors">
+            💬 Falar com Projetista no WhatsApp
+        </a>
+    </div>
+    """ if sucesso else ""
 
-def consolidar_compras_e_nesting(items: list):
-    CHAPA_LARGURA = 2750.0
-    CHAPA_ALTURA = 1830.0
-    
-    pecas_corte = []
-    area_total_m2 = 0.0
-    dobradicas = 0
-    corredicas = 0
-    puxadores = 0
-    fita_metros = 0.0
-    outros = 0
+    formulario = f"""
+    <form action="/enviar-solicitacao-lead" method="post" enctype="multipart/form-data" class="space-y-4 bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl">
+        <div class="space-y-1 border-b border-slate-800 pb-3">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-black text-slate-950 text-base shadow mb-2">MVI</div>
+            <h2 class="text-lg font-bold text-white">Simulador de Marcenaria Sob Medida</h2>
+            <p class="text-xs text-slate-400">Envie sua planta e especificações para receber um orçamento preliminar da MVI.</p>
+        </div>
 
-    for it in items:
-        tipo = it.get("tipo", "")
-        qtd = it.get("qtd", 1)
-        largura = float(it.get("largura", 0.0))
-        altura = float(it.get("altura", 0.0))
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Seu Nome Completo</label>
+                <input type="text" name="nome" required placeholder="Ex: Mariana Silva" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Seu WhatsApp (com DDD)</label>
+                <input type="text" name="whatsapp" required placeholder="Ex: (11) 99999-8888" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500">
+            </div>
+        </div>
 
-        if "MDF" in tipo and largura > 0 and altura > 0:
-            area_item = (largura / 1000.0) * (altura / 1000.0) * qtd
-            area_total_m2 += area_item
-            fita_metros += (((largura + altura) * 2) / 1000.0) * qtd * 0.5
-            for _ in range(qtd):
-                pecas_corte.append({
-                    "nome": it.get("nome", "Peça"),
-                    "ambiente": it.get("ambiente", "Geral"),
-                    "largura": largura,
-                    "altura": altura
-                })
-        elif "Dobradiça" in tipo:
-            dobradicas += qtd
-        elif "Corrediça" in tipo:
-            corredicas += qtd
-        elif "Puxador" in tipo:
-            puxadores += qtd
-        elif "Fita" in tipo:
-            fita_metros += qtd * 10.0
-        else:
-            outros += qtd
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Área Total do Imóvel ou Cômodo (m²)</label>
+                <input type="number" step="any" min="5.0" max="2000.0" name="area_m2_total" value="68.5" placeholder="Ex: 68.5" required class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Cidade / Bairro da Obra</label>
+                <input type="text" name="cidade" required placeholder="Ex: São Paulo / Moema" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500">
+            </div>
+        </div>
 
-    chapas = []
-    pecas_ordenadas = sorted(pecas_corte, key=lambda p: p["largura"] * p["altura"], reverse=True)
-    
-    for p in pecas_ordenadas:
-        w = min(p["largura"], CHAPA_LARGURA)
-        h = min(p["altura"], CHAPA_ALTURA)
-        colocada = False
-        
-        for ch in chapas:
-            if ch["cur_x"] + w <= CHAPA_LARGURA and ch["cur_y"] + h <= CHAPA_ALTURA:
-                ch["pecas"].append({
-                    "nome": p["nome"], "x": ch["cur_x"], "y": ch["cur_y"], "w": w, "h": h
-                })
-                ch["cur_x"] += w + 10
-                ch["row_max_h"] = max(ch["row_max_h"], h)
-                ch["area_utilizada"] += (w / 1000.0) * (h / 1000.0)
-                colocada = True
-                break
-            elif ch["cur_y"] + ch["row_max_h"] + h <= CHAPA_ALTURA and w <= CHAPA_LARGURA:
-                ch["cur_y"] += ch["row_max_h"] + 10
-                ch["cur_x"] = 0.0
-                ch["row_max_h"] = h
-                ch["pecas"].append({
-                    "nome": p["nome"], "x": ch["cur_x"], "y": ch["cur_y"], "w": w, "h": h
-                })
-                ch["cur_x"] += w + 10
-                ch["area_utilizada"] += (w / 1000.0) * (h / 1000.0)
-                colocada = True
-                break
-        
-        if not colocada:
-            nova_chapa = {
-                "id": len(chapas) + 1,
-                "cur_x": w + 10,
-                "cur_y": 0.0,
-                "row_max_h": h,
-                "area_utilizada": (w / 1000.0) * (h / 1000.0),
-                "pecas": [{
-                    "nome": p["nome"], "x": 0.0, "y": 0.0, "w": w, "h": h
-                }]
-            }
-            chapas.append(nova_chapa)
+        <div>
+            <label class="block text-xs font-semibold text-slate-300 uppercase mb-2">Ambientes a Serem Mobiliados:</label>
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                <label class="flex items-center space-x-2 bg-slate-950 p-2.5 rounded-xl border border-slate-800 cursor-pointer hover:border-amber-500">
+                    <input type="checkbox" name="ambientes_check" value="Cozinha Planejada" checked class="rounded text-amber-500">
+                    <span>🍳 Cozinha</span>
+                </label>
+                <label class="flex items-center space-x-2 bg-slate-950 p-2.5 rounded-xl border border-slate-800 cursor-pointer hover:border-amber-500">
+                    <input type="checkbox" name="ambientes_check" value="Lavanderia" checked class="rounded text-amber-500">
+                    <span>🧺 Lavanderia</span>
+                </label>
+                <label class="flex items-center space-x-2 bg-slate-950 p-2.5 rounded-xl border border-slate-800 cursor-pointer hover:border-amber-500">
+                    <input type="checkbox" name="ambientes_check" value="Dormitório Casal / Closet" checked class="rounded text-amber-500">
+                    <span>🛏️ Suíte Casal</span>
+                </label>
+                <label class="flex items-center space-x-2 bg-slate-950 p-2.5 rounded-xl border border-slate-800 cursor-pointer hover:border-amber-500">
+                    <input type="checkbox" name="ambientes_check" value="Dormitório 2 / Infantil" class="rounded text-amber-500">
+                    <span>🧸 Quarto 2 / Office</span>
+                </label>
+                <label class="flex items-center space-x-2 bg-slate-950 p-2.5 rounded-xl border border-slate-800 cursor-pointer hover:border-amber-500">
+                    <input type="checkbox" name="ambientes_check" value="Banheiros" checked class="rounded text-amber-500">
+                    <span>🚿 Banheiros</span>
+                </label>
+                <label class="flex items-center space-x-2 bg-slate-950 p-2.5 rounded-xl border border-slate-800 cursor-pointer hover:border-amber-500">
+                    <input type="checkbox" name="ambientes_check" value="Sala / Painel Home TV" class="rounded text-amber-500">
+                    <span>📺 Sala / Home</span>
+                </label>
+            </div>
+        </div>
 
-    total_chapas = max(len(chapas), 1 if items else 0)
+        <div class="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
+            <h3 class="text-xs font-bold text-amber-400 uppercase tracking-wide">Padrão Construtivo MVI</h3>
+            
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div>
+                    <label class="block text-slate-300 font-medium mb-1">Caixaria Interna</label>
+                    <select name="espessura_caixa" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                        <option value="MDF 15mm">MDF 15mm (Padrão)</option>
+                        <option value="MDF 18mm">MDF 18mm (Reforçado)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-slate-300 font-medium mb-1">Tamponamento</label>
+                    <select name="espessura_tamponamento" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                        <option value="Tamponamento 18mm">Tamponamento 18mm</option>
+                        <option value="Tamponamento 25mm">Tamponamento 25mm</option>
+                        <option value="Tamponamento 36mm Engrossado">Tamponamento 36mm Engrossado</option>
+                        <option value="Sem Tamponamento">Sem Tamponamento</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-slate-300 font-medium mb-1">Padrão de Cor MDF</label>
+                    <select name="cor_mdf" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                        <option value="Branco TX Essencial">Branco TX</option>
+                        <option value="Madeirado Nobre (Freijó / Carvalho)">Madeirado Nobre</option>
+                        <option value="Cores Unicolores (Grafite / Preto)">Cinza Grafite / Preto Matt</option>
+                    </select>
+                </div>
+            </div>
 
-    return {
-        "area_m2": area_total_m2,
-        "chapas_mdf": total_chapas,
-        "fita_metros": round(fita_metros, 1),
-        "dobradicas": dobradicas,
-        "corredicas": corredicas,
-        "puxadores": puxadores,
-        "outros": outros,
-        "chapas_nesting": chapas
-    }
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div>
+                    <label class="block text-slate-300 font-medium mb-1">Modelo de Portas & Puxadores</label>
+                    <select name="modelo_portas" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                        <option value="Lisa Tradicional com Puxador Externo">Lisa Tradicional</option>
+                        <option value="Cava Usinada na Madeira (Usinado)">Cava Usinada na Madeira</option>
+                        <option value="Perfil Gola em Alumínio">Perfil Gola em Alumínio</option>
+                        <option value="Perfil Slim com Vidro Reflecta">Perfil Slim com Vidro Reflecta</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-slate-300 font-medium mb-1">Ferragens & Amortecimento</label>
+                    <select name="nivel_ferragens" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                        <option value="Padrão c/ Amortecedor Slowmotion">Slowmotion c/ Amortecedor</option>
+                        <option value="Linha Premium Oculta (Extração Total)">Linha Premium Oculta</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div class="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-1">
+                <label class="block text-xs font-bold text-amber-400 uppercase">📐 1. Planta Baixa</label>
+                <input type="file" name="planta" accept="image/*" required class="block w-full text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-amber-600 file:text-slate-950 hover:file:bg-amber-500 cursor-pointer">
+            </div>
+            <div class="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-1">
+                <label class="block text-xs font-bold text-slate-300 uppercase">🖼️ 2. Fotos de Inspiração</label>
+                <input type="file" name="inspiracao" accept="image/*" class="block w-full text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-white hover:file:bg-slate-700 cursor-pointer">
+            </div>
+        </div>
+
+        <div>
+            <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Detalhes Adicionais</label>
+            <textarea name="descricao" rows="2" placeholder="Ex: Iluminação em LED nos aéreos, torre quente na cozinha..." class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500"></textarea>
+        </div>
+
+        <button type="submit" class="w-full py-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black rounded-xl text-sm transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center space-x-2">
+            <span>⚡ Simular Projeto & Receber Proposta MVI</span>
+        </button>
+    </form>
+    """ if not sucesso else ""
+
+    return f"""<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{empresa['nome_empresa']} - Simulador</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-between font-sans">
+    <header class="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+            <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-black text-slate-950 text-lg shadow-md">MVI</div>
+            <span class="font-bold text-base sm:text-lg text-white tracking-wide">{empresa['nome_empresa']}</span>
+        </div>
+        <span class="text-xs text-amber-400 font-semibold">Móveis Sob Medida</span>
+    </header>
+
+    <main class="max-w-3xl w-full mx-auto p-4 sm:p-6 my-auto">
+        {msg_sucesso}
+        {formulario}
+    </main>
+
+    <footer class="bg-slate-900 border-t border-slate-800 p-4 text-center text-xs text-slate-500">
+        <p>{empresa['nome_empresa']} | Atendimento: {empresa['telefone_empresa']}</p>
+    </footer>
+</body>
+</html>"""
 
 def render_dashboard(data: dict):
     is_admin = (data.get("user_perfil") == "admin")
@@ -552,12 +633,12 @@ def render_dashboard(data: dict):
     rows_html = ""
     if items:
         for it in items:
-            valor_col = f"<td class='py-3 px-4 text-sm text-right text-emerald-400 font-semibold'>R$ {it.get('valor', 0.0):.2f}</td>" if is_admin else "<td class='py-3 px-4 text-sm text-right text-slate-500'>—</td>"
+            valor_col = f"<td class='py-3 px-4 text-sm text-right text-amber-400 font-semibold'>R$ {it.get('valor', 0.0):.2f}</td>" if is_admin else "<td class='py-3 px-4 text-sm text-right text-slate-500'>—</td>"
             rows_html += f"""
             <tr class="border-b border-slate-800 hover:bg-slate-850">
                 <td class="py-3 px-4 text-sm text-slate-200">
                     <span class="font-medium">{it.get('nome', 'Peça')}</span>
-                    <span class="block text-[11px] text-sky-400">{it.get('tipo', 'Insumo')} - {it.get('ambiente', 'Geral')}</span>
+                    <span class="block text-[11px] text-amber-400">{it.get('tipo', 'Insumo')} - {it.get('ambiente', 'Geral')}</span>
                 </td>
                 <td class="py-3 px-4 text-sm text-center text-slate-400">{it.get('dimensoes', '-')}</td>
                 <td class="py-3 px-4 text-sm text-center text-slate-300">{it.get('qtd', 1)}</td>
@@ -584,17 +665,17 @@ def render_dashboard(data: dict):
                 sw = max((p["w"] / 2750.0) * 550.0, 4)
                 sh = max((p["h"] / 1830.0) * 366.0, 4)
                 rects_svg += f"""
-                <rect x="{sx:.1f}" y="{sy:.1f}" width="{sw:.1f}" height="{sh:.1f}" fill="#0284c7" stroke="#0f172a" stroke-width="1" rx="2" opacity="0.9"/>
-                <text x="{sx + 4:.1f}" y="{sy + 14:.1f}" fill="#ffffff" font-size="9" font-family="sans-serif" font-weight="bold">{p['nome'][:16]} ({int(p['w'])}x{int(p['h'])})</text>
+                <rect x="{sx:.1f}" y="{sy:.1f}" width="{sw:.1f}" height="{sh:.1f}" fill="#d97706" stroke="#0f172a" stroke-width="1" rx="2" opacity="0.9"/>
+                <text x="{sx + 4:.1f}" y="{sy + 14:.1f}" fill="#0f172a" font-size="9" font-family="sans-serif" font-weight="bold">{p['nome'][:16]} ({int(p['w'])}x{int(p['h'])})</text>
                 """
 
             svg_chapas_html += f"""
-            <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
+            <div class="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
                 <div class="flex justify-between items-center text-xs">
                     <span class="font-bold text-white">Chapa #{ch['id']} (2750 x 1830 mm)</span>
-                    <span class="text-emerald-400 font-semibold">Aproveitamento: {aproveitamento:.1f}% ({ch['area_utilizada']:.2f} m²)</span>
+                    <span class="text-amber-400 font-semibold">Aproveitamento: {aproveitamento:.1f}% ({ch['area_utilizada']:.2f} m²)</span>
                 </div>
-                <div class="w-full bg-slate-900 border border-dashed border-slate-700 rounded-lg p-2 overflow-x-auto flex justify-center">
+                <div class="w-full bg-slate-900 border border-dashed border-slate-700 rounded-xl p-2 overflow-x-auto flex justify-center">
                     <svg viewBox="0 0 550 366" class="w-full max-w-[550px] h-[220px] bg-slate-800/80 rounded border border-slate-700">
                         {rects_svg}
                     </svg>
@@ -608,7 +689,7 @@ def render_dashboard(data: dict):
     if imagens:
         for idx, img_b64 in enumerate(imagens):
             galeria_html += f"""
-            <div class="relative group rounded-lg overflow-hidden border border-slate-700 aspect-video bg-slate-950 flex items-center justify-center">
+            <div class="relative group rounded-xl overflow-hidden border border-slate-700 aspect-video bg-slate-950 flex items-center justify-center">
                 <img src="data:image/jpeg;base64,{img_b64}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
                 <form action="/remover-imagem" method="post" class="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                     <input type="hidden" name="img_index" value="{idx}">
@@ -622,7 +703,7 @@ def render_dashboard(data: dict):
     ambientes_tags_html = ""
     for amb_nome in ambientes:
         ambientes_tags_html += f"""
-        <span class="inline-flex items-center gap-1.5 px-3 py-1 bg-sky-950/80 border border-sky-700 text-sky-300 rounded-lg text-xs font-medium">
+        <span class="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-950/60 border border-amber-500/40 text-amber-300 rounded-xl text-xs font-medium">
             <span>🏠 {amb_nome}</span>
             <form action="/remover-ambiente" method="post" class="inline">
                 <input type="hidden" name="ambiente_nome" value="{amb_nome}">
@@ -637,7 +718,7 @@ def render_dashboard(data: dict):
         borda_cor = "border-rose-700/60 bg-rose-950/20" if is_baixo else "border-slate-800 bg-slate-950"
         tag_status = "<span class='text-[10px] text-rose-400 font-bold'>⚠️ Repor</span>" if is_baixo else "<span class='text-[10px] text-emerald-400'>✓ Regular</span>"
         estoque_cards_html += f"""
-        <div class="p-3.5 rounded-xl border {borda_cor} flex flex-col justify-between space-y-2">
+        <div class="p-3.5 rounded-2xl border {borda_cor} flex flex-col justify-between space-y-2">
             <div class="flex justify-between items-start">
                 <span class="text-[11px] font-semibold text-slate-300">{est['descricao']}</span>
                 {tag_status}
@@ -654,13 +735,13 @@ def render_dashboard(data: dict):
 
     cond_texto_zap = f"Entrada de R$ {dre['entrada']:,.2f} + {dre['n_parc']}x de R$ {dre['valor_parcela']:,.2f}" if dre['n_parc'] > 1 else f"R$ {dre['pv']:,.2f} à vista"
     
-    msg_proposta = f"Olá {data['cliente_nome']}! Analisamos as especificações e a planta do projeto para {data['cliente_ambiente']}. Segue a proposta da {empresa['nome_empresa']}: Total de R$ {dre['pv']:,.2f} ({cond_texto_zap}) com entrega em {data['prazo_entrega']}."
+    msg_proposta = f"Olá {data['cliente_nome']}! Segue a proposta da {empresa['nome_empresa']} para o projeto {data['cliente_ambiente']}: Total de R$ {dre['pv']:,.2f} ({cond_texto_zap}) com entrega em {data['prazo_entrega']}."
     url_proposta = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone'].replace('(', '').replace(')', '').replace('-', '').replace(' ', '')}&text={urllib.parse.quote(msg_proposta)}"
 
-    msg_producao = f"Olá {data['cliente_nome']}! O seu projeto ({data['cliente_ambiente']}) já entrou em produção em nossa marcenaria! Previsão de montagem para {data.get('data_entrega_prevista', data['prazo_entrega'])}."
+    msg_producao = f"Olá {data['cliente_nome']}! O seu projeto ({data['cliente_ambiente']}) já entrou em produção na fábrica da {empresa['nome_empresa']}! Previsão de montagem para {data.get('data_entrega_prevista', data['prazo_entrega'])}."
     url_producao = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone'].replace('(', '').replace(')', '').replace('-', '').replace(' ', '')}&text={urllib.parse.quote(msg_producao)}"
 
-    msg_montagem = f"Olá {data['cliente_nome']}! Nossa equipe de montadores está agendada para a instalação do projeto ({data['cliente_ambiente']}) a partir de {data.get('data_entrega_prevista', 'breve')}."
+    msg_montagem = f"Olá {data['cliente_nome']}! Nossa equipe de montagem da {empresa['nome_empresa']} está agendada para a instalação do projeto ({data['cliente_ambiente']}) a partir de {data.get('data_entrega_prevista', 'breve')}."
     url_montagem = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone'].replace('(', '').replace(')', '').replace('-', '').replace(' ', '')}&text={urllib.parse.quote(msg_montagem)}"
 
     msg_cobranca = f"Olá {data['cliente_nome']}! Segue o lembrete sobre o saldo pendente de R$ {dre['saldo_devedor']:,.2f} referente ao projeto ({data['cliente_ambiente']}). Chave PIX: {empresa['pix']}."
@@ -707,11 +788,11 @@ def render_dashboard(data: dict):
                     card_border = "border-slate-800 bg-slate-950"
 
                 cronograma_cards_html += f"""
-                <div class="p-3.5 rounded-xl border {card_border} flex flex-col justify-between space-y-2">
+                <div class="p-3.5 rounded-2xl border {card_border} flex flex-col justify-between space-y-2">
                     <div class="flex justify-between items-start">
                         <div>
                             <span class="font-bold text-white text-xs block">{h['cliente_nome']}</span>
-                            <span class="text-[11px] text-sky-400">{h['cliente_ambiente']}</span>
+                            <span class="text-[11px] text-amber-400">{h['cliente_ambiente']}</span>
                         </div>
                         {badge_tempo}
                     </div>
@@ -728,11 +809,11 @@ def render_dashboard(data: dict):
             btn_baixa = "<span class='text-[10px] text-emerald-400 font-medium px-2 py-0.5 bg-emerald-950/60 rounded border border-emerald-800'>Baixado</span>" if baixado else f"""
             <form action="/dar-baixa-estoque" method="post" class="inline" onsubmit="return confirm('Confirmar baixa automática dos materiais no estoque?');">
                 <input type="hidden" name="orcamento_id" value="{h['id']}">
-                <button type="submit" class="px-2 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-[10px] font-semibold">Baixar</button>
+                <button type="submit" class="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-slate-950 rounded text-[10px] font-bold">Baixar</button>
             </form>
             """
 
-            badge_lead = "<span class='px-2 py-0.5 bg-pink-950 text-pink-300 border border-pink-700 rounded text-[10px] font-bold'>⚡ Lead Auto</span>" if current_st == "Novo Lead Instagram" else ""
+            badge_lead = "<span class='px-2 py-0.5 bg-amber-950 text-amber-300 border border-amber-500/40 rounded text-[10px] font-bold'>⚡ Lead MVI</span>" if current_st == "Novo Lead Instagram" else ""
 
             historico_html += f"""
             <tr class="border-b border-slate-800 hover:bg-slate-800/40 text-xs item-linha" data-busca="{h['cliente_nome'].lower()} {h['cliente_ambiente'].lower()} {current_st.lower()}">
@@ -740,7 +821,7 @@ def render_dashboard(data: dict):
                 <td class="py-3 px-4 text-slate-300">{h['criado_em']}</td>
                 <td class="py-3 px-4 text-white font-medium">{h['cliente_nome']} {badge_lead}</td>
                 <td class="py-3 px-4 text-slate-300">{h['cliente_ambiente']}</td>
-                <td class="py-3 px-4 text-right text-sky-400 font-bold">R$ {h['preco_venda']:,.2f}</td>
+                <td class="py-3 px-4 text-right text-amber-400 font-bold">R$ {h['preco_venda']:,.2f}</td>
                 {lucro_col}
                 <td class="py-3 px-4 text-center">
                     <form action="/atualizar-status" method="post" class="inline">
@@ -765,11 +846,11 @@ def render_dashboard(data: dict):
                     <div class="flex items-center justify-center space-x-1">
                         <form action="/carregar-orcamento" method="post" class="inline">
                             <input type="hidden" name="orcamento_id" value="{h['id']}">
-                            <button type="submit" class="px-2 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded text-[11px] font-semibold">Abrir</button>
+                            <button type="submit" class="px-2 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded text-[11px] font-bold">Abrir</button>
                         </form>
                         <a href="/gerar-pdf?id={h['id']}" class="px-1 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-[10px] font-semibold">Orç.</a>
                         <a href="/gerar-contrato?id={h['id']}" class="px-1 py-1 bg-amber-700 hover:bg-amber-600 text-white rounded text-[10px] font-semibold">Contrato</a>
-                        <a href="/gerar-os?id={h['id']}" class="px-1 py-1 bg-blue-800 hover:bg-blue-700 text-white rounded text-[10px] font-semibold">O.S.</a>
+                        <a href="/gerar-os?id={h['id']}" class="px-1 py-1 bg-slate-800 hover:bg-slate-700 text-white rounded text-[10px] font-semibold">O.S.</a>
                         <a href="/gerar-recibo?id={h['id']}" class="px-1 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-[10px] font-semibold">Recibo</a>
                         <a href="/gerar-vistoria?id={h['id']}" class="px-1 py-1 bg-purple-700 hover:bg-purple-600 text-white rounded text-[10px] font-semibold">Vistoria</a>
                         <a href="/gerar-etiquetas?id={h['id']}" class="px-1 py-1 bg-teal-700 hover:bg-teal-600 text-white rounded text-[10px] font-semibold">Etiquetas</a>
@@ -793,7 +874,7 @@ def render_dashboard(data: dict):
             cursor = conn.cursor()
             cursor.execute("SELECT email, nome, perfil FROM usuarios")
             for u in cursor.fetchall():
-                badge = "<span class='text-[10px] bg-sky-950 text-sky-300 border border-sky-800 px-2 py-0.5 rounded'>Admin</span>" if u['perfil'] == 'admin' else "<span class='text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded'>Vendedor</span>"
+                badge = "<span class='text-[10px] bg-amber-950 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded'>Admin</span>" if u['perfil'] == 'admin' else "<span class='text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded'>Vendedor</span>"
                 usuarios_html += f"""
                 <li class="flex items-center justify-between py-2 border-b border-slate-800/80 text-xs">
                     <div>
@@ -804,44 +885,44 @@ def render_dashboard(data: dict):
                 </li>
                 """
 
-    status_tag = f"<span class='text-xs bg-sky-950 border border-sky-700 text-sky-300 px-2.5 py-1 rounded-full'>Editando Orçamento #{data['orcamento_id']} ({data.get('status', 'Em Negociação')})</span>" if data['orcamento_id'] else "<span class='text-xs bg-slate-800 border border-slate-700 text-slate-400 px-2.5 py-1 rounded-full'>Novo Orçamento em Rascunho</span>"
-    perfil_badge = "<span class='text-[11px] bg-blue-900/60 border border-blue-600 text-blue-300 px-2 py-0.5 rounded-full font-medium'>👑 Administrador</span>" if is_admin else "<span class='text-[11px] bg-emerald-900/60 border border-emerald-600 text-emerald-300 px-2 py-0.5 rounded-full font-medium'>💼 Vendedor</span>"
+    status_tag = f"<span class='text-xs bg-amber-950 border border-amber-500/40 text-amber-300 px-2.5 py-1 rounded-full'>Editando Orçamento #{data['orcamento_id']} ({data.get('status', 'Em Negociação')})</span>" if data['orcamento_id'] else "<span class='text-xs bg-slate-800 border border-slate-700 text-slate-400 px-2.5 py-1 rounded-full'>Novo Orçamento MVI</span>"
+    perfil_badge = "<span class='text-[11px] bg-amber-500/20 border border-amber-500/40 text-amber-300 px-2.5 py-0.5 rounded-full font-bold'>👑 Administrador MVI</span>" if is_admin else "<span class='text-[11px] bg-emerald-900/60 border border-emerald-600 text-emerald-300 px-2.5 py-0.5 rounded-full font-medium'>💼 Vendedor</span>"
 
     dre_cards = f"""
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
+        <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow-lg">
             <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Faturamento Fechado</p>
-            <p class="text-xl font-bold text-sky-400">R$ {metricas['faturamento_total']:,.2f}</p>
+            <p class="text-xl font-bold text-amber-400">R$ {metricas['faturamento_total']:,.2f}</p>
             <p class="text-[11px] text-slate-500">Recebido: R$ {metricas['total_recebido']:,.2f} | Saldo: R$ {metricas['saldo_a_receber']:,.2f}</p>
         </div>
-        <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
+        <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow-lg">
             <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Lucro Líquido Acumulado</p>
             <p class="text-xl font-bold text-emerald-400">R$ {metricas['lucro_acumulado']:,.2f}</p>
             <p class="text-[11px] text-slate-500">Saldo limpo gerado no caixa</p>
         </div>
-        <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
+        <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow-lg">
             <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Ticket Médio por Projeto</p>
             <p class="text-xl font-bold text-white">R$ {metricas['ticket_medio']:,.2f}</p>
             <p class="text-[11px] text-slate-500">{metricas['aprovados']} projetos fechados</p>
         </div>
-        <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-1 shadow-lg">
+        <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow-lg">
             <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Taxa de Conversão</p>
             <p class="text-xl font-bold text-amber-400">{metricas['taxa_conversao']:.1f}%</p>
             <p class="text-[11px] text-slate-500">{metricas['total_orcamentos']} orçamentos gerados no total</p>
         </div>
     </div>
     """ if is_admin else f"""
-    <div class="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg flex justify-between items-center">
+    <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-lg flex justify-between items-center">
         <div>
-            <p class="text-xs text-slate-400 uppercase font-semibold">Valor da Proposta Comercial</p>
-            <p class="text-3xl font-bold text-sky-400 mt-1">R$ {dre['pv']:,.2f}</p>
+            <p class="text-xs text-slate-400 uppercase font-semibold">Valor da Proposta Comercial MVI</p>
+            <p class="text-3xl font-bold text-amber-400 mt-1">R$ {dre['pv']:,.2f}</p>
             <p class="text-xs text-slate-500">Entrada: R$ {dre['entrada']:,.2f} + {dre['n_parc']}x de R$ {dre['valor_parcela']:,.2f}</p>
         </div>
         <div class="flex space-x-2">
-            <a href="/gerar-pdf" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-lg transition-colors">
+            <a href="/gerar-pdf" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-xl transition-colors">
                 📄 Orçamento
             </a>
-            <a href="/gerar-contrato" class="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs rounded-lg transition-colors">
+            <a href="/gerar-contrato" class="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs rounded-xl transition-colors">
                 📑 Contrato
             </a>
         </div>
@@ -851,26 +932,26 @@ def render_dashboard(data: dict):
     markup_control = f"""
     <form action="/recalcular" method="post" class="flex items-center gap-3">
         <label class="text-xs text-slate-400 font-medium">Markup:</label>
-        <input type="number" step="0.1" min="1.0" max="5.0" name="markup" value="{data['markup']}" class="w-20 px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-sm text-center text-white focus:outline-none focus:border-sky-500">
+        <input type="number" step="0.1" min="1.0" max="5.0" name="markup" value="{data['markup']}" class="w-20 px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-sm text-center text-white focus:outline-none focus:border-amber-500">
         <button type="submit" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700">
             Recalcular
         </button>
     </form>
     """ if is_admin else "<p class='text-xs text-slate-400'>Margem e markup fixados pela diretoria.</p>"
 
-    # HTML Puro sem interpolação de f-strings no JS e CSS
     html_page = """<!DOCTYPE html>
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Marcenaria SaaS - Painel</title>
+    <title>MVI Móveis Planejados - Painel</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         .tab-btn.active {
-            background-color: #0284c7;
-            color: #ffffff;
-            border-color: #38bdf8;
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            color: #0f172a;
+            border-color: #f59e0b;
+            font-weight: 800;
         }
         .tab-content {
             display: none;
@@ -883,16 +964,16 @@ def render_dashboard(data: dict):
 <body class="bg-slate-950 text-slate-100 min-h-screen font-sans">
     <header class="bg-slate-900 border-b border-slate-800 px-6 py-4 flex flex-wrap items-center justify-between gap-3">
         <div class="flex items-center space-x-3">
-            <div class="w-8 h-8 rounded-lg bg-sky-600 flex items-center justify-center font-bold text-white shadow-md">M</div>
-            <span class="font-bold text-lg text-white tracking-wide">Marcenaria Pro</span>
+            <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-black text-slate-950 text-lg shadow-md">MVI</div>
+            <span class="font-bold text-lg text-white tracking-wide">MVI Móveis Planejados</span>
             """ + status_tag + """
         </div>
         <div class="flex items-center space-x-3">
             """ + perfil_badge + """
-            <a href="/solicitar-orcamento" target="_blank" class="text-xs bg-emerald-950 text-emerald-300 border border-emerald-700 px-3 py-1.5 rounded-lg hover:bg-emerald-900/60 transition-colors">🔗 Link Instagram</a>
-            <a href="/novo-orcamento" class="text-xs bg-sky-600 hover:bg-sky-500 text-white font-medium px-3 py-1.5 rounded-lg transition-colors">+ Novo Orçamento</a>
-            <span class="text-xs text-slate-400">Usuário: <b class="text-sky-400">""" + str(data['user_nome']) + """</b></span>
-            <a href="/" class="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg text-slate-300 border border-slate-700">Sair</a>
+            <a href="/solicitar-orcamento" target="_blank" class="text-xs bg-amber-950 text-amber-300 border border-amber-500/40 px-3 py-1.5 rounded-xl hover:bg-amber-900/60 transition-colors">🔗 Link Instagram</a>
+            <a href="/novo-orcamento" class="text-xs bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl transition-colors">+ Novo Orçamento</a>
+            <span class="text-xs text-slate-400">Usuário: <b class="text-amber-400">""" + str(data['user_nome']) + """</b></span>
+            <a href="/" class="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-xl text-slate-300 border border-slate-700">Sair</a>
         </div>
     </header>
 
@@ -906,13 +987,13 @@ def render_dashboard(data: dict):
                 <span>📐 Engenharia & Ambientes</span>
             </button>
             <button onclick="mudarAba('aba-fabrica')" id="btn-aba-fabrica" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 transition-all flex items-center space-x-1.5 shrink-0">
-                <span>🏭 Fábrica & Plano de Corte</span>
+                <span>🏭 Fábrica & Corte</span>
             </button>
             <button onclick="mudarAba('aba-financeiro')" id="btn-aba-financeiro" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 transition-all flex items-center space-x-1.5 shrink-0">
                 <span>💳 Financeiro & Contratos</span>
             </button>
             <button onclick="mudarAba('aba-estoque')" id="btn-aba-estoque" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 transition-all flex items-center space-x-1.5 shrink-0">
-                <span>📦 Estoque & Materiais</span>
+                <span>📦 Estoque & Insumos</span>
             </button>
             <button onclick="mudarAba('aba-config')" id="btn-aba-config" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300 hover:bg-slate-800 transition-all flex items-center space-x-1.5 shrink-0">
                 <span>⚙️ Configurações & Custos</span>
@@ -927,56 +1008,56 @@ def render_dashboard(data: dict):
             """ + dre_cards + """
 
             <!-- Central de Notificações WhatsApp -->
-            <div class="bg-slate-900 border border-emerald-900/60 rounded-xl p-6 shadow-lg space-y-3">
+            <div class="bg-slate-900 border border-amber-500/30 rounded-3xl p-6 shadow-lg space-y-3">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
                     <div>
-                        <h2 class="text-base font-semibold text-white">📲 Central de Notificações & WhatsApp do Cliente</h2>
-                        <p class="text-xs text-emerald-400">Envie mensagens automáticas e atualizações com 1 clique</p>
+                        <h2 class="text-base font-semibold text-white">📲 Central de Notificações WhatsApp - MVI</h2>
+                        <p class="text-xs text-amber-400">Mensagens pré-formatadas para comunicação com o cliente</p>
                     </div>
                     <span class="text-xs text-slate-400">Cliente Atual: <b class="text-white">""" + str(data['cliente_nome']) + """</b> (""" + str(data['cliente_telefone']) + """)</span>
                 </div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
-                    <a href='""" + url_proposta + """' target="_blank" class="p-3.5 bg-slate-950 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-700 rounded-xl text-left transition-colors group flex flex-col justify-between">
+                    <a href='""" + url_proposta + """' target="_blank" class="p-3.5 bg-slate-950 hover:bg-amber-950/40 border border-slate-800 hover:border-amber-500/50 rounded-2xl text-left transition-colors group flex flex-col justify-between">
                         <div>
-                            <span class="text-xs font-bold text-white group-hover:text-emerald-400 block">📄 Enviar Orçamento</span>
-                            <span class="text-[11px] text-slate-400 leading-tight block mt-1">Resumo de valor total, entrada e condições.</span>
+                            <span class="text-xs font-bold text-white group-hover:text-amber-400 block">📄 Enviar Orçamento</span>
+                            <span class="text-[11px] text-slate-400 leading-tight block mt-1">Resumo de proposta, entrada e parcelamento.</span>
                         </div>
-                        <span class="text-[10px] text-emerald-500 font-semibold mt-3">Disparar no WhatsApp →</span>
+                        <span class="text-[10px] text-amber-400 font-semibold mt-3">Disparar no WhatsApp →</span>
                     </a>
-                    <a href='""" + url_producao + """' target="_blank" class="p-3.5 bg-slate-950 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-700 rounded-xl text-left transition-colors group flex flex-col justify-between">
+                    <a href='""" + url_producao + """' target="_blank" class="p-3.5 bg-slate-950 hover:bg-amber-950/40 border border-slate-800 hover:border-amber-500/50 rounded-2xl text-left transition-colors group flex flex-col justify-between">
                         <div>
-                            <span class="text-xs font-bold text-white group-hover:text-emerald-400 block">🛠️ Início da Produção</span>
-                            <span class="text-[11px] text-slate-400 leading-tight block mt-1">Notifica que as chapas entraram em corte.</span>
+                            <span class="text-xs font-bold text-white group-hover:text-amber-400 block">🛠️ Início da Produção</span>
+                            <span class="text-[11px] text-slate-400 leading-tight block mt-1">Avisar que o corte e usinagem foram iniciados.</span>
                         </div>
-                        <span class="text-[10px] text-emerald-500 font-semibold mt-3">Disparar no WhatsApp →</span>
+                        <span class="text-[10px] text-amber-400 font-semibold mt-3">Disparar no WhatsApp →</span>
                     </a>
-                    <a href='""" + url_montagem + """' target="_blank" class="p-3.5 bg-slate-950 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-700 rounded-xl text-left transition-colors group flex flex-col justify-between">
+                    <a href='""" + url_montagem + """' target="_blank" class="p-3.5 bg-slate-950 hover:bg-amber-950/40 border border-slate-800 hover:border-amber-500/50 rounded-2xl text-left transition-colors group flex flex-col justify-between">
                         <div>
-                            <span class="text-xs font-bold text-white group-hover:text-emerald-400 block">🚚 Agendar Montagem</span>
-                            <span class="text-[11px] text-slate-400 leading-tight block mt-1">Confirma data da equipe na obra.</span>
+                            <span class="text-xs font-bold text-white group-hover:text-amber-400 block">🚚 Agendar Montagem</span>
+                            <span class="text-[11px] text-slate-400 leading-tight block mt-1">Confirmar chegada da equipe de montagem.</span>
                         </div>
-                        <span class="text-[10px] text-emerald-500 font-semibold mt-3">Disparar no WhatsApp →</span>
+                        <span class="text-[10px] text-amber-400 font-semibold mt-3">Disparar no WhatsApp →</span>
                     </a>
-                    <a href='""" + url_cobranca + """' target="_blank" class="p-3.5 bg-slate-950 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-700 rounded-xl text-left transition-colors group flex flex-col justify-between">
+                    <a href='""" + url_cobranca + """' target="_blank" class="p-3.5 bg-slate-950 hover:bg-amber-950/40 border border-slate-800 hover:border-amber-500/50 rounded-2xl text-left transition-colors group flex flex-col justify-between">
                         <div>
-                            <span class="text-xs font-bold text-white group-hover:text-emerald-400 block">💳 Saldo / Chave PIX</span>
-                            <span class="text-[11px] text-slate-400 leading-tight block mt-1">Lembrete de saldo devedor e chave PIX.</span>
+                            <span class="text-xs font-bold text-white group-hover:text-amber-400 block">💳 Saldo / Chave PIX</span>
+                            <span class="text-[11px] text-slate-400 leading-tight block mt-1">Lembrete de saldo em aberto e chave PIX da MVI.</span>
                         </div>
-                        <span class="text-[10px] text-emerald-500 font-semibold mt-3">Disparar no WhatsApp →</span>
+                        <span class="text-[10px] text-amber-400 font-semibold mt-3">Disparar no WhatsApp →</span>
                     </a>
                 </div>
             </div>
 
             <!-- Histórico de Orçamentos e Leads do Instagram -->
-            <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-lg">
                 <div class="p-4 border-b border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-slate-850">
                     <div>
-                        <h3 class="text-sm font-semibold text-white">📁 Histórico de Pedidos & Leads (Banco de Dados)</h3>
+                        <h3 class="text-sm font-semibold text-white">📁 Histórico de Pedidos & Leads (MVI Database)</h3>
                         <span class="text-xs text-slate-400">Pesquise por cliente ou ambiente</span>
                     </div>
                     <div class="flex items-center space-x-2 w-full sm:w-auto">
-                        <input type="text" id="campoBusca" onkeyup="filtrarTabela()" placeholder="🔍 Buscar cliente ou ambiente..." class="px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500 w-full sm:w-64">
-                        <a href="/exportar-csv" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold flex items-center space-x-1 shrink-0">
+                        <input type="text" id="campoBusca" onkeyup="filtrarTabela()" placeholder="🔍 Buscar cliente ou ambiente..." class="px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500 w-full sm:w-64">
+                        <a href="/exportar-csv" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold flex items-center space-x-1 shrink-0">
                             <span>📊 CSV</span>
                         </a>
                     </div>
@@ -1005,7 +1086,7 @@ def render_dashboard(data: dict):
             </div>
 
             <div class="flex justify-end pt-2">
-                <button onclick="mudarAba('aba-engenharia')" class="px-6 py-2.5 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-xl shadow-lg transition-all flex items-center space-x-1">
+                <button onclick="mudarAba('aba-engenharia')" class="px-6 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-black rounded-xl shadow-lg transition-all flex items-center space-x-1">
                     <span>Avançar para Engenharia & Ambientes ➡️</span>
                 </button>
             </div>
@@ -1013,42 +1094,42 @@ def render_dashboard(data: dict):
 
         <!-- ABA 2: ENGENHARIA & AMBIENTES -->
         <div id="aba-engenharia" class="tab-content space-y-6">
-            <div class="flex justify-between items-center bg-slate-900 p-4 rounded-xl border border-slate-800">
-                <button onclick="mudarAba('aba-leads')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 transition-colors flex items-center space-x-1">
+            <div class="flex justify-between items-center bg-slate-900 p-4 rounded-2xl border border-slate-800">
+                <button onclick="mudarAba('aba-leads')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl border border-slate-700 transition-colors flex items-center space-x-1">
                     <span>⬅️ Voltar ao Painel Geral</span>
                 </button>
-                <span class="text-xs text-sky-400 font-medium">Etapa: Especificações e Modulação</span>
-                <button onclick="mudarAba('aba-fabrica')" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-lg shadow-md transition-colors flex items-center space-x-1">
+                <span class="text-xs text-amber-400 font-medium">Etapa: Especificações e Modulação</span>
+                <button onclick="mudarAba('aba-fabrica')" class="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-black rounded-xl shadow-md transition-colors flex items-center space-x-1">
                     <span>Ir para Fábrica & Corte ➡️</span>
                 </button>
             </div>
 
             <!-- Dados do Cliente & Instruções Técnicas -->
-            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-lg space-y-4">
                 <div class="flex justify-between items-center border-b border-slate-800 pb-3">
                     <h2 class="text-base font-semibold text-white">👤 Dados do Cliente & Proposta</h2>
-                    <span class="text-xs text-sky-400">Edição e detalhes do projeto</span>
+                    <span class="text-xs text-amber-400">Edição e detalhes do projeto</span>
                 </div>
                 <form action="/salvar-cliente" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">Nome do Cliente</label>
-                        <input type="text" name="cliente_nome" value='""" + str(data['cliente_nome']) + """' required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                        <input type="text" name="cliente_nome" value='""" + str(data['cliente_nome']) + """' required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500">
                     </div>
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">WhatsApp / Tel</label>
-                        <input type="text" name="cliente_telefone" value='""" + str(data['cliente_telefone']) + """' required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                        <input type="text" name="cliente_telefone" value='""" + str(data['cliente_telefone']) + """' required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500">
                     </div>
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">Projeto Master</label>
-                        <input type="text" name="cliente_ambiente" value='""" + str(data['cliente_ambiente']) + """' required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                        <input type="text" name="cliente_ambiente" value='""" + str(data['cliente_ambiente']) + """' required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500">
                     </div>
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">Data Montagem</label>
-                        <input type="date" name="data_entrega_prevista" value='""" + str(data.get('data_entrega_prevista', '')) + """' required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                        <input type="date" name="data_entrega_prevista" value='""" + str(data.get('data_entrega_prevista', '')) + """' required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500">
                     </div>
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">Status</label>
-                        <select name="status" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none">
+                        <select name="status" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none">
                             <option value="Novo Lead Instagram" """ + ('selected' if data.get('status')=='Novo Lead Instagram' else '') + """>📸 Lead Planta + Inspiração</option>
                             <option value="Em Negociação" """ + ('selected' if data.get('status')=='Em Negociação' else '') + """>🟡 Em Negociação</option>
                             <option value="Aprovado" """ + ('selected' if data.get('status')=='Aprovado' else '') + """>🟢 Aprovado</option>
@@ -1059,13 +1140,13 @@ def render_dashboard(data: dict):
                     </div>
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">Prazo Texto</label>
-                        <input type="text" name="prazo_entrega" value='""" + str(data['prazo_entrega']) + """' required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
+                        <input type="text" name="prazo_entrega" value='""" + str(data['prazo_entrega']) + """' required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500">
                     </div>
                     <div class="col-span-full">
                         <label class="block text-xs font-medium text-slate-400 mb-1">Instruções Técnicas & Detalhes do Lead</label>
                         <div class="flex gap-2">
-                            <input type="text" name="observacoes_tecnicas" value='""" + str(data.get('observacoes_tecnicas', '')) + """' placeholder="Ex: Detalhes de furação, recortes de tomadas ou especificações enviadas pelo cliente..." class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-sky-500">
-                            <button type="submit" class="px-6 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold shrink-0">
+                            <input type="text" name="observacoes_tecnicas" value='""" + str(data.get('observacoes_tecnicas', '')) + """' placeholder="Ex: Detalhes de furação, recortes de tomadas ou especificações enviadas pelo cliente..." class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500">
+                            <button type="submit" class="px-6 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-bold shrink-0">
                                 Salvar Dados
                             </button>
                         </div>
@@ -1074,15 +1155,15 @@ def render_dashboard(data: dict):
             </div>
 
             <!-- Ambientes Inclusos -->
-            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-lg space-y-4">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
                     <div>
                         <h2 class="text-base font-semibold text-white">🏠 Ambientes Inclusos no Projeto</h2>
                         <p class="text-xs text-slate-400">Cômodos contemplados no cálculo global</p>
                     </div>
                     <form action="/adicionar-ambiente" method="post" class="flex items-center gap-2">
-                        <input type="text" name="novo_ambiente" placeholder="Ex: Quarto Casal, Lavabo..." required class="px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
-                        <button type="submit" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold shrink-0">
+                        <input type="text" name="novo_ambiente" placeholder="Ex: Quarto Casal, Lavabo..." required class="px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500">
+                        <button type="submit" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-bold shrink-0">
                             + Adicionar Cômodo
                         </button>
                     </form>
@@ -1093,15 +1174,15 @@ def render_dashboard(data: dict):
             </div>
 
             <!-- Galeria de Imagens / Plantas / Inspirações -->
-            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-lg space-y-4">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
                     <div>
                         <h2 class="text-base font-semibold text-white">🖼️ Galeria: Planta Baixa & Inspirações do Cliente</h2>
                         <p class="text-xs text-slate-400">Fotos enviadas pelo cliente ou renders anexados</p>
                     </div>
                     <form action="/upload-imagem" method="post" enctype="multipart/form-data" class="flex items-center gap-2">
-                        <input type="file" name="foto" accept="image/*" required class="block w-full text-xs text-slate-400 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-200 hover:file:bg-slate-700 cursor-pointer">
-                        <button type="submit" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold shrink-0">
+                        <input type="file" name="foto" accept="image/*" required class="block w-full text-xs text-slate-400 file:mr-2 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-200 hover:file:bg-slate-700 cursor-pointer">
+                        <button type="submit" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-bold shrink-0">
                             + Anexar Imagem
                         </button>
                     </form>
@@ -1112,7 +1193,7 @@ def render_dashboard(data: dict):
             </div>
 
             <!-- Listagem de Peças -->
-            <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-lg">
                 <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-850">
                     <h3 class="text-sm font-semibold text-white">Listagem de Peças e Insumos (""" + str(data['cliente_ambiente']) + """)</h3>
                     <span class="text-xs text-slate-400">""" + str(len(items)) + """ itens calculados</span>
@@ -1137,24 +1218,24 @@ def render_dashboard(data: dict):
 
         <!-- ABA 3: FÁBRICA & PLANO DE CORTE -->
         <div id="aba-fabrica" class="tab-content space-y-6">
-            <div class="flex justify-between items-center bg-slate-900 p-4 rounded-xl border border-slate-800">
-                <button onclick="mudarAba('aba-engenharia')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 transition-colors flex items-center space-x-1">
+            <div class="flex justify-between items-center bg-slate-900 p-4 rounded-2xl border border-slate-800">
+                <button onclick="mudarAba('aba-engenharia')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl border border-slate-700 transition-colors flex items-center space-x-1">
                     <span>⬅️ Voltar para Engenharia</span>
                 </button>
-                <span class="text-xs text-sky-400 font-medium">Etapa: Produção e Corte</span>
-                <button onclick="mudarAba('aba-financeiro')" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-lg shadow-md transition-colors flex items-center space-x-1">
+                <span class="text-xs text-amber-400 font-medium">Etapa: Produção e Corte</span>
+                <button onclick="mudarAba('aba-financeiro')" class="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-black rounded-xl shadow-md transition-colors flex items-center space-x-1">
                     <span>Ir para Financeiro & Contratos ➡️</span>
                 </button>
             </div>
 
             <!-- Cronograma de Fábrica -->
-            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-lg space-y-4">
                 <div class="flex justify-between items-center border-b border-slate-800 pb-3">
                     <div>
                         <h2 class="text-base font-semibold text-white">📅 Cronograma de Entregas & Montagens (Fábrica)</h2>
                         <p class="text-xs text-slate-400">Contagem de dias e monitoramento de prazos críticos</p>
                     </div>
-                    <span class="text-xs text-sky-400 font-medium">Controle de Fábrica</span>
+                    <span class="text-xs text-amber-400 font-medium">Controle MVI</span>
                 </div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     """ + cronograma_cards_html + """
@@ -1162,45 +1243,45 @@ def render_dashboard(data: dict):
             </div>
 
             <!-- Resumo de Compras para Fornecedores -->
-            <div class="bg-slate-900 border border-indigo-900/50 rounded-xl p-6 shadow-lg space-y-4">
+            <div class="bg-slate-900 border border-amber-500/30 rounded-3xl p-6 shadow-lg space-y-4">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
                     <div>
                         <h2 class="text-base font-semibold text-white">📦 Resumo de Compras para Fornecedores / Madeireira</h2>
-                        <p class="text-xs text-indigo-400">Totalizadores de materiais necessários para produzir o projeto</p>
+                        <p class="text-xs text-amber-400">Totalizadores de materiais necessários para produzir o projeto</p>
                     </div>
                     <div class="flex gap-2">
-                        <a href="/gerar-pdf-compras" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs rounded-lg transition-colors flex items-center space-x-1 shadow-md">
+                        <a href="/gerar-pdf-compras" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl transition-colors flex items-center space-x-1 shadow-md">
                             <span>📄 PDF p/ Madeireira</span>
                         </a>
                     </div>
                 </div>
                 <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-center">
-                    <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                    <div class="bg-slate-950 p-3 rounded-2xl border border-slate-800">
                         <p class="text-[11px] text-slate-400 uppercase">Chapas MDF</p>
                         <p class="text-lg font-bold text-white">""" + str(compras['chapas_mdf']) + """ <span class="text-xs font-normal text-slate-500">un</span></p>
                         <p class="text-[10px] text-slate-500">""" + f"{compras['area_m2']:.1f}" + """ m²</p>
                     </div>
-                    <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                    <div class="bg-slate-950 p-3 rounded-2xl border border-slate-800">
                         <p class="text-[11px] text-slate-400 uppercase">Fita Borda</p>
                         <p class="text-lg font-bold text-white">""" + str(compras['fita_metros']) + """ <span class="text-xs font-normal text-slate-500">m</span></p>
                         <p class="text-[10px] text-slate-500">PVC 22mm</p>
                     </div>
-                    <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                    <div class="bg-slate-950 p-3 rounded-2xl border border-slate-800">
                         <p class="text-[11px] text-slate-400 uppercase">Dobradiças</p>
-                        <p class="text-lg font-bold text-sky-400">""" + str(compras['dobradicas']) + """ <span class="text-xs font-normal text-slate-500">un</span></p>
+                        <p class="text-lg font-bold text-amber-400">""" + str(compras['dobradicas']) + """ <span class="text-xs font-normal text-slate-500">un</span></p>
                         <p class="text-[10px] text-slate-500">Amortecedor</p>
                     </div>
-                    <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                    <div class="bg-slate-950 p-3 rounded-2xl border border-slate-800">
                         <p class="text-[11px] text-slate-400 uppercase">Corrediças</p>
-                        <p class="text-lg font-bold text-sky-400">""" + str(compras['corredicas']) + """ <span class="text-xs font-normal text-slate-500">pares</span></p>
+                        <p class="text-lg font-bold text-amber-400">""" + str(compras['corredicas']) + """ <span class="text-xs font-normal text-slate-500">pares</span></p>
                         <p class="text-[10px] text-slate-500">Telescópicas</p>
                     </div>
-                    <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                    <div class="bg-slate-950 p-3 rounded-2xl border border-slate-800">
                         <p class="text-[11px] text-slate-400 uppercase">Puxadores</p>
                         <p class="text-lg font-bold text-white">""" + str(compras['puxadores']) + """ <span class="text-xs font-normal text-slate-500">un</span></p>
                         <p class="text-[10px] text-slate-500">Perfis/Pontos</p>
                     </div>
-                    <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                    <div class="bg-slate-950 p-3 rounded-2xl border border-slate-800">
                         <p class="text-[11px] text-slate-400 uppercase">Outros Insumos</p>
                         <p class="text-lg font-bold text-slate-300">""" + str(compras['outros']) + """ <span class="text-xs font-normal text-slate-500">itens</span></p>
                         <p class="text-[10px] text-slate-500">Parafusos/Tapas</p>
@@ -1209,13 +1290,13 @@ def render_dashboard(data: dict):
             </div>
 
             <!-- Módulo Visual de Plano de Corte Gráfico (2D Nesting) -->
-            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-lg space-y-4">
                 <div class="flex justify-between items-center border-b border-slate-800 pb-3">
                     <div>
                         <h2 class="text-base font-semibold text-white">📐 Diagrama Visual de Plano de Corte (Nesting)</h2>
                         <p class="text-xs text-slate-400">Distribuição automatizada das peças nas chapas padrão 2750 x 1830 mm</p>
                     </div>
-                    <span class="text-xs text-sky-400 font-semibold">""" + str(compras['chapas_mdf']) + """ chapa(s) necessária(s)</span>
+                    <span class="text-xs text-amber-400 font-semibold">""" + str(compras['chapas_mdf']) + """ chapa(s) necessária(s)</span>
                 </div>
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     """ + svg_chapas_html + """
@@ -1225,18 +1306,18 @@ def render_dashboard(data: dict):
 
         <!-- ABA 4: FINANCEIRO & CONTRATOS -->
         <div id="aba-financeiro" class="tab-content space-y-6">
-            <div class="flex justify-between items-center bg-slate-900 p-4 rounded-xl border border-slate-800">
-                <button onclick="mudarAba('aba-fabrica')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 transition-colors flex items-center space-x-1">
+            <div class="flex justify-between items-center bg-slate-900 p-4 rounded-2xl border border-slate-800">
+                <button onclick="mudarAba('aba-fabrica')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl border border-slate-700 transition-colors flex items-center space-x-1">
                     <span>⬅️ Voltar para Fábrica</span>
                 </button>
-                <span class="text-xs text-sky-400 font-medium">Etapa: Fechamento Comercial</span>
-                <button onclick="mudarAba('aba-estoque')" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-lg shadow-md transition-colors flex items-center space-x-1">
+                <span class="text-xs text-amber-400 font-medium">Etapa: Fechamento Comercial</span>
+                <button onclick="mudarAba('aba-estoque')" class="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-black rounded-xl shadow-md transition-colors flex items-center space-x-1">
                     <span>Ir para Estoque ➡️</span>
                 </button>
             </div>
 
             <!-- Contas a Receber & Simulador de Pagamento -->
-            <div class="bg-slate-900 border border-amber-900/50 rounded-xl p-6 shadow-lg space-y-4">
+            <div class="bg-slate-900 border border-amber-900/50 rounded-3xl p-6 shadow-lg space-y-4">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
                     <div>
                         <h2 class="text-base font-semibold text-white">💳 Contas a Receber, Parcelamento & Recibos</h2>
@@ -1246,11 +1327,11 @@ def render_dashboard(data: dict):
                 <form action="/salvar-pagamento" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">Valor de Entrada (R$)</label>
-                        <input type="number" step="50" name="entrada_valor" value='""" + str(data['entrada_valor']) + """' class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-amber-500">
+                        <input type="number" step="50" name="entrada_valor" value='""" + str(data['entrada_valor']) + """' class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500">
                     </div>
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">Nº de Parcelas</label>
-                        <select name="num_parcelas" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none">
+                        <select name="num_parcelas" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none">
                             <option value="1" """ + ('selected' if data.get('num_parcelas')==1 else '') + """>1x (À vista / Parcela Única)</option>
                             <option value="2" """ + ('selected' if data.get('num_parcelas')==2 else '') + """>2x parcelas</option>
                             <option value="3" """ + ('selected' if data.get('num_parcelas')==3 else '') + """>3x parcelas</option>
@@ -1263,47 +1344,47 @@ def render_dashboard(data: dict):
                     </div>
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">Valor Já Recebido (R$)</label>
-                        <input type="number" step="50" name="valor_recebido" value='""" + str(data.get('valor_recebido', 0.0)) + """' class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-amber-500">
+                        <input type="number" step="50" name="valor_recebido" value='""" + str(data.get('valor_recebido', 0.0)) + """' class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500">
                     </div>
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">Forma de Pagamento</label>
-                        <input type="text" name="forma_pagamento" value='""" + str(data['forma_pagamento']) + """' placeholder="Ex: Entrada PIX + Cartão" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-amber-500">
+                        <input type="text" name="forma_pagamento" value='""" + str(data['forma_pagamento']) + """' placeholder="Ex: Entrada PIX + Cartão" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500">
                     </div>
                     <div class="flex items-end">
-                        <button type="submit" class="w-full py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold transition-colors">
+                        <button type="submit" class="w-full py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs transition-colors">
                             Atualizar Pagamento
                         </button>
                     </div>
                 </form>
-                <div class="bg-slate-950 p-3 rounded-lg border border-slate-800 flex flex-wrap justify-between items-center text-xs">
+                <div class="bg-slate-950 p-3 rounded-2xl border border-slate-800 flex flex-wrap justify-between items-center text-xs">
                     <span class="text-slate-300">Total Proposta: <b>R$ """ + f"{dre['pv']:,.2f}" + """</b> | Recebido: <b class="text-emerald-400">R$ """ + f"{dre['valor_recebido']:,.2f}" + """</b> | Saldo Devedor: <b class="text-rose-400">R$ """ + f"{dre['saldo_devedor']:,.2f}" + """</b></span>
                     <span class="text-amber-400 font-semibold">""" + str(data['forma_pagamento']) + """</span>
                 </div>
             </div>
 
             <!-- Documentos Oficiais da Proposta -->
-            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col justify-between space-y-4 shadow-lg">
-                <h2 class="text-base font-semibold text-white">Documentos Oficiais & Emissão em PDF</h2>
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 flex flex-col justify-between space-y-4 shadow-lg">
+                <h2 class="text-base font-semibold text-white">Documentos Oficiais & Emissão em PDF (MVI)</h2>
                 """ + markup_control + """
                 <div class="grid grid-cols-2 sm:grid-cols-6 gap-2">
                     <form action="/salvar-banco" method="post" class="col-span-2 sm:col-span-1">
-                        <button type="submit" class="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center space-x-1 shadow-md">
+                        <button type="submit" class="w-full py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-center text-xs rounded-xl transition-colors flex items-center justify-center space-x-1 shadow-md">
                             <span>💾 Salvar Banco</span>
                         </button>
                     </form>
-                    <a href="/gerar-pdf" class="py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center shadow-md">
+                    <a href="/gerar-pdf" class="py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-center text-xs rounded-xl transition-colors flex items-center justify-center shadow-md">
                         <span>📄 Orçamento</span>
                     </a>
-                    <a href="/gerar-contrato" class="py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center shadow-md">
+                    <a href="/gerar-contrato" class="py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-semibold text-center text-xs rounded-xl transition-colors flex items-center justify-center shadow-md">
                         <span>📑 Contrato</span>
                     </a>
-                    <a href="/gerar-os" class="py-2.5 bg-blue-800 hover:bg-blue-700 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center shadow-md">
+                    <a href="/gerar-os" class="py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-semibold text-center text-xs rounded-xl transition-colors flex items-center justify-center shadow-md">
                         <span>🛠️ O.S. Fábrica</span>
                     </a>
-                    <a href="/gerar-recibo" class="py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center shadow-md">
+                    <a href="/gerar-recibo" class="py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-center text-xs rounded-xl transition-colors flex items-center justify-center shadow-md">
                         <span>🧾 Recibo</span>
                     </a>
-                    <a href="/gerar-vistoria" class="py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-center text-xs rounded-lg transition-colors flex items-center justify-center shadow-md">
+                    <a href="/gerar-vistoria" class="py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-center text-xs rounded-xl transition-colors flex items-center justify-center shadow-md">
                         <span>📋 Vistoria</span>
                     </a>
                 </div>
@@ -1312,34 +1393,34 @@ def render_dashboard(data: dict):
 
         <!-- ABA 5: ESTOQUE & MATERIAIS -->
         <div id="aba-estoque" class="tab-content space-y-6">
-            <div class="flex justify-between items-center bg-slate-900 p-4 rounded-xl border border-slate-800">
-                <button onclick="mudarAba('aba-financeiro')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 transition-colors flex items-center space-x-1">
+            <div class="flex justify-between items-center bg-slate-900 p-4 rounded-2xl border border-slate-800">
+                <button onclick="mudarAba('aba-financeiro')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl border border-slate-700 transition-colors flex items-center space-x-1">
                     <span>⬅️ Voltar para Financeiro</span>
                 </button>
-                <span class="text-xs text-sky-400 font-medium">Etapa: Controle de Insumos</span>
-                <button onclick="mudarAba('aba-config')" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-lg shadow-md transition-colors flex items-center space-x-1">
+                <span class="text-xs text-amber-400 font-medium">Etapa: Controle de Insumos</span>
+                <button onclick="mudarAba('aba-config')" class="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-black rounded-xl shadow-md transition-colors flex items-center space-x-1">
                     <span>Ir para Configurações ➡️</span>
                 </button>
             </div>
 
             <!-- Controle de Estoque -->
-            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-lg space-y-4">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-3">
                     <div>
                         <h2 class="text-base font-semibold text-white">📦 Controle de Estoque & Insumos da Marcenaria</h2>
                         <p class="text-xs text-slate-400">Saldos atuais de materiais com alerta automático de reposição</p>
                     </div>
-                    <span class="text-xs text-indigo-400 font-medium">Baixa automática vinculada à produção</span>
+                    <span class="text-xs text-amber-400 font-medium">Baixa automática MVI</span>
                 </div>
                 
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
                     """ + estoque_cards_html + """
                 </div>
 
-                <form action="/adicionar-estoque" method="post" class="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-wrap items-end gap-3">
+                <form action="/adicionar-estoque" method="post" class="bg-slate-950 p-4 rounded-2xl border border-slate-800 flex flex-wrap items-end gap-3">
                     <div class="flex-1 min-w-[180px]">
                         <label class="block text-[11px] font-medium text-slate-400 mb-1">Insumo / Material p/ Entrada</label>
-                        <select name="codigo" class="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white">
+                        <select name="codigo" class="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white">
                             <option value="mdf">Chapas de MDF (Chapas)</option>
                             <option value="fita">Fita de Borda PVC (Metros)</option>
                             <option value="dobradica">Dobradiças com Amortecedor (Un)</option>
@@ -1349,9 +1430,9 @@ def render_dashboard(data: dict):
                     </div>
                     <div class="w-32">
                         <label class="block text-[11px] font-medium text-slate-400 mb-1">Qtd Comprada</label>
-                        <input type="number" step="1" min="1" name="quantidade" required value="10" class="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white">
+                        <input type="number" step="1" min="1" name="quantidade" required value="10" class="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white">
                     </div>
-                    <button type="submit" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shrink-0">
+                    <button type="submit" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs shrink-0">
                         + Dar Entrada no Estoque
                     </button>
                 </form>
@@ -1360,39 +1441,39 @@ def render_dashboard(data: dict):
 
         <!-- ABA 6: CONFIGURAÇÕES & CUSTOS -->
         <div id="aba-config" class="tab-content space-y-6">
-            <div class="flex justify-between items-center bg-slate-900 p-4 rounded-xl border border-slate-800">
-                <button onclick="mudarAba('aba-estoque')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 transition-colors flex items-center space-x-1">
+            <div class="flex justify-between items-center bg-slate-900 p-4 rounded-2xl border border-slate-800">
+                <button onclick="mudarAba('aba-estoque')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl border border-slate-700 transition-colors flex items-center space-x-1">
                     <span>⬅️ Voltar para Estoque</span>
                 </button>
-                <span class="text-xs text-sky-400 font-medium">Configurações Gerais</span>
-                <button onclick="mudarAba('aba-leads')" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-lg shadow-md transition-colors flex items-center space-x-1">
+                <span class="text-xs text-amber-400 font-medium">Configurações Gerais</span>
+                <button onclick="mudarAba('aba-leads')" class="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-black rounded-xl shadow-md transition-colors flex items-center space-x-1">
                     <span>🏠 Ir ao Início (Painel Geral)</span>
                 </button>
             </div>
 
             <!-- Dados da Marcenaria -->
-            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-lg space-y-4">
                 <div class="flex justify-between items-center border-b border-slate-800 pb-3">
-                    <h2 class="text-base font-semibold text-white">🏢 Dados da Sua Marcenaria (Contrato, O.S., Recibo e Cabeçalho do PDF)</h2>
+                    <h2 class="text-base font-semibold text-white">🏢 Dados da Empresa (Contrato, O.S., Recibo e PDFs MVI)</h2>
                 </div>
                 <form action="/salvar-empresa" method="post" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">Nome Comercial / Razão Social</label>
-                        <input type="text" name="nome_empresa" value='""" + str(empresa['nome_empresa']) + """' required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white">
+                        <input type="text" name="nome_empresa" value='""" + str(empresa['nome_empresa']) + """' required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white">
                     </div>
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">CNPJ</label>
-                        <input type="text" name="cnpj" value='""" + str(empresa['cnpj']) + """' required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white">
+                        <input type="text" name="cnpj" value='""" + str(empresa['cnpj']) + """' required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white">
                     </div>
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">Telefone / WhatsApp da Loja</label>
-                        <input type="text" name="telefone_empresa" value='""" + str(empresa['telefone_empresa']) + """' required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white">
+                        <input type="text" name="telefone_empresa" value='""" + str(empresa['telefone_empresa']) + """' required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white">
                     </div>
                     <div>
                         <label class="block text-xs font-medium text-slate-400 mb-1">Chave PIX p/ Pagamentos</label>
                         <div class="flex gap-2">
-                            <input type="text" name="pix" value='""" + str(empresa['pix']) + """' required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white">
-                            <button type="submit" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold shrink-0">
+                            <input type="text" name="pix" value='""" + str(empresa['pix']) + """' required class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white">
+                            <button type="submit" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs shrink-0">
                                 Salvar
                             </button>
                         </div>
@@ -1401,33 +1482,33 @@ def render_dashboard(data: dict):
             </div>
 
             <!-- Mão de Obra e Operacionais -->
-            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-lg space-y-4">
                 <div class="flex justify-between items-center border-b border-slate-800 pb-3">
                     <h2 class="text-base font-semibold text-white">🔨 Mão de Obra & Custos Operacionais</h2>
                 </div>
                 <form action="/salvar-operacionais" method="post" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                     <div>
                         <label class="block text-[11px] font-medium text-slate-400 mb-1">Dias Fabricação</label>
-                        <input type="number" step="1" min="0" name="dias_producao" value='""" + str(data['dias_producao']) + """' class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        <input type="number" step="1" min="0" name="dias_producao" value='""" + str(data['dias_producao']) + """' class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500">
                     </div>
                     <div>
                         <label class="block text-[11px] font-medium text-slate-400 mb-1">Diária Marceneiro (R$)</label>
-                        <input type="number" step="10" name="valor_diaria" value='""" + str(data['valor_diaria']) + """' class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        <input type="number" step="10" name="valor_diaria" value='""" + str(data['valor_diaria']) + """' class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500">
                     </div>
                     <div>
                         <label class="block text-[11px] font-medium text-slate-400 mb-1">Custo Frete (R$)</label>
-                        <input type="number" step="10" name="custo_frete" value='""" + str(data['custo_frete']) + """' class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        <input type="number" step="10" name="custo_frete" value='""" + str(data['custo_frete']) + """' class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500">
                     </div>
                     <div>
                         <label class="block text-[11px] font-medium text-slate-400 mb-1">Montagem Cliente (R$)</label>
-                        <input type="number" step="10" name="custo_montagem" value='""" + str(data['custo_montagem']) + """' class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        <input type="number" step="10" name="custo_montagem" value='""" + str(data['custo_montagem']) + """' class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500">
                     </div>
                     <div>
                         <label class="block text-[11px] font-medium text-slate-400 mb-1">Impostos (%)</label>
-                        <input type="number" step="0.5" min="0" max="30" name="imposto_pct" value='""" + str(data['imposto_pct']) + """' class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        <input type="number" step="0.5" min="0" max="30" name="imposto_pct" value='""" + str(data['imposto_pct']) + """' class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500">
                     </div>
                     <div class="flex items-end">
-                        <button type="submit" class="w-full py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold transition-colors">
+                        <button type="submit" class="w-full py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs transition-colors">
                             Atualizar DRE
                         </button>
                     </div>
@@ -1435,33 +1516,33 @@ def render_dashboard(data: dict):
             </div>
 
             <!-- Tabela de Custos Unitários de Insumos -->
-            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-lg space-y-4">
                 <div class="flex justify-between items-center border-b border-slate-800 pb-3">
                     <h2 class="text-base font-semibold text-white">⚙️ Tabela de Custos Unitários por Insumo</h2>
                 </div>
                 <form action="/salvar-precos" method="post" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                     <div>
                         <label class="block text-[11px] font-medium text-slate-400 mb-1">MDF (m²)</label>
-                        <input type="number" step="0.5" name="mdf_m2" value='""" + str(precos['mdf_m2']) + """' class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        <input type="number" step="0.5" name="mdf_m2" value='""" + str(precos['mdf_m2']) + """' class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500">
                     </div>
                     <div>
                         <label class="block text-[11px] font-medium text-slate-400 mb-1">Dobradiça (Un)</label>
-                        <input type="number" step="0.5" name="dobradica" value='""" + str(precos['dobradica']) + """' class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        <input type="number" step="0.5" name="dobradica" value='""" + str(precos['dobradica']) + """' class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500">
                     </div>
                     <div>
                         <label class="block text-[11px] font-medium text-slate-400 mb-1">Corrediça (Par)</label>
-                        <input type="number" step="0.5" name="corredica" value='""" + str(precos['corredica']) + """' class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        <input type="number" step="0.5" name="corredica" value='""" + str(precos['corredica']) + """' class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500">
                     </div>
                     <div>
                         <label class="block text-[11px] font-medium text-slate-400 mb-1">Fita Borda (m)</label>
-                        <input type="number" step="0.1" name="fita_borda_m" value='""" + str(precos['fita_borda_m']) + """' class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        <input type="number" step="0.1" name="fita_borda_m" value='""" + str(precos['fita_borda_m']) + """' class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500">
                     </div>
                     <div>
                         <label class="block text-[11px] font-medium text-slate-400 mb-1">Puxador (Un)</label>
-                        <input type="number" step="0.5" name="puxador" value='""" + str(precos['puxador']) + """' class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500">
+                        <input type="number" step="0.5" name="puxador" value='""" + str(precos['puxador']) + """' class="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500">
                     </div>
                     <div class="flex items-end">
-                        <button type="submit" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-sky-400 border border-slate-700 rounded-lg text-xs font-semibold transition-colors">
+                        <button type="submit" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 rounded-xl text-xs font-semibold transition-colors">
                             Salvar Config
                         </button>
                     </div>
@@ -1682,7 +1763,7 @@ def exportar_csv():
             ])
             
     output.seek(0)
-    nome_arquivo = f"relatorio-financeiro-marcenaria-{date.today().strftime('%d-%m-%Y')}.csv"
+    nome_arquivo = f"relatorio-financeiro-mvi-{date.today().strftime('%d-%m-%Y')}.csv"
     return Response(
         content=output.getvalue().encode('utf-8-sig'),
         media_type="text/csv",
@@ -1764,7 +1845,7 @@ def novo_orcamento():
     CURRENT_DATA["status"] = "Em Negociação"
     CURRENT_DATA["cliente_nome"] = "Novo Cliente"
     CURRENT_DATA["cliente_telefone"] = ""
-    CURRENT_DATA["cliente_ambiente"] = "Apartamento Completo"
+    CURRENT_DATA["cliente_ambiente"] = "Casa Completa"
     CURRENT_DATA["prazo_entrega"] = "20 dias úteis"
     CURRENT_DATA["data_entrega_prevista"] = (date.today() + timedelta(days=20)).strftime("%Y-%m-%d")
     CURRENT_DATA["entrada_valor"] = 0.0
@@ -2032,7 +2113,7 @@ def gerar_os(id: int = None):
 
     title_style = ParagraphStyle(name='TitleStyle', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor('#0f172a'), spaceAfter=2)
     sub_empresa = ParagraphStyle(name='SubEmpresa', parent=styles['Normal'], fontSize=9, textColor=colors.HexColor('#475569'), spaceAfter=10)
-    section_title = ParagraphStyle(name='SecTitle', parent=styles['Heading2'], fontSize=11, textColor=colors.HexColor('#0284c7'), spaceBefore=8, spaceAfter=4)
+    section_title = ParagraphStyle(name='SecTitle', parent=styles['Heading2'], fontSize=11, textColor=colors.HexColor('#d97706'), spaceBefore=8, spaceAfter=4)
     body_style = ParagraphStyle(name='BodyStyle', parent=styles['Normal'], fontSize=9, leading=13, textColor=colors.HexColor('#1e293b'))
 
     elements.append(Paragraph(f"<b>{empresa['nome_empresa']}</b>", title_style))
@@ -2045,12 +2126,12 @@ def gerar_os(id: int = None):
     ]
     meta_table = Table(meta_data, colWidths=[110, 160, 120, 150])
     meta_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#e0f2fe')),
-        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#0369a1')),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#fef3c7')),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#92400e')),
         ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
         ('TOPPADDING', (0, 0), (-1, -1), 4),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#93c5fd')),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#fde68a')),
     ]))
     elements.append(meta_table)
     elements.append(Spacer(1, 8))
@@ -2066,7 +2147,7 @@ def gerar_os(id: int = None):
     ]
     ferragens_table = Table(ferragens_data, colWidths=[200, 140, 200])
     ferragens_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0284c7')),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#d97706')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
@@ -2116,7 +2197,7 @@ def gerar_os(id: int = None):
 
     doc.build(elements)
     buffer.seek(0)
-    nome_arquivo = f"ordem-servico-{c_nome.replace(' ', '_')}.pdf"
+    nome_arquivo = f"ordem-servico-mvi-{c_nome.replace(' ', '_')}.pdf"
     return Response(content=buffer.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"})
 
 @app.get("/gerar-pdf")
@@ -2180,7 +2261,7 @@ def gerar_pdf(id: int = None):
     ]
     cliente_table = Table(cliente_data, colWidths=[110, 160, 120, 150])
     cliente_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f1f5f9')),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f8fafc')),
         ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#334155')),
         ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
@@ -2211,7 +2292,7 @@ def gerar_pdf(id: int = None):
     dre_table = Table(dre_data, colWidths=[240, 300])
     dre_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 3), colors.HexColor('#f8fafc')),
-        ('BACKGROUND', (0, 4), (-1, 4), colors.HexColor('#dbeafe')),
+        ('BACKGROUND', (0, 4), (-1, 4), colors.HexColor('#fef3c7')),
         ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#0f172a')),
         ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
@@ -2220,10 +2301,10 @@ def gerar_pdf(id: int = None):
     elements.append(dre_table)
     elements.append(Spacer(1, 12))
 
-    sum_title = ParagraphStyle(name='SumTitle', parent=styles['Heading2'], fontSize=12, textColor=colors.HexColor('#0284c7'), spaceAfter=6)
+    sum_title = ParagraphStyle(name='SumTitle', parent=styles['Heading2'], fontSize=12, textColor=colors.HexColor('#d97706'), spaceAfter=6)
     elements.append(Paragraph("Especificação dos Módulos e Componentes", sum_title))
 
-    items = items or [{"nome": "Módulo Planejado", "dimensoes": "-", "qtd": 1, "ambiente": "Geral"}]
+    items = items or [{"nome": "Módulo Planejado MVI", "dimensoes": "-", "qtd": 1, "ambiente": "Geral"}]
     table_data = [["Descrição do Componente", "Ambiente", "Dimensões", "Qtd"]]
     for it in items:
         table_data.append([
@@ -2235,7 +2316,7 @@ def gerar_pdf(id: int = None):
 
     items_table = Table(table_data, colWidths=[220, 130, 140, 50])
     items_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0284c7')),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#d97706')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
         ('ALIGN', (3, 0), (3, -1), 'CENTER'),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
@@ -2246,7 +2327,7 @@ def gerar_pdf(id: int = None):
 
     doc.build(elements)
     buffer.seek(0)
-    nome_arquivo = f"proposta-{c_nome.replace(' ', '_')}.pdf"
+    nome_arquivo = f"proposta-mvi-{c_nome.replace(' ', '_')}.pdf"
     return Response(content=buffer.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"})
 
 @app.get("/gerar-recibo")
@@ -2287,7 +2368,7 @@ def gerar_recibo(id: int = None):
     title_style = ParagraphStyle(name='TitleStyle', parent=styles['Heading1'], fontSize=16, alignment=1, textColor=colors.HexColor('#0f172a'), spaceAfter=4)
     sub_empresa = ParagraphStyle(name='SubEmpresa', parent=styles['Normal'], fontSize=9, alignment=1, textColor=colors.HexColor('#475569'), spaceAfter=14)
     body_style = ParagraphStyle(name='BodyStyle', parent=styles['Normal'], fontSize=10, leading=15, textColor=colors.HexColor('#1e293b'))
-    recibo_val_style = ParagraphStyle(name='ValStyle', parent=styles['Normal'], fontSize=12, alignment=1, textColor=colors.HexColor('#0369a1'), fontName="Helvetica-Bold")
+    recibo_val_style = ParagraphStyle(name='ValStyle', parent=styles['Normal'], fontSize=12, alignment=1, textColor=colors.HexColor('#d97706'), fontName="Helvetica-Bold")
 
     elements.append(Paragraph(f"<b>{empresa['nome_empresa']}</b>", title_style))
     elements.append(Paragraph(f"CNPJ: {empresa['cnpj']} | Telefone: {empresa['telefone_empresa']} | Chave PIX: {empresa['pix']}", sub_empresa))
@@ -2298,8 +2379,8 @@ def gerar_recibo(id: int = None):
     ]]
     val_box = Table(val_box_data, colWidths=[270, 270])
     val_box.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#e0f2fe')),
-        ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#0284c7')),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#fef3c7')),
+        ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#d97706')),
         ('PADDING', (0, 0), (-1, -1), 8),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
     ]))
@@ -2334,7 +2415,7 @@ def gerar_recibo(id: int = None):
 
     doc.build(elements)
     buffer.seek(0)
-    nome_arquivo = f"recibo-pagamento-{c_nome.replace(' ', '_')}.pdf"
+    nome_arquivo = f"recibo-pagamento-mvi-{c_nome.replace(' ', '_')}.pdf"
     return Response(content=buffer.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"})
 
 @app.get("/gerar-vistoria")
@@ -2369,7 +2450,7 @@ def gerar_vistoria(id: int = None):
     title_style = ParagraphStyle(name='TitleStyle', parent=styles['Heading1'], fontSize=15, alignment=1, textColor=colors.HexColor('#0f172a'), spaceAfter=2)
     sub_empresa = ParagraphStyle(name='SubEmpresa', parent=styles['Normal'], fontSize=9, alignment=1, textColor=colors.HexColor('#475569'), spaceAfter=12)
     body_style = ParagraphStyle(name='BodyStyle', parent=styles['Normal'], fontSize=9, leading=13, textColor=colors.HexColor('#1e293b'))
-    section_title = ParagraphStyle(name='SecTitle', parent=styles['Heading2'], fontSize=11, textColor=colors.HexColor('#6b21a8'), spaceBefore=8, spaceAfter=4)
+    section_title = ParagraphStyle(name='SecTitle', parent=styles['Heading2'], fontSize=11, textColor=colors.HexColor('#d97706'), spaceBefore=8, spaceAfter=4)
 
     elements.append(Paragraph(f"<b>{empresa['nome_empresa']}</b>", title_style))
     elements.append(Paragraph("TERMO DE VISTORIA, ENTREGA E ACEITE FINAL DE MONTAGEM", sub_empresa))
@@ -2380,12 +2461,12 @@ def gerar_vistoria(id: int = None):
     ]
     meta_table = Table(meta_data, colWidths=[110, 160, 120, 150])
     meta_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f3e8ff')),
-        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#581c87')),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f8fafc')),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#334155')),
         ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
         ('TOPPADDING', (0, 0), (-1, -1), 4),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#d8b4fe')),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
     ]))
     elements.append(meta_table)
     elements.append(Spacer(1, 10))
@@ -2402,7 +2483,7 @@ def gerar_vistoria(id: int = None):
     ]
     check_table = Table(check_data, colWidths=[240, 130, 170])
     check_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#7e22ce')),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#d97706')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
@@ -2413,7 +2494,7 @@ def gerar_vistoria(id: int = None):
 
     elements.append(Paragraph("<b>2. Declaração de Aceite e Quitação de Entrega</b>", section_title))
     p_aceite = """
-    Pelo presente instrumento, o <b>CONTRATANTE</b> declara que acompanhou a vistoria técnica final dos móveis sob medida instalados nos ambientes supracitados, constatando que os serviços foram integralmente executados de acordo com o projeto contratado, encontrando-se em perfeito estado de funcionamento, acabamento e limpeza, dando por <b>RECEBIDA E APROVADA A OBRA</b>.
+    Pelo presente instrumento, o <b>CONTRATANTE</b> declara que acompanhou a vistoria técnica final dos móveis sob medida instalados nos ambientes supracitados, constatando que os serviços foram integralmente executados de acordo com o padrão de qualidade da <b>MVI Móveis Planejados</b>, encontrando-se em perfeito estado de funcionamento, acabamento e limpeza, dando por <b>RECEBIDA E APROVADA A OBRA</b>.
     """
     elements.append(Paragraph(p_aceite, body_style))
     elements.append(Spacer(1, 24))
@@ -2433,7 +2514,7 @@ def gerar_vistoria(id: int = None):
 
     doc.build(elements)
     buffer.seek(0)
-    nome_arquivo = f"termo-vistoria-{c_nome.replace(' ', '_')}.pdf"
+    nome_arquivo = f"termo-vistoria-mvi-{c_nome.replace(' ', '_')}.pdf"
     return Response(content=buffer.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"})
 
 @app.get("/gerar-etiquetas")
@@ -2465,7 +2546,7 @@ def gerar_etiquetas(id: int = None):
     title_style = ParagraphStyle(name='TitleStyle', parent=styles['Heading1'], fontSize=16, alignment=1, textColor=colors.HexColor('#0f172a'), spaceAfter=2)
     sub_title = ParagraphStyle(name='SubTitle', parent=styles['Normal'], fontSize=9, alignment=1, textColor=colors.HexColor('#64748b'), spaceAfter=14)
     
-    elements.append(Paragraph(f"<b>{empresa['nome_empresa']}</b> - Etiquetas de Produção & Fitas de Borda", title_style))
+    elements.append(Paragraph(f"<b>{empresa['nome_empresa']}</b> - Etiquetas de Produção", title_style))
     elements.append(Paragraph(f"Projeto: <b>{c_amb}</b> | Cliente: <b>{c_nome}</b> | Ref: #{orc_id}", sub_title))
 
     pecas_mdf = []
@@ -2482,8 +2563,8 @@ def gerar_etiquetas(id: int = None):
 
     if not pecas_mdf:
         pecas_mdf = [
-            {"id_tag": f"#{orc_id}-P01", "nome": "Lateral Direita Torre Quente", "dim": "2200 x 600 x 18 mm", "fitas": "Bordas: 2C / 1L"},
-            {"id_tag": f"#{orc_id}-P02", "nome": "Lateral Esquerda Torre Quente", "dim": "2200 x 600 x 18 mm", "fitas": "Bordas: 2C / 1L"},
+            {"id_tag": f"#{orc_id}-P01", "nome": "Lateral Direita Torre", "dim": "2200 x 600 x 18 mm", "fitas": "Bordas: 2C / 1L"},
+            {"id_tag": f"#{orc_id}-P02", "nome": "Lateral Esquerda Torre", "dim": "2200 x 600 x 18 mm", "fitas": "Bordas: 2C / 1L"},
             {"id_tag": f"#{orc_id}-P03", "nome": "Base Inferior Balcão", "dim": "1200 x 580 x 18 mm", "fitas": "Bordas: 1C / 2L"},
             {"id_tag": f"#{orc_id}-P04", "nome": "Porta Basculante Superior", "dim": "800 x 400 x 18 mm", "fitas": "Bordas: 4 Lados 22mm"}
         ]
@@ -2491,7 +2572,7 @@ def gerar_etiquetas(id: int = None):
     cards_data = []
     linha_atual = []
     
-    lbl_tag = ParagraphStyle(name='LblTag', parent=styles['Normal'], fontSize=8.5, leading=10, textColor=colors.HexColor('#0284c7'), fontName="Helvetica-Bold")
+    lbl_tag = ParagraphStyle(name='LblTag', parent=styles['Normal'], fontSize=8.5, leading=10, textColor=colors.HexColor('#d97706'), fontName="Helvetica-Bold")
     lbl_nome = ParagraphStyle(name='LblNome', parent=styles['Normal'], fontSize=9.5, leading=12, textColor=colors.HexColor('#0f172a'), fontName="Helvetica-Bold")
     lbl_dim = ParagraphStyle(name='LblDim', parent=styles['Normal'], fontSize=8.5, leading=11, textColor=colors.HexColor('#334155'))
     lbl_fitas = ParagraphStyle(name='LblFitas', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#166534'), fontName="Helvetica-Bold")
@@ -2532,7 +2613,7 @@ def gerar_etiquetas(id: int = None):
 
     doc.build(elements)
     buffer.seek(0)
-    nome_arquivo = f"etiquetas-producao-{c_amb.replace(' ', '_')}.pdf"
+    nome_arquivo = f"etiquetas-mvi-{c_amb.replace(' ', '_')}.pdf"
     return Response(content=buffer.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"})
 
 @app.get("/gerar-contrato")
@@ -2577,7 +2658,7 @@ def gerar_contrato(id: int = None):
 
     title_style = ParagraphStyle(name='TitleStyle', parent=styles['Heading1'], fontSize=15, alignment=1, textColor=colors.HexColor('#0f172a'), spaceAfter=10)
     body_style = ParagraphStyle(name='BodyStyle', parent=styles['Normal'], fontSize=9.5, leading=14, textColor=colors.HexColor('#1e293b'), spaceAfter=8)
-    clause_title = ParagraphStyle(name='ClauseTitle', parent=styles['Heading2'], fontSize=11, textColor=colors.HexColor('#0369a1'), spaceBefore=8, spaceAfter=4)
+    clause_title = ParagraphStyle(name='ClauseTitle', parent=styles['Heading2'], fontSize=11, textColor=colors.HexColor('#d97706'), spaceBefore=8, spaceAfter=4)
 
     elements.append(Paragraph("<b>INSTRUMENTO PARTICULAR DE PRESTAÇÃO DE SERVIÇOS DE MARCENARIA</b>", title_style))
     elements.append(Spacer(1, 4))
@@ -2590,7 +2671,7 @@ def gerar_contrato(id: int = None):
     elements.append(Paragraph(p_partes, body_style))
 
     elements.append(Paragraph("<b>2. OBJETO DO CONTRATO (PROJETO COMPLETO)</b>", clause_title))
-    p_obj = f"O presente contrato tem por objeto a fabricação, acabamento e instalação de móveis sob medida destinados aos seguintes ambientes: <b>{', '.join(ambientes_list)}</b>, em conformidade com o projeto executivo e relação de insumos aprovados."
+    p_obj = f"O presente contrato tem por objeto a fabricação, acabamento e instalação de móveis sob medida pela <b>MVI Móveis Planejados</b> destinados aos seguintes ambientes: <b>{', '.join(ambientes_list)}</b>, em conformidade com o projeto executivo e relação de insumos aprovados."
     elements.append(Paragraph(p_obj, body_style))
 
     elements.append(Paragraph("<b>3. VALOR E FORMA DE PAGAMENTO</b>", clause_title))
@@ -2626,7 +2707,7 @@ def gerar_contrato(id: int = None):
 
     doc.build(elements)
     buffer.seek(0)
-    nome_arquivo = f"contrato-{c_nome.replace(' ', '_')}.pdf"
+    nome_arquivo = f"contrato-mvi-{c_nome.replace(' ', '_')}.pdf"
     return Response(content=buffer.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"})
 
 @app.get("/gerar-pdf-compras")
@@ -2665,12 +2746,12 @@ def gerar_pdf_compras(id: int = None):
     ]
     meta_table = Table(meta_data, colWidths=[130, 160, 110, 140])
     meta_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#e0e7ff')),
-        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#1e1b4b')),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#fef3c7')),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#92400e')),
         ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
         ('TOPPADDING', (0, 0), (-1, -1), 4),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#c7d2fe')),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#fde68a')),
     ]))
     elements.append(meta_table)
     elements.append(Spacer(1, 14))
@@ -2689,7 +2770,7 @@ def gerar_pdf_compras(id: int = None):
     ]
     sum_table = Table(sum_data, colWidths=[200, 140, 200])
     sum_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4338ca')),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#d97706')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f8fafc')),
@@ -2722,5 +2803,5 @@ def gerar_pdf_compras(id: int = None):
 
     doc.build(elements)
     buffer.seek(0)
-    nome_arquivo = f"lista-compras-{c_amb.replace(' ', '_')}.pdf"
+    nome_arquivo = f"lista-compras-mvi-{c_amb.replace(' ', '_')}.pdf"
     return Response(content=buffer.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"})
