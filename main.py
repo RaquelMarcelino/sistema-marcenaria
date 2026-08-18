@@ -16,7 +16,7 @@ from datetime import datetime, date, timedelta
 from typing import List
 
 app = FastAPI(title="MVI Móveis Planejados")
-DB_PATH = "marcenaria.db"
+DB_PATH = "marcenaria_v2.db"
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -74,26 +74,6 @@ def init_db():
         )
     """)
     conn.commit()
-
-    colunas = [
-        ("status", "TEXT DEFAULT 'Em Negociação'"),
-        ("entrada_valor", "REAL DEFAULT 0"),
-        ("num_parcelas", "INTEGER DEFAULT 1"),
-        ("forma_pagamento", "TEXT DEFAULT 'PIX'"),
-        ("estoque_baixado", "INTEGER DEFAULT 0"),
-        ("data_entrega_prevista", "TEXT"),
-        ("valor_recebido", "REAL DEFAULT 0"),
-        ("imagens_json", "TEXT DEFAULT '[]'"),
-        ("ambientes_json", "TEXT DEFAULT '[]'"),
-        ("observacoes_tecnicas", "TEXT DEFAULT ''"),
-        ("items_json", "TEXT DEFAULT '[]'")
-    ]
-    for col, tipo in colunas:
-        try:
-            cursor.execute(f"ALTER TABLE orcamentos ADD COLUMN {col} {tipo}")
-            conn.commit()
-        except Exception:
-            pass
 
     cursor.execute("SELECT codigo FROM estoque WHERE codigo = 'mdf'")
     if not cursor.fetchone():
@@ -208,20 +188,20 @@ def get_metricas_financeiras():
             total_recebido += rec
             aprovados += 1
 
-        taxa_conversao = (aprovados / total_orcamentos * 100.0) if total_orcamentos > 0 else 0.0
-        ticket_medio = (faturamento_total / aprovados) if aprovados > 0 else 0.0
-        saldo_a_receber = max(faturamento_total - total_recebido, 0.0)
-        
-        return {
-            "total_orcamentos": total_orcamentos,
-            "aprovados": aprovados,
-            "faturamento_total": faturamento_total,
-            "lucro_acumulado": lucro_acumulado,
-            "total_recebido": total_recebido,
-            "saldo_a_receber": saldo_a_receber,
-            "ticket_medio": ticket_medio,
-            "taxa_conversao": taxa_conversao
-        }
+    taxa_conversao = (aprovados / total_orcamentos * 100.0) if total_orcamentos > 0 else 0.0
+    ticket_medio = (faturamento_total / aprovados) if aprovados > 0 else 0.0
+    saldo_a_receber = max(faturamento_total - total_recebido, 0.0)
+    
+    return {
+        "total_orcamentos": total_orcamentos,
+        "aprovados": aprovados,
+        "faturamento_total": faturamento_total,
+        "lucro_acumulado": lucro_acumulado,
+        "total_recebido": total_recebido,
+        "saldo_a_receber": saldo_a_receber,
+        "ticket_medio": ticket_medio,
+        "taxa_conversao": taxa_conversao
+    }
 
 CURRENT_DATA = {
     "user": "admin@mvi.com",
@@ -414,6 +394,184 @@ def calcular_engenharia_avancada(
     total_mat = sum(i["valor"] for i in items)
     return items, total_mat
 
+def calcular_dre_completa(d: dict):
+    custo_mat = float(d.get("custo_materiais", 0.0) or 0.0)
+    custo_mo = float(d.get("dias_producao", 0) or 0) * float(d.get("valor_diaria", 0.0) or 0.0)
+    custo_frete_mont = float(d.get("custo_frete", 0.0) or 0.0) + float(d.get("custo_montagem", 0.0) or 0.0)
+    custo_direto_total = custo_mat + custo_mo + custo_frete_mont
+    
+    markup = float(d.get("markup", 2.2) or 2.2)
+    pv = custo_direto_total * markup if custo_direto_total > 0 else 0.0
+    
+    imposto_val = (float(d.get("imposto_pct", 0.0) or 0.0) / 100.0) * pv
+    comissao_val = (float(d.get("comissao_pct", 0.0) or 0.0) / 100.0) * pv
+    
+    lucro_liquido = pv - (custo_direto_total + imposto_val + comissao_val) if pv > 0 else 0.0
+    margem_liq_pct = (lucro_liquido / pv * 100.0) if pv > 0 else 0.0
+    
+    entrada = min(float(d.get("entrada_valor", 0.0) or 0.0), pv)
+    saldo_restante = max(pv - entrada, 0.0)
+    n_parc = max(int(d.get("num_parcelas", 1) or 1), 1)
+    valor_parcela = saldo_restante / n_parc if n_parc > 0 else 0.0
+    
+    valor_recebido = float(d.get("valor_recebido", 0.0) or 0.0)
+    saldo_devedor = max(pv - valor_recebido, 0.0)
+
+    return {
+        "custo_mat": custo_mat,
+        "custo_mo": custo_mo,
+        "custo_frete_mont": custo_frete_mont,
+        "custo_direto_total": custo_direto_total,
+        "pv": pv,
+        "imposto_val": imposto_val,
+        "comissao_val": comissao_val,
+        "lucro_liquido": lucro_liquido,
+        "margem_liq_pct": margem_liq_pct,
+        "entrada": entrada,
+        "saldo_restante": saldo_restante,
+        "n_parc": n_parc,
+        "valor_parcela": valor_parcela,
+        "valor_recebido": valor_recebido,
+        "saldo_devedor": saldo_devedor
+    }
+
+def consolidar_compras_e_nesting(items: list):
+    CHAPA_LARGURA = 2750.0
+    CHAPA_ALTURA = 1830.0
+    
+    pecas_corte = []
+    area_total_m2 = 0.0
+    dobradicas = 0
+    corredicas = 0
+    puxadores = 0
+    fita_metros = 0.0
+    outros = 0
+
+    for it in items:
+        tipo = it.get("tipo", "")
+        qtd = it.get("qtd", 1)
+        largura = float(it.get("largura", 0.0))
+        altura = float(it.get("altura", 0.0))
+
+        if "MDF" in tipo and largura > 0 and altura > 0:
+            area_item = (largura / 1000.0) * (altura / 1000.0) * qtd
+            area_total_m2 += area_item
+            fita_metros += (((largura + altura) * 2) / 1000.0) * qtd * 0.5
+            for _ in range(qtd):
+                pecas_corte.append({
+                    "nome": it.get("nome", "Peça"),
+                    "ambiente": it.get("ambiente", "Geral"),
+                    "largura": largura,
+                    "altura": altura
+                })
+        elif "Dobradiça" in tipo:
+            dobradicas += qtd
+        elif "Corrediça" in tipo:
+            corredicas += qtd
+        elif "Puxador" in tipo:
+            puxadores += qtd
+        elif "Fita" in tipo:
+            fita_metros += qtd * 10.0
+        else:
+            outros += qtd
+
+    chapas = []
+    pecas_ordenadas = sorted(pecas_corte, key=lambda p: p["largura"] * p["altura"], reverse=True)
+    
+    for p in pecas_ordenadas:
+        w = min(p["largura"], CHAPA_LARGURA)
+        h = min(p["altura"], CHAPA_ALTURA)
+        colocada = False
+        
+        for ch in chapas:
+            if ch["cur_x"] + w <= CHAPA_LARGURA and ch["cur_y"] + h <= CHAPA_ALTURA:
+                ch["pecas"].append({
+                    "nome": p["nome"], "x": ch["cur_x"], "y": ch["cur_y"], "w": w, "h": h
+                })
+                ch["cur_x"] += w + 10
+                ch["row_max_h"] = max(ch["row_max_h"], h)
+                ch["area_utilizada"] += (w / 1000.0) * (h / 1000.0)
+                colocada = True
+                break
+            elif ch["cur_y"] + ch["row_max_h"] + h <= CHAPA_ALTURA and w <= CHAPA_LARGURA:
+                ch["cur_y"] += ch["row_max_h"] + 10
+                ch["cur_x"] = 0.0
+                ch["row_max_h"] = h
+                ch["pecas"].append({
+                    "nome": p["nome"], "x": ch["cur_x"], "y": ch["cur_y"], "w": w, "h": h
+                })
+                ch["cur_x"] += w + 10
+                ch["area_utilizada"] += (w / 1000.0) * (h / 1000.0)
+                colocada = True
+                break
+        
+        if not colocada:
+            nova_chapa = {
+                "id": len(chapas) + 1,
+                "cur_x": w + 10,
+                "cur_y": 0.0,
+                "row_max_h": h,
+                "area_utilizada": (w / 1000.0) * (h / 1000.0),
+                "pecas": [{
+                    "nome": p["nome"], "x": 0.0, "y": 0.0, "w": w, "h": h
+                }]
+            }
+            chapas.append(nova_chapa)
+
+    total_chapas = max(len(chapas), 1 if items else 0)
+
+    return {
+        "area_m2": area_total_m2,
+        "chapas_mdf": total_chapas,
+        "fita_metros": round(fita_metros, 1),
+        "dobradicas": dobradicas,
+        "corredicas": corredicas,
+        "puxadores": puxadores,
+        "outros": outros,
+        "chapas_nesting": chapas
+    }
+
+def render_login_page(msg_erro=""):
+    erro_tag = f"<p class='text-rose-400 text-xs text-center bg-rose-950/60 border border-rose-800 p-2 rounded-lg'>{msg_erro}</p>" if msg_erro else ""
+    return f"""<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MVI Móveis Planejados - Login</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4 font-sans">
+    <div class="max-w-md w-full bg-slate-900 border border-amber-500/30 rounded-3xl p-8 shadow-2xl space-y-6">
+        <div class="text-center space-y-2">
+            <div class="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-black text-slate-950 text-2xl shadow-lg shadow-amber-500/20">
+                MVI
+            </div>
+            <h1 class="text-xl font-bold tracking-tight text-white">MVI Móveis Planejados</h1>
+            <p class="text-xs text-slate-400">Sistema de Gestão, Engenharia & Produção</p>
+        </div>
+        {erro_tag}
+        <form action="/painel" method="post" class="space-y-4">
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">E-mail</label>
+                <input type="email" name="username" required value="admin@mvi.com" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm focus:outline-none focus:border-amber-500 text-slate-200">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Senha</label>
+                <input type="password" name="password" required value="123456" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm focus:outline-none focus:border-amber-500 text-slate-200">
+            </div>
+            <button type="submit" class="w-full py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-sm transition-all shadow-lg shadow-amber-500/20">
+                Acessar Painel MVI
+            </button>
+        </form>
+        <div class="border-t border-slate-800 pt-4 text-center">
+            <a href="/solicitar-orcamento" target="_blank" class="text-xs text-amber-400 hover:underline font-semibold block mb-1">🔗 Ver Simulador Público (Instagram)</a>
+            <p class="text-[11px] text-slate-500">Admin: <b>admin@mvi.com</b> | Senha: <b>123456</b></p>
+        </div>
+    </div>
+</body>
+</html>"""
+
 def render_pagina_captacao(sucesso=False, orc_id=None, estimativa=0.0, zap_url=""):
     empresa = get_empresa_config()
     msg_sucesso = f"""
@@ -586,7 +744,7 @@ def render_pagina_captacao(sucesso=False, orc_id=None, estimativa=0.0, zap_url="
         </div>
 
         <div>
-            <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Observações e Detalhes Especiais (Opcional)</label>
+            <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Detalhes Adicionais</label>
             <textarea name="descricao" rows="2" placeholder="Ex: Iluminação em fita LED nos aéreos, torre quente na cozinha, portas de espelho no dormitório..." class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500"></textarea>
         </div>
 
@@ -1606,1259 +1764,3 @@ def login(username: str = Form(...), password: str = Form(...)):
     CURRENT_DATA["user_perfil"] = user_row["perfil"]
 
     return render_dashboard(data=CURRENT_DATA)
-
-@app.post("/enviar-solicitacao-lead", response_class=HTMLResponse)
-async def enviar_solicitacao_lead(
-    nome: str = Form(...),
-    whatsapp: str = Form(...),
-    area_m2_total: float = Form(68.5),
-    espessura_caixa: str = Form("MDF 15mm"),
-    espessura_tamponamento: str = Form("Tamponamento 18mm"),
-    fabricante_mdf: str = Form("Duratex"),
-    cor_mdf: str = Form("Freijó Puro / Natural"),
-    modelo_portas: str = Form("Perfil Gola em Alumínio (Rometal)"),
-    marca_ferragens: str = Form("Blum (Linha Blumotion Áustria)"),
-    ambientes_check: List[str] = Form(["Cozinha Planejada"]),
-    cidade: str = Form(...),
-    descricao: str = Form(""),
-    planta: UploadFile = File(...),
-    inspiracao: UploadFile = File(None)
-):
-    empresa = get_empresa_config()
-    agora = datetime.now().strftime("%d/%m/%Y %H:%M")
-    imagens_lead = []
-    
-    contents_planta = await planta.read()
-    if contents_planta:
-        img_b64 = base64.b64encode(contents_planta).decode("utf-8")
-        imagens_lead.append(img_b64)
-
-    if inspiracao:
-        try:
-            contents_insp = await inspiracao.read()
-            if contents_insp:
-                img_insp_b64 = base64.b64encode(contents_insp).decode("utf-8")
-                imagens_lead.append(img_insp_b64)
-        except Exception:
-            pass
-
-    precos = get_precos_config()
-    items_auto, total_mat = calcular_engenharia_avancada(
-        ambientes_check, area_m2_total, espessura_caixa, espessura_tamponamento,
-        fabricante_mdf, cor_mdf, modelo_portas, marca_ferragens, precos
-    )
-    
-    qtd_comodos = max(len(ambientes_check), 1)
-    dias_prod = max(int(math.ceil(qtd_comodos * 2.5)), 3)
-    custo_mo = dias_prod * 180.0
-    custo_frete_mont = max(qtd_comodos * 350.0, 600.0)
-    markup = 2.2
-    
-    pv_estimado = (total_mat + custo_mo + custo_frete_mont) * markup
-    lucro_estimado = pv_estimado - (total_mat + custo_mo + custo_frete_mont + (pv_estimado * 0.10))
-
-    nome_ambientes_str = " + ".join(ambientes_check)
-    obs_completa = f"Lead {area_m2_total}m² ({cidade}) | MDF: {fabricante_mdf} ({cor_mdf}) | Ferragens: {marca_ferragens} | Portas: {modelo_portas} | Caixa: {espessura_caixa} | Tamp: {espessura_tamponamento}"
-    if descricao:
-        obs_completa += f" | Detalhes: {descricao}"
-
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO orcamentos (
-            criado_em, cliente_nome, cliente_telefone, cliente_ambiente,
-            prazo_entrega, data_entrega_prevista, status, custo_materiais,
-            custo_mao_obra, custo_frete_montagem, imposto_pct, comissao_pct,
-            markup, preco_venda, lucro_liquido, entrada_valor, num_parcelas,
-            forma_pagamento, valor_recebido, imagens_json, ambientes_json,
-            observacoes_tecnicas, items_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        agora,
-        nome,
-        whatsapp,
-        nome_ambientes_str,
-        "25 dias úteis",
-        (date.today() + timedelta(days=25)).strftime("%Y-%m-%d"),
-        "Novo Lead Instagram",
-        total_mat, custo_mo, custo_frete_mont, 6.0, 4.0, markup,
-        pv_estimado, lucro_estimado, pv_estimado * 0.3, 3,
-        "Entrada + 3x no Cartão", 0.0, json.dumps(imagens_lead), json.dumps(ambientes_check),
-        obs_completa, json.dumps(items_auto)
-    ))
-    conn.commit()
-    novo_id = cursor.lastrowid
-    conn.close()
-
-    # MONTAGEM DO BRIEFING COMPLETO PARA O WHATSAPP
-    msg_zap = f"""Olá! Meu nome é *{nome}*.
-Acabei de simular meu projeto no site da *MVI Móveis Planejados* (Projeto #{novo_id:04d}).
-
-📋 *BRIEFING DO MEU PROJETO:*
-• *Cidade/Bairro:* {cidade}
-• *Área Total:* {area_m2_total} m²
-• *Ambientes:* {nome_ambientes_str}
-• *MDF Escolhido:* {fabricante_mdf} ({cor_mdf})
-• *Portas / Puxadores:* {modelo_portas}
-• *Ferragens:* {marca_ferragens}
-• *Caixaria / Tamponamento:* {espessura_caixa} / {espessura_tamponamento}
-• *Estimativa Calculada:* R$ {pv_estimado:,.2f}
-"""
-    if descricao:
-        msg_zap += f"• *Observações:* {descricao}\n"
-    msg_zap += "\nJá enviei a foto da planta baixa e gostaria de dar andamento com o projetista!"
-
-    tel_empresa_limpo = str(empresa['telefone_empresa'] or "").replace('(', '').replace(')', '').replace('-', '').replace(' ', '')
-    zap_url = f"https://api.whatsapp.com/send?phone=55{tel_empresa_limpo}&text={urllib.parse.quote(msg_zap)}"
-
-    return render_pagina_captacao(sucesso=True, orc_id=novo_id, estimativa=pv_estimado, zap_url=zap_url)
-
-@app.post("/adicionar-ambiente", response_class=HTMLResponse)
-def adicionar_ambiente(novo_ambiente: str = Form(...)):
-    if "ambientes" not in CURRENT_DATA:
-        CURRENT_DATA["ambientes"] = []
-    if novo_ambiente and novo_ambiente not in CURRENT_DATA["ambientes"]:
-        CURRENT_DATA["ambientes"].append(novo_ambiente)
-        CURRENT_DATA["cliente_ambiente"] = " + ".join(CURRENT_DATA["ambientes"])
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/remover-ambiente", response_class=HTMLResponse)
-def remover_ambiente(ambiente_nome: str = Form(...)):
-    if "ambientes" in CURRENT_DATA and ambiente_nome in CURRENT_DATA["ambientes"]:
-        CURRENT_DATA["ambientes"].remove(ambiente_nome)
-        CURRENT_DATA["cliente_ambiente"] = " + ".join(CURRENT_DATA["ambientes"]) if CURRENT_DATA["ambientes"] else "Geral"
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/upload-imagem", response_class=HTMLResponse)
-async def upload_imagem(foto: UploadFile = File(...)):
-    contents = await foto.read()
-    if contents:
-        img_b64 = base64.b64encode(contents).decode("utf-8")
-        if "imagens" not in CURRENT_DATA:
-            CURRENT_DATA["imagens"] = []
-        CURRENT_DATA["imagens"].append(img_b64)
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/remover-imagem", response_class=HTMLResponse)
-def remover_imagem(img_index: int = Form(...)):
-    if "imagens" in CURRENT_DATA and 0 <= img_index < len(CURRENT_DATA["imagens"]):
-        CURRENT_DATA["imagens"].pop(img_index)
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.get("/exportar-csv")
-def exportar_csv():
-    output = io.StringIO()
-    writer = csv.writer(output, delimiter=';')
-    
-    writer.writerow([
-        "ID", "Data/Hora", "Cliente", "Telefone", "Ambiente", "Prazo Entrega", "Data Prevista",
-        "Status", "Custo Materiais (R$)", "Mao de Obra (R$)", "Frete e Montagem (R$)",
-        "Impostos (%)", "Comissao (%)", "Markup", "Preco Venda (R$)", "Lucro Liquido (R$)",
-        "Entrada (R$)", "Num Parcelas", "Valor Recebido (R$)", "Forma Pagamento", "Estoque Baixado"
-    ])
-    
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM orcamentos ORDER BY id DESC")
-    rows = cursor.fetchall()
-    conn.close()
-
-    for r in rows:
-        keys = r.keys()
-        writer.writerow([
-            r["id"],
-            r["criado_em"] if "criado_em" in keys else "-",
-            r["cliente_nome"] if "cliente_nome" in keys else "-",
-            r["cliente_telefone"] if "cliente_telefone" in keys else "-",
-            r["cliente_ambiente"] if "cliente_ambiente" in keys else "-",
-            r["prazo_entrega"] if "prazo_entrega" in keys else "-",
-            r["data_entrega_prevista"] if "data_entrega_prevista" in keys and r["data_entrega_prevista"] else "-",
-            r["status"] if "status" in keys else "-",
-            f"{r['custo_materiais']:.2f}" if "custo_materiais" in keys and r["custo_materiais"] else "0.00",
-            f"{r['custo_mao_obra']:.2f}" if "custo_mao_obra" in keys and r["custo_mao_obra"] else "0.00",
-            f"{r['custo_frete_montagem']:.2f}" if "custo_frete_montagem" in keys and r["custo_frete_montagem"] else "0.00",
-            r["imposto_pct"] if "imposto_pct" in keys else "0",
-            r["comissao_pct"] if "comissao_pct" in keys else "0",
-            r["markup"] if "markup" in keys else "1.0",
-            f"{r['preco_venda']:.2f}" if "preco_venda" in keys and r["preco_venda"] else "0.00",
-            f"{r['lucro_liquido']:.2f}" if "lucro_liquido" in keys and r["lucro_liquido"] else "0.00",
-            f"{r['entrada_valor']:.2f}" if "entrada_valor" in keys and r["entrada_valor"] else "0.00",
-            r["num_parcelas"] if "num_parcelas" in keys and r["num_parcelas"] else 1,
-            f"{r['valor_recebido']:.2f}" if "valor_recebido" in keys and r["valor_recebido"] else "0.00",
-            r["forma_pagamento"] if "forma_pagamento" in keys and r["forma_pagamento"] else "PIX",
-            "Sim" if "estoque_baixado" in keys and r["estoque_baixado"] else "Nao"
-        ])
-        
-    output.seek(0)
-    nome_arquivo = f"relatorio-financeiro-mvi-{date.today().strftime('%d-%m-%Y')}.csv"
-    return Response(
-        content=output.getvalue().encode('utf-8-sig'),
-        media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"}
-    )
-
-@app.post("/salvar-empresa", response_class=HTMLResponse)
-def salvar_empresa(nome_empresa: str = Form(...), cnpj: str = Form(...), telefone_empresa: str = Form(...), pix: str = Form(...)):
-    if CURRENT_DATA.get("user_perfil") == "admin":
-        dados = {
-            "nome_empresa": nome_empresa,
-            "cnpj": cnpj,
-            "telefone_empresa": telefone_empresa,
-            "pix": pix
-        }
-        set_empresa_config(dados)
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/adicionar-estoque", response_class=HTMLResponse)
-def adicionar_estoque(codigo: str = Form(...), quantidade: float = Form(...)):
-    if CURRENT_DATA.get("user_perfil") == "admin":
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("UPDATE estoque SET quantidade = quantidade + ? WHERE codigo = ?", (quantidade, codigo))
-        conn.commit()
-        conn.close()
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/dar-baixa-estoque", response_class=HTMLResponse)
-def dar_baixa_estoque(orcamento_id: int = Form(...)):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT items_json, estoque_baixado FROM orcamentos WHERE id = ?", (orcamento_id,))
-    row = cursor.fetchone()
-    if row and not row["estoque_baixado"]:
-        items = json.loads(row["items_json"]) if row["items_json"] else []
-        compras = consolidar_compras_e_nesting(items)
-        
-        cursor.execute("UPDATE estoque SET quantidade = MAX(quantidade - ?, 0) WHERE codigo = 'mdf'", (compras["chapas_mdf"],))
-        cursor.execute("UPDATE estoque SET quantidade = MAX(quantidade - ?, 0) WHERE codigo = 'fita'", (compras["fita_metros"],))
-        cursor.execute("UPDATE estoque SET quantidade = MAX(quantidade - ?, 0) WHERE codigo = 'dobradica'", (compras["dobradicas"],))
-        cursor.execute("UPDATE estoque SET quantidade = MAX(quantidade - ?, 0) WHERE codigo = 'corredica'", (compras["corredicas"],))
-        cursor.execute("UPDATE estoque SET quantidade = MAX(quantidade - ?, 0) WHERE codigo = 'puxador'", (compras["puxadores"],))
-        
-        cursor.execute("UPDATE orcamentos SET estoque_baixado = 1 WHERE id = ?", (orcamento_id,))
-        conn.commit()
-    conn.close()
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/salvar-pagamento", response_class=HTMLResponse)
-def salvar_pagamento(entrada_valor: float = Form(0.0), num_parcelas: int = Form(1), valor_recebido: float = Form(0.0), forma_pagamento: str = Form("PIX")):
-    CURRENT_DATA["entrada_valor"] = entrada_valor
-    CURRENT_DATA["num_parcelas"] = num_parcelas
-    CURRENT_DATA["valor_recebido"] = valor_recebido
-    CURRENT_DATA["forma_pagamento"] = forma_pagamento
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/atualizar-status", response_class=HTMLResponse)
-def atualizar_status(orcamento_id: int = Form(...), novo_status: str = Form(...)):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE orcamentos SET status = ? WHERE id = ?", (novo_status, orcamento_id))
-    conn.commit()
-    conn.close()
-    if CURRENT_DATA.get("orcamento_id") == orcamento_id:
-        CURRENT_DATA["status"] = novo_status
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/criar-usuario", response_class=HTMLResponse)
-def criar_usuario(nome: str = Form(...), email: str = Form(...), senha: str = Form(...), perfil: str = Form(...)):
-    if CURRENT_DATA.get("user_perfil") == "admin":
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("INSERT OR REPLACE INTO usuarios (email, senha, nome, perfil) VALUES (?, ?, ?, ?)", (email, senha, nome, perfil))
-        conn.commit()
-        conn.close()
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.get("/novo-orcamento", response_class=HTMLResponse)
-def novo_orcamento():
-    CURRENT_DATA["orcamento_id"] = None
-    CURRENT_DATA["status"] = "Em Negociação"
-    CURRENT_DATA["cliente_nome"] = ""
-    CURRENT_DATA["cliente_telefone"] = ""
-    CURRENT_DATA["cliente_ambiente"] = ""
-    CURRENT_DATA["prazo_entrega"] = "20 dias úteis"
-    CURRENT_DATA["data_entrega_prevista"] = (date.today() + timedelta(days=20)).strftime("%Y-%m-%d")
-    CURRENT_DATA["entrada_valor"] = 0.0
-    CURRENT_DATA["num_parcelas"] = 1
-    CURRENT_DATA["valor_recebido"] = 0.0
-    CURRENT_DATA["forma_pagamento"] = "PIX / Transferência"
-    CURRENT_DATA["estoque_baixado"] = 0
-    CURRENT_DATA["imagens"] = []
-    CURRENT_DATA["ambientes"] = []
-    CURRENT_DATA["observacoes_tecnicas"] = ""
-    CURRENT_DATA["custo_materiais"] = 0.0
-    CURRENT_DATA["dias_producao"] = 0
-    CURRENT_DATA["valor_diaria"] = 180.0
-    CURRENT_DATA["custo_frete"] = 0.0
-    CURRENT_DATA["custo_montagem"] = 0.0
-    CURRENT_DATA["imposto_pct"] = 6.0
-    CURRENT_DATA["comissao_pct"] = 4.0
-    CURRENT_DATA["markup"] = 2.2
-    CURRENT_DATA["items"] = []
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/salvar-operacionais", response_class=HTMLResponse)
-def salvar_operacionais(
-    dias_producao: int = Form(0),
-    valor_diaria: float = Form(180.0),
-    custo_frete: float = Form(0.0),
-    custo_montagem: float = Form(0.0),
-    imposto_pct: float = Form(6.0)
-):
-    if CURRENT_DATA.get("user_perfil") == "admin":
-        CURRENT_DATA["dias_producao"] = dias_producao
-        CURRENT_DATA["valor_diaria"] = valor_diaria
-        CURRENT_DATA["custo_frete"] = custo_frete
-        CURRENT_DATA["custo_montagem"] = custo_montagem
-        CURRENT_DATA["imposto_pct"] = imposto_pct
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/salvar-banco", response_class=HTMLResponse)
-def salvar_banco():
-    dre = calcular_dre_completa(CURRENT_DATA)
-    agora = datetime.now().strftime("%d/%m/%Y %H:%M")
-    
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    if CURRENT_DATA["orcamento_id"]:
-        cursor.execute("""
-            UPDATE orcamentos SET
-                criado_em = ?,
-                cliente_nome = ?,
-                cliente_telefone = ?,
-                cliente_ambiente = ?,
-                prazo_entrega = ?,
-                data_entrega_prevista = ?,
-                status = ?,
-                custo_materiais = ?,
-                custo_mao_obra = ?,
-                custo_frete_montagem = ?,
-                imposto_pct = ?,
-                comissao_pct = ?,
-                markup = ?,
-                preco_venda = ?,
-                lucro_liquido = ?,
-                entrada_valor = ?,
-                num_parcelas = ?,
-                forma_pagamento = ?,
-                valor_recebido = ?,
-                imagens_json = ?,
-                ambientes_json = ?,
-                observacoes_tecnicas = ?,
-                items_json = ?
-            WHERE id = ?
-        """, (
-            agora,
-            CURRENT_DATA["cliente_nome"],
-            CURRENT_DATA["cliente_telefone"],
-            CURRENT_DATA["cliente_ambiente"],
-            CURRENT_DATA["prazo_entrega"],
-            CURRENT_DATA.get("data_entrega_prevista"),
-            CURRENT_DATA.get("status", "Em Negociação"),
-            dre["custo_mat"],
-            dre["custo_mo"],
-            dre["custo_frete_mont"],
-            CURRENT_DATA["imposto_pct"],
-            CURRENT_DATA["comissao_pct"],
-            CURRENT_DATA["markup"],
-            dre["pv"],
-            dre["lucro_liquido"],
-            CURRENT_DATA.get("entrada_valor", 0.0),
-            CURRENT_DATA.get("num_parcelas", 1),
-            CURRENT_DATA.get("forma_pagamento", "PIX"),
-            CURRENT_DATA.get("valor_recebido", 0.0),
-            json.dumps(CURRENT_DATA.get("imagens", [])),
-            json.dumps(CURRENT_DATA.get("ambientes", [])),
-            CURRENT_DATA.get("observacoes_tecnicas", ""),
-            json.dumps(CURRENT_DATA["items"]),
-            CURRENT_DATA["orcamento_id"]
-        ))
-    else:
-        cursor.execute("""
-            INSERT INTO orcamentos (criado_em, cliente_nome, cliente_telefone, cliente_ambiente, prazo_entrega, data_entrega_prevista, status, custo_materiais, custo_mao_obra, custo_frete_montagem, imposto_pct, comissao_pct, markup, preco_venda, lucro_liquido, entrada_valor, num_parcelas, forma_pagamento, valor_recebido, imagens_json, ambientes_json, observacoes_tecnicas, items_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            agora,
-            CURRENT_DATA["cliente_nome"],
-            CURRENT_DATA["cliente_telefone"],
-            CURRENT_DATA["cliente_ambiente"],
-            CURRENT_DATA["prazo_entrega"],
-            CURRENT_DATA.get("data_entrega_prevista"),
-            CURRENT_DATA.get("status", "Em Negociação"),
-            dre["custo_mat"],
-            dre["custo_mo"],
-            dre["custo_frete_mont"],
-            CURRENT_DATA["imposto_pct"],
-            CURRENT_DATA["comissao_pct"],
-            CURRENT_DATA["markup"],
-            dre["pv"],
-            dre["lucro_liquido"],
-            CURRENT_DATA.get("entrada_valor", 0.0),
-            CURRENT_DATA.get("num_parcelas", 1),
-            CURRENT_DATA.get("forma_pagamento", "PIX"),
-            CURRENT_DATA.get("valor_recebido", 0.0),
-            json.dumps(CURRENT_DATA.get("imagens", [])),
-            json.dumps(CURRENT_DATA.get("ambientes", [])),
-            CURRENT_DATA.get("observacoes_tecnicas", ""),
-            json.dumps(CURRENT_DATA["items"])
-        ))
-        CURRENT_DATA["orcamento_id"] = cursor.lastrowid
-    conn.commit()
-    conn.close()
-
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/carregar-orcamento", response_class=HTMLResponse)
-def carregar_orcamento(orcamento_id: int = Form(...)):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (orcamento_id,))
-    row = cursor.fetchone()
-    conn.close()
-    
-    if row:
-        keys = row.keys()
-        CURRENT_DATA["orcamento_id"] = row["id"]
-        CURRENT_DATA["status"] = row["status"] if "status" in keys and row["status"] else "Em Negociação"
-        CURRENT_DATA["cliente_nome"] = row["cliente_nome"] if "cliente_nome" in keys and row["cliente_nome"] else "Cliente"
-        CURRENT_DATA["cliente_telefone"] = row["cliente_telefone"] if "cliente_telefone" in keys and row["cliente_telefone"] else ""
-        CURRENT_DATA["cliente_ambiente"] = row["cliente_ambiente"] if "cliente_ambiente" in keys and row["cliente_ambiente"] else "Ambiente"
-        CURRENT_DATA["prazo_entrega"] = row["prazo_entrega"] if "prazo_entrega" in keys and row["prazo_entrega"] else "20 dias úteis"
-        CURRENT_DATA["data_entrega_prevista"] = row["data_entrega_prevista"] if "data_entrega_prevista" in keys and row["data_entrega_prevista"] else (date.today() + timedelta(days=20)).strftime("%Y-%m-%d")
-        CURRENT_DATA["custo_materiais"] = float(row["custo_materiais"] or 0.0) if "custo_materiais" in keys else 0.0
-        CURRENT_DATA["imposto_pct"] = float(row["imposto_pct"] or 6.0) if "imposto_pct" in keys else 6.0
-        CURRENT_DATA["comissao_pct"] = float(row["comissao_pct"] or 4.0) if "comissao_pct" in keys else 4.0
-        CURRENT_DATA["markup"] = float(row["markup"] or 2.2) if "markup" in keys else 2.2
-        try:
-            CURRENT_DATA["entrada_valor"] = float(row["entrada_valor"] or 0.0) if "entrada_valor" in keys else 0.0
-            CURRENT_DATA["num_parcelas"] = int(row["num_parcelas"] or 1) if "num_parcelas" in keys else 1
-            CURRENT_DATA["forma_pagamento"] = row["forma_pagamento"] if "forma_pagamento" in keys and row["forma_pagamento"] else "PIX"
-            CURRENT_DATA["valor_recebido"] = float(row["valor_recebido"] or 0.0) if "valor_recebido" in keys else 0.0
-            CURRENT_DATA["estoque_baixado"] = int(row["estoque_baixado"] or 0) if "estoque_baixado" in keys else 0
-            CURRENT_DATA["imagens"] = json.loads(row["imagens_json"]) if "imagens_json" in keys and row["imagens_json"] else []
-            CURRENT_DATA["ambientes"] = json.loads(row["ambientes_json"]) if "ambientes_json" in keys and row["ambientes_json"] else [CURRENT_DATA["cliente_ambiente"]]
-            CURRENT_DATA["observacoes_tecnicas"] = row["observacoes_tecnicas"] if "observacoes_tecnicas" in keys and row["observacoes_tecnicas"] else ""
-        except Exception:
-            pass
-        CURRENT_DATA["items"] = json.loads(row["items_json"]) if "items_json" in keys and row["items_json"] else []
-
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/excluir-orcamento", response_class=HTMLResponse)
-def excluir_orcamento(orcamento_id: int = Form(...)):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM orcamentos WHERE id = ?", (orcamento_id,))
-    conn.commit()
-    conn.close()
-    if CURRENT_DATA["orcamento_id"] == orcamento_id:
-        CURRENT_DATA["orcamento_id"] = None
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/salvar-cliente", response_class=HTMLResponse)
-def salvar_cliente(
-    cliente_nome: str = Form(...),
-    cliente_telefone: str = Form(...),
-    cliente_ambiente: str = Form(...),
-    prazo_entrega: str = Form(...),
-    data_entrega_prevista: str = Form(...),
-    observacoes_tecnicas: str = Form(""),
-    status: str = Form("Em Negociação")
-):
-    CURRENT_DATA["cliente_nome"] = cliente_nome
-    CURRENT_DATA["cliente_telefone"] = cliente_telefone
-    CURRENT_DATA["cliente_ambiente"] = cliente_ambiente
-    CURRENT_DATA["prazo_entrega"] = prazo_entrega
-    CURRENT_DATA["data_entrega_prevista"] = data_entrega_prevista
-    CURRENT_DATA["observacoes_tecnicas"] = observacoes_tecnicas
-    CURRENT_DATA["status"] = status
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/salvar-precos", response_class=HTMLResponse)
-def salvar_precos(
-    mdf_m2: float = Form(65.0),
-    dobradica: float = Form(18.50),
-    corredica: float = Form(38.00),
-    fita_borda_m: float = Form(3.20),
-    puxador: float = Form(25.00)
-):
-    if CURRENT_DATA.get("user_perfil") == "admin":
-        precos = {
-            "mdf_m2": mdf_m2,
-            "dobradica": dobradica,
-            "corredica": corredica,
-            "fita_borda_m": fita_borda_m,
-            "puxador": puxador,
-            "outros_insumos": 15.00
-        }
-        set_precos_config(precos)
-        novo_mat = 0.0
-        for it in CURRENT_DATA["items"]:
-            valor_item = it.get("valor", 0.0)
-            novo_mat += valor_item
-        CURRENT_DATA["custo_materiais"] = novo_mat
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/recalcular", response_class=HTMLResponse)
-def recalcular(markup: float = Form(2.2)):
-    if CURRENT_DATA.get("user_perfil") == "admin":
-        CURRENT_DATA["markup"] = markup
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.get("/gerar-os")
-def gerar_os(id: int = None):
-    empresa = get_empresa_config()
-    ambientes_list = []
-    if id:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (id,))
-        row = cursor.fetchone()
-        conn.close()
-        if row:
-            keys = row.keys()
-            c_nome = row["cliente_nome"] if "cliente_nome" in keys and row["cliente_nome"] else "Cliente"
-            c_tel = row["cliente_telefone"] if "cliente_telefone" in keys and row["cliente_telefone"] else ""
-            c_amb = row["cliente_ambiente"] if "cliente_ambiente" in keys and row["cliente_ambiente"] else "Ambiente"
-            orc_id = row["id"]
-            c_prazo = row["prazo_entrega"] if "prazo_entrega" in keys and row["prazo_entrega"] else "20 dias úteis"
-            c_data = row["data_entrega_prevista"] if "data_entrega_prevista" in keys and row["data_entrega_prevista"] else date.today().strftime("%Y-%m-%d")
-            obs = row["observacoes_tecnicas"] if "observacoes_tecnicas" in keys and row["observacoes_tecnicas"] else "Sem observações especiais."
-            ambientes_list = json.loads(row["ambientes_json"]) if "ambientes_json" in keys and row["ambientes_json"] else [c_amb]
-            items = json.loads(row["items_json"]) if "items_json" in keys and row["items_json"] else []
-        else:
-            return Response(content="Orçamento não encontrado", status_code=404)
-    else:
-        c_nome = CURRENT_DATA['cliente_nome'] or "Cliente"
-        c_tel = CURRENT_DATA['cliente_telefone']
-        c_amb = CURRENT_DATA['cliente_ambiente'] or "Geral"
-        orc_id = CURRENT_DATA['orcamento_id'] or 1
-        c_prazo = CURRENT_DATA['prazo_entrega']
-        c_data = CURRENT_DATA.get('data_entrega_prevista', date.today().strftime("%Y-%m-%d"))
-        obs = CURRENT_DATA.get('observacoes_tecnicas', 'Sem observações especiais.')
-        ambientes_list = CURRENT_DATA.get("ambientes", [c_amb])
-        items = CURRENT_DATA["items"]
-
-    compras = consolidar_compras_e_nesting(items)
-
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
-    styles = getSampleStyleSheet()
-    elements = []
-
-    title_style = ParagraphStyle(name='TitleStyle', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor('#0f172a'), spaceAfter=2)
-    sub_empresa = ParagraphStyle(name='SubEmpresa', parent=styles['Normal'], fontSize=9, textColor=colors.HexColor('#475569'), spaceAfter=10)
-    section_title = ParagraphStyle(name='SecTitle', parent=styles['Heading2'], fontSize=11, textColor=colors.HexColor('#d97706'), spaceBefore=8, spaceAfter=4)
-    body_style = ParagraphStyle(name='BodyStyle', parent=styles['Normal'], fontSize=9, leading=13, textColor=colors.HexColor('#1e293b'))
-
-    elements.append(Paragraph(f"<b>{empresa['nome_empresa']}</b>", title_style))
-    elements.append(Paragraph(f"ORDEM DE SERVIÇO & FICHA TÉCNICA DE PRODUÇÃO - O.S. #{orc_id:04d}", sub_empresa))
-
-    meta_data = [
-        ["Cliente:", c_nome, "Data Emissão:", date.today().strftime("%d/%m/%Y")],
-        ["Telefone:", c_tel, "Data Prevista Montagem:", c_data],
-        ["Ambientes:", ", ".join(ambientes_list) if ambientes_list else "-", "Prazo:", c_prazo]
-    ]
-    meta_table = Table(meta_data, colWidths=[110, 160, 120, 150])
-    meta_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#fef3c7')),
-        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#92400e')),
-        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-        ('TOPPADDING', (0, 0), (-1, -1), 4),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#fde68a')),
-    ]))
-    elements.append(meta_table)
-    elements.append(Spacer(1, 8))
-
-    elements.append(Paragraph("<b>1. Separação de Ferragens & Insumos para Montagem</b>", section_title))
-    ferragens_data = [
-        ["Insumo / Ferragem", "Quantidade", "Status Separação Oficina"],
-        ["Dobradiças Amortecedor", f"{compras['dobradicas']} un", "[  ] Separado e Conferido"],
-        ["Corrediças Telescópicas", f"{compras['corredicas']} pares", "[  ] Separado e Conferido"],
-        ["Puxadores / Perfis", f"{compras['puxadores']} un", "[  ] Separado e Conferido"],
-        ["Fita de Borda PVC", f"{compras['fita_metros']} metros", "[  ] Separado e Conferido"],
-        ["Chapas MDF Estimadas", f"{compras['chapas_mdf']} chapas", "[  ] Cortado na Seccionadora"]
-    ]
-    ferragens_table = Table(ferragens_data, colWidths=[200, 140, 200])
-    ferragens_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#d97706')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
-    ]))
-    elements.append(ferragens_table)
-    elements.append(Spacer(1, 8))
-
-    elements.append(Paragraph("<b>2. Relação de Peças a Cortar & Fitamento</b>", section_title))
-    pecas_data = [["Peça / Descrição", "Ambiente", "Dimensões", "Qtd"]]
-    for it in (items or [{"nome": "Módulo Geral", "ambiente": "Geral", "dimensoes": "-", "qtd": 1}]):
-        pecas_data.append([
-            it.get("nome", "Peça"),
-            it.get("ambiente", "Geral"),
-            it.get("dimensoes", "-"),
-            str(it.get("qtd", 1))
-        ])
-
-    pecas_table = Table(pecas_data, colWidths=[220, 130, 140, 50])
-    pecas_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#334155')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (3, 0), (3, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e2e8f0')),
-    ]))
-    elements.append(pecas_table)
-    elements.append(Spacer(1, 8))
-
-    elements.append(Paragraph("<b>3. Observações Técnicas & Detalhes da Planta</b>", section_title))
-    elements.append(Paragraph(f"<b>Instruções:</b> {obs}", body_style))
-    elements.append(Spacer(1, 16))
-
-    sign_data = [
-        ["_____________________________________________", "_____________________________________________"],
-        ["Marceneiro Responsável (Oficina)", "Montador Responsável (Obra)"]
-    ]
-    sign_table = Table(sign_data, colWidths=[270, 270])
-    sign_table.setStyle(TableStyle([
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#0f172a')),
-        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
-    ]))
-    elements.append(sign_table)
-
-    doc.build(elements)
-    buffer.seek(0)
-    nome_arquivo = f"ordem-servico-mvi-{c_nome.replace(' ', '_')}.pdf"
-    return Response(content=buffer.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"})
-
-@app.get("/gerar-pdf")
-def gerar_pdf(id: int = None):
-    empresa = get_empresa_config()
-    imagens = []
-    ambientes_list = []
-    if id:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (id,))
-        row = cursor.fetchone()
-        conn.close()
-        if row:
-            keys = row.keys()
-            c_nome = row["cliente_nome"] if "cliente_nome" in keys and row["cliente_nome"] else "Cliente"
-            c_tel = row["cliente_telefone"] if "cliente_telefone" in keys and row["cliente_telefone"] else ""
-            c_amb = row["cliente_ambiente"] if "cliente_ambiente" in keys and row["cliente_ambiente"] else "Ambiente"
-            c_prazo = row["prazo_entrega"] if "prazo_entrega" in keys and row["prazo_entrega"] else "20 dias úteis"
-            c_status = row["status"] if "status" in keys and row["status"] else "Em Negociação"
-            pv = float(row["preco_venda"] or 0.0) if "preco_venda" in keys else 0.0
-            entrada = float(row["entrada_valor"] or 0.0) if "entrada_valor" in keys else 0.0
-            n_parc = int(row["num_parcelas"] or 1) if "num_parcelas" in keys else 1
-            forma_pgto = row["forma_pagamento"] if "forma_pagamento" in keys and row["forma_pagamento"] else "PIX"
-            imagens = json.loads(row["imagens_json"]) if "imagens_json" in keys and row["imagens_json"] else []
-            ambientes_list = json.loads(row["ambientes_json"]) if "ambientes_json" in keys and row["ambientes_json"] else [c_amb]
-            items = json.loads(row["items_json"]) if "items_json" in keys and row["items_json"] else []
-        else:
-            return Response(content="Orçamento não encontrado", status_code=404)
-    else:
-        dre = calcular_dre_completa(CURRENT_DATA)
-        c_nome = CURRENT_DATA['cliente_nome'] or "Cliente"
-        c_tel = CURRENT_DATA['cliente_telefone']
-        c_amb = CURRENT_DATA['cliente_ambiente'] or "Geral"
-        c_prazo = CURRENT_DATA['prazo_entrega']
-        c_status = CURRENT_DATA.get('status', 'Em Negociação')
-        pv = dre["pv"]
-        entrada = dre["entrada"]
-        n_parc = dre["n_parc"]
-        forma_pgto = CURRENT_DATA.get("forma_pagamento", "PIX")
-        imagens = CURRENT_DATA.get("imagens", [])
-        ambientes_list = CURRENT_DATA.get("ambientes", [c_amb])
-        items = CURRENT_DATA["items"]
-
-    v_parc = (pv - entrada) / n_parc if n_parc > 0 else 0.0
-
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
-    styles = getSampleStyleSheet()
-    elements = []
-
-    title_style = ParagraphStyle(name='TitleStyle', parent=styles['Heading1'], fontSize=18, textColor=colors.HexColor('#0f172a'), spaceAfter=2)
-    sub_empresa = ParagraphStyle(name='SubEmpresa', parent=styles['Normal'], fontSize=9, textColor=colors.HexColor('#475569'), spaceAfter=10)
-    
-    elements.append(Paragraph(f"{empresa['nome_empresa']}", title_style))
-    elements.append(Paragraph(f"CNPJ: {empresa['cnpj']} | Contato: {empresa['telefone_empresa']} | PIX: {empresa['pix']}", sub_empresa))
-    elements.append(Spacer(1, 4))
-
-    cliente_data = [
-        ["Cliente:", c_nome, "Data da Proposta:", date.today().strftime("%d/%m/%Y")],
-        ["WhatsApp/Tel:", c_tel, "Prazo de Entrega:", c_prazo],
-        ["Ambientes Inclusos:", ", ".join(ambientes_list) if ambientes_list else "-", "Status:", c_status]
-    ]
-    cliente_table = Table(cliente_data, colWidths=[110, 160, 120, 150])
-    cliente_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f8fafc')),
-        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#334155')),
-        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-        ('TOPPADDING', (0, 0), (-1, -1), 4),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
-    ]))
-    elements.append(cliente_table)
-    elements.append(Spacer(1, 10))
-
-    if imagens:
-        try:
-            img_bytes = io.BytesIO(base64.b64decode(imagens[0]))
-            img_render = RLImage(img_bytes, width=540, height=220)
-            elements.append(img_render)
-            elements.append(Spacer(1, 10))
-        except Exception:
-            pass
-
-    cond_texto = f"Entrada de R$ {entrada:,.2f} + {n_parc}x de R$ {v_parc:,.2f} ({forma_pgto})" if n_parc > 1 else f"À vista: R$ {pv:,.2f} ({forma_pgto})"
-
-    dre_data = [
-        ["Ambientes do Projeto", f"{', '.join(ambientes_list) if ambientes_list else '-'}"],
-        ["Prazo de Fabricação e Instalação", f"{c_prazo}"],
-        ["Condições de Pagamento", cond_texto],
-        ["Garantia Estrutural e Ferragens", "12 meses contra defeitos de fabricação"],
-        ["VALOR TOTAL DO INVESTIMENTO (GLOBAL)", f"R$ {pv:,.2f}"]
-    ]
-    dre_table = Table(dre_data, colWidths=[240, 300])
-    dre_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 3), colors.HexColor('#f8fafc')),
-        ('BACKGROUND', (0, 4), (-1, 4), colors.HexColor('#fef3c7')),
-        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#0f172a')),
-        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
-    ]))
-    elements.append(dre_table)
-    elements.append(Spacer(1, 12))
-
-    sum_title = ParagraphStyle(name='SumTitle', parent=styles['Heading2'], fontSize=12, textColor=colors.HexColor('#d97706'), spaceAfter=6)
-    elements.append(Paragraph("Especificação dos Módulos e Componentes", sum_title))
-
-    items = items or [{"nome": "Módulo Planejado MVI", "dimensoes": "-", "qtd": 1, "ambiente": "Geral"}]
-    table_data = [["Descrição do Componente", "Ambiente", "Dimensões", "Qtd"]]
-    for it in items:
-        table_data.append([
-            it.get("nome", "Peça"),
-            it.get("ambiente", "Geral"),
-            it.get("dimensoes", "-"),
-            str(it.get("qtd", 1))
-        ])
-
-    items_table = Table(table_data, colWidths=[220, 130, 140, 50])
-    items_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#d97706')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (3, 0), (3, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e2e8f0')),
-    ]))
-    elements.append(items_table)
-
-    doc.build(elements)
-    buffer.seek(0)
-    nome_arquivo = f"proposta-mvi-{c_nome.replace(' ', '_')}.pdf"
-    return Response(content=buffer.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"})
-
-@app.get("/gerar-recibo")
-def gerar_recibo(id: int = None):
-    empresa = get_empresa_config()
-    if id:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (id,))
-        row = cursor.fetchone()
-        conn.close()
-        if row:
-            keys = row.keys()
-            c_nome = row["cliente_nome"] if "cliente_nome" in keys and row["cliente_nome"] else "Cliente"
-            c_tel = row["cliente_telefone"] if "cliente_telefone" in keys and row["cliente_telefone"] else ""
-            c_amb = row["cliente_ambiente"] if "cliente_ambiente" in keys and row["cliente_ambiente"] else "Ambiente"
-            orc_id = row["id"]
-            pv = float(row["preco_venda"] or 0.0) if "preco_venda" in keys else 0.0
-            rec = float(row["valor_recebido"] or row["entrada_valor"] or row["preco_venda"] or 0.0) if "valor_recebido" in keys else pv
-            forma_pgto = row["forma_pagamento"] if "forma_pagamento" in keys and row["forma_pagamento"] else "PIX"
-        else:
-            return Response(content="Orçamento não encontrado", status_code=404)
-    else:
-        dre = calcular_dre_completa(CURRENT_DATA)
-        c_nome = CURRENT_DATA['cliente_nome'] or "Cliente"
-        c_tel = CURRENT_DATA['cliente_telefone']
-        c_amb = CURRENT_DATA['cliente_ambiente'] or "Geral"
-        orc_id = CURRENT_DATA['orcamento_id'] or 1
-        pv = dre["pv"]
-        rec = float(CURRENT_DATA.get('valor_recebido', 0.0) or dre['entrada'] or pv)
-        forma_pgto = CURRENT_DATA.get("forma_pagamento", "PIX")
-
-    extenso = numero_extenso_reais(rec)
-
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
-    styles = getSampleStyleSheet()
-    elements = []
-
-    title_style = ParagraphStyle(name='TitleStyle', parent=styles['Heading1'], fontSize=16, alignment=1, textColor=colors.HexColor('#0f172a'), spaceAfter=4)
-    sub_empresa = ParagraphStyle(name='SubEmpresa', parent=styles['Normal'], fontSize=9, alignment=1, textColor=colors.HexColor('#475569'), spaceAfter=14)
-    body_style = ParagraphStyle(name='BodyStyle', parent=styles['Normal'], fontSize=10, leading=15, textColor=colors.HexColor('#1e293b'))
-    recibo_val_style = ParagraphStyle(name='ValStyle', parent=styles['Normal'], fontSize=12, alignment=1, textColor=colors.HexColor('#d97706'), fontName="Helvetica-Bold")
-
-    elements.append(Paragraph(f"<b>{empresa['nome_empresa']}</b>", title_style))
-    elements.append(Paragraph(f"CNPJ: {empresa['cnpj']} | Telefone: {empresa['telefone_empresa']} | Chave PIX: {empresa['pix']}", sub_empresa))
-
-    val_box_data = [[
-        Paragraph(f"<b>RECIBO DE PAGAMENTO Nº #{orc_id:04d}</b>", recibo_val_style),
-        Paragraph(f"<b>VALOR: R$ {rec:,.2f}</b>", recibo_val_style)
-    ]]
-    val_box = Table(val_box_data, colWidths=[270, 270])
-    val_box.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#fef3c7')),
-        ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#d97706')),
-        ('PADDING', (0, 0), (-1, -1), 8),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-    ]))
-    elements.append(val_box)
-    elements.append(Spacer(1, 16))
-
-    texto_recibo = f"""
-    Recebemos de <b>{c_nome}</b> (Telefone: {c_tel}) a importância de <b>R$ {rec:,.2f} ({extenso})</b>, referente ao pagamento (entrada / quitação) da fabricação e instalação de móveis planejados sob medida para o projeto/ambiente: <b>{c_amb}</b>.<br/><br/>
-    <b>Forma de Liquidação:</b> {forma_pgto}.<br/>
-    <b>Valor Total Contratado da Obra:</b> R$ {pv:,.2f}.<br/>
-    Para clareza e firmeza do que foi recebido, firmamos o presente recibo dando plena e geral quitação da quantia paga.
-    """
-    elements.append(Paragraph(texto_recibo, body_style))
-    elements.append(Spacer(1, 24))
-
-    data_extenso = date.today().strftime("%d de %B de %Y")
-    elements.append(Paragraph(f"Emitido em {data_extenso}.", body_style))
-    elements.append(Spacer(1, 30))
-
-    sign_data = [
-        ["________________________________________________________"],
-        [f"<b>{empresa['nome_empresa']}</b>\nCNPJ: {empresa['cnpj']}\nRepresentante / Financeiro"]
-    ]
-    sign_table = Table(sign_data, colWidths=[400])
-    sign_table.setStyle(TableStyle([
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#0f172a')),
-        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
-    ]))
-    elements.append(sign_table)
-
-    doc.build(elements)
-    buffer.seek(0)
-    nome_arquivo = f"recibo-pagamento-mvi-{c_nome.replace(' ', '_')}.pdf"
-    return Response(content=buffer.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"})
-
-@app.get("/gerar-vistoria")
-def gerar_vistoria(id: int = None):
-    empresa = get_empresa_config()
-    ambientes_list = []
-    if id:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (id,))
-        row = cursor.fetchone()
-        conn.close()
-        if row:
-            keys = row.keys()
-            c_nome = row["cliente_nome"] if "cliente_nome" in keys and row["cliente_nome"] else "Cliente"
-            c_tel = row["cliente_telefone"] if "cliente_telefone" in keys and row["cliente_telefone"] else ""
-            c_amb = row["cliente_ambiente"] if "cliente_ambiente" in keys and row["cliente_ambiente"] else "Ambiente"
-            ambientes_list = json.loads(row["ambientes_json"]) if "ambientes_json" in keys and row["ambientes_json"] else [c_amb]
-            c_data = row["data_entrega_prevista"] if "data_entrega_prevista" in keys and row["data_entrega_prevista"] else date.today().strftime("%Y-%m-%d")
-        else:
-            return Response(content="Orçamento não encontrado", status_code=404)
-    else:
-        c_nome = CURRENT_DATA['cliente_nome'] or "Cliente"
-        c_tel = CURRENT_DATA['cliente_telefone']
-        c_amb = CURRENT_DATA['cliente_ambiente'] or "Geral"
-        ambientes_list = CURRENT_DATA.get("ambientes", [c_amb])
-        c_data = CURRENT_DATA.get('data_entrega_prevista', date.today().strftime("%Y-%m-%d"))
-
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
-    styles = getSampleStyleSheet()
-    elements = []
-
-    title_style = ParagraphStyle(name='TitleStyle', parent=styles['Heading1'], fontSize=15, alignment=1, textColor=colors.HexColor('#0f172a'), spaceAfter=2)
-    sub_empresa = ParagraphStyle(name='SubEmpresa', parent=styles['Normal'], fontSize=9, alignment=1, textColor=colors.HexColor('#475569'), spaceAfter=12)
-    body_style = ParagraphStyle(name='BodyStyle', parent=styles['Normal'], fontSize=9, leading=13, textColor=colors.HexColor('#1e293b'))
-    section_title = ParagraphStyle(name='SecTitle', parent=styles['Heading2'], fontSize=11, textColor=colors.HexColor('#d97706'), spaceBefore=8, spaceAfter=4)
-
-    elements.append(Paragraph(f"<b>{empresa['nome_empresa']}</b>", title_style))
-    elements.append(Paragraph("TERMO DE VISTORIA, ENTREGA E ACEITE FINAL DE MONTAGEM", sub_empresa))
-
-    meta_data = [
-        ["Cliente:", c_nome, "Data da Vistoria:", date.today().strftime("%d/%m/%Y")],
-        ["WhatsApp/Tel:", c_tel, "Ambientes Montados:", ", ".join(ambientes_list) if ambientes_list else "-"]
-    ]
-    meta_table = Table(meta_data, colWidths=[110, 160, 120, 150])
-    meta_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f8fafc')),
-        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#334155')),
-        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-        ('TOPPADDING', (0, 0), (-1, -1), 4),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
-    ]))
-    elements.append(meta_table)
-    elements.append(Spacer(1, 10))
-
-    elements.append(Paragraph("<b>1. Checklist de Vistoria de Campo e Qualidade</b>", section_title))
-    
-    check_data = [
-        ["Item de Verificação Técnica", "Status de Inspeção", "Rubrica Cliente / Observações"],
-        ["Alinhamento e folgas de portas e gavetas", "[  ] Conforme  [  ] Ajustado", "Sem atritos estruturais"],
-        ["Amortecedores (Slowmotion) e Corrediças", "[  ] Conforme  [  ] Ajustado", "Abertura e fechamento suaves"],
-        ["Acabamento de fitas de borda e tapa-furos", "[  ] Conforme  [  ] Ajustado", "Refilamento perfeito"],
-        ["Fixações em alvenaria e prumo dos módulos", "[  ] Conforme  [  ] Ajustado", "Fixação reforçada"],
-        ["Limpeza geral e ausência de riscos nos painéis", "[  ] Conforme  [  ] Ajustado", "Higienizado para entrega"]
-    ]
-    check_table = Table(check_data, colWidths=[240, 130, 170])
-    check_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#d97706')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
-    ]))
-    elements.append(check_table)
-    elements.append(Spacer(1, 10))
-
-    elements.append(Paragraph("<b>2. Declaração de Aceite e Quitação de Entrega</b>", section_title))
-    p_aceite = """
-    Pelo presente instrumento, o <b>CONTRATANTE</b> declara que acompanhou a vistoria técnica final dos móveis sob medida instalados nos ambientes supracitados, constatando que os serviços foram integralmente executados de acordo com o padrão de qualidade da <b>MVI Móveis Planejados</b>, encontrando-se em perfeito estado de funcionamento, acabamento e limpeza, dando por <b>RECEBIDA E APROVADA A OBRA</b>.
-    """
-    elements.append(Paragraph(p_aceite, body_style))
-    elements.append(Spacer(1, 24))
-
-    sign_data = [
-        ["_____________________________________________", "_____________________________________________"],
-        [f"<b>{empresa['nome_empresa']}</b>\nResponsável Técnico / Montador", f"<b>{c_nome}</b>\nAssinatura do Cliente (Aceite)"]
-    ]
-    sign_table = Table(sign_data, colWidths=[270, 270])
-    sign_table.setStyle(TableStyle([
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#0f172a')),
-        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
-    ]))
-    elements.append(sign_table)
-
-    doc.build(elements)
-    buffer.seek(0)
-    nome_arquivo = f"termo-vistoria-mvi-{c_nome.replace(' ', '_')}.pdf"
-    return Response(content=buffer.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"})
-
-@app.get("/gerar-etiquetas")
-def gerar_etiquetas(id: int = None):
-    empresa = get_empresa_config()
-    if id:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (id,))
-        row = cursor.fetchone()
-        conn.close()
-        if row:
-            keys = row.keys()
-            c_nome = row["cliente_nome"] if "cliente_nome" in keys and row["cliente_nome"] else "Cliente"
-            c_amb = row["cliente_ambiente"] if "cliente_ambiente" in keys and row["cliente_ambiente"] else "Ambiente"
-            orc_id = row["id"]
-            items = json.loads(row["items_json"]) if "items_json" in keys and row["items_json"] else []
-        else:
-            return Response(content="Orçamento não encontrado", status_code=404)
-    else:
-        c_nome = CURRENT_DATA['cliente_nome'] or "Cliente"
-        c_amb = CURRENT_DATA['cliente_ambiente'] or "Geral"
-        orc_id = CURRENT_DATA['orcamento_id'] or 1
-        items = CURRENT_DATA["items"]
-
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=20, leftMargin=20, topMargin=25, bottomMargin=25)
-    styles = getSampleStyleSheet()
-    elements = []
-
-    title_style = ParagraphStyle(name='TitleStyle', parent=styles['Heading1'], fontSize=16, alignment=1, textColor=colors.HexColor('#0f172a'), spaceAfter=2)
-    sub_title = ParagraphStyle(name='SubTitle', parent=styles['Normal'], fontSize=9, alignment=1, textColor=colors.HexColor('#64748b'), spaceAfter=14)
-    
-    elements.append(Paragraph(f"<b>{empresa['nome_empresa']}</b> - Etiquetas de Produção", title_style))
-    elements.append(Paragraph(f"Projeto: <b>{c_amb}</b> | Cliente: <b>{c_nome}</b> | Ref: #{orc_id}", sub_title))
-
-    pecas_mdf = []
-    for idx, it in enumerate(items, 1):
-        if "MDF" in it.get("tipo", "") or it.get("largura", 0) > 0:
-            qtd = int(it.get("qtd", 1))
-            for q in range(1, qtd + 1):
-                pecas_mdf.append({
-                    "id_tag": f"#{orc_id}-P{len(pecas_mdf)+1:02d}",
-                    "nome": it.get("nome", "Peça MDF"),
-                    "dim": it.get("dimensoes", "-"),
-                    "fitas": "Bordas: 2x Comp. / 1x Larg."
-                })
-
-    if not pecas_mdf:
-        pecas_mdf = [
-            {"id_tag": f"#{orc_id}-P01", "nome": "Lateral Direita Torre", "dim": "2200 x 600 x 18 mm", "fitas": "Bordas: 2C / 1L"},
-            {"id_tag": f"#{orc_id}-P02", "nome": "Lateral Esquerda Torre", "dim": "2200 x 600 x 18 mm", "fitas": "Bordas: 2C / 1L"},
-            {"id_tag": f"#{orc_id}-P03", "nome": "Base Inferior Balcão", "dim": "1200 x 580 x 18 mm", "fitas": "Bordas: 1C / 2L"},
-            {"id_tag": f"#{orc_id}-P04", "nome": "Porta Basculante Superior", "dim": "800 x 400 x 18 mm", "fitas": "Bordas: 4 Lados 22mm"}
-        ]
-
-    cards_data = []
-    linha_atual = []
-    
-    lbl_tag = ParagraphStyle(name='LblTag', parent=styles['Normal'], fontSize=8.5, leading=10, textColor=colors.HexColor('#d97706'), fontName="Helvetica-Bold")
-    lbl_nome = ParagraphStyle(name='LblNome', parent=styles['Normal'], fontSize=9.5, leading=12, textColor=colors.HexColor('#0f172a'), fontName="Helvetica-Bold")
-    lbl_dim = ParagraphStyle(name='LblDim', parent=styles['Normal'], fontSize=8.5, leading=11, textColor=colors.HexColor('#334155'))
-    lbl_fitas = ParagraphStyle(name='LblFitas', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#166534'), fontName="Helvetica-Bold")
-
-    for p in pecas_mdf:
-        conteudo_etiqueta = [
-            [Paragraph(f"<b>{p['id_tag']}</b> | {c_amb[:20]}", lbl_tag)],
-            [Paragraph(f"{p['nome'][:30]}", lbl_nome)],
-            [Paragraph(f"Dimensões: <b>{p['dim']}</b>", lbl_dim)],
-            [Paragraph(f"🏷️ {p['fitas']}", lbl_fitas)]
-        ]
-        t_card = Table(conteudo_etiqueta, colWidths=[270])
-        t_card.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f8fafc')),
-            ('BOX', (0, 0), (-1, -1), 1, colors.HexColor('#94a3b8')),
-            ('PADDING', (0, 0), (-1, -1), 6),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
-            ('TOPPADDING', (0, 0), (-1, -1), 3),
-        ]))
-        
-        linha_atual.append(t_card)
-        if len(linha_atual) == 2:
-            cards_data.append(linha_atual)
-            linha_atual = []
-
-    if linha_atual:
-        linha_atual.append("")
-        cards_data.append(linha_atual)
-
-    grid_table = Table(cards_data, colWidths=[280, 280])
-    grid_table.setStyle(TableStyle([
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-        ('TOPPADDING', (0, 0), (-1, -1), 8),
-    ]))
-    elements.append(grid_table)
-
-    doc.build(elements)
-    buffer.seek(0)
-    nome_arquivo = f"etiquetas-mvi-{c_amb.replace(' ', '_')}.pdf"
-    return Response(content=buffer.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"})
-
-@app.get("/gerar-contrato")
-def gerar_contrato(id: int = None):
-    empresa = get_empresa_config()
-    ambientes_list = []
-    if id:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (id,))
-        row = cursor.fetchone()
-        conn.close()
-        if row:
-            keys = row.keys()
-            c_nome = row["cliente_nome"] if "cliente_nome" in keys and row["cliente_nome"] else "Cliente"
-            c_tel = row["cliente_telefone"] if "cliente_telefone" in keys and row["cliente_telefone"] else ""
-            c_amb = row["cliente_ambiente"] if "cliente_ambiente" in keys and row["cliente_ambiente"] else "Ambiente"
-            ambientes_list = json.loads(row["ambientes_json"]) if "ambientes_json" in keys and row["ambientes_json"] else [c_amb]
-            c_prazo = row["prazo_entrega"] if "prazo_entrega" in keys and row["prazo_entrega"] else "20 dias úteis"
-            pv = float(row["preco_venda"] or 0.0) if "preco_venda" in keys else 0.0
-            entrada = float(row["entrada_valor"] or 0.0) if "entrada_valor" in keys else 0.0
-            n_parc = int(row["num_parcelas"] or 1) if "num_parcelas" in keys else 1
-            forma_pgto = row["forma_pagamento"] if "forma_pagamento" in keys and row["forma_pagamento"] else "PIX"
-        else:
-            return Response(content="Orçamento não encontrado", status_code=404)
-    else:
-        dre = calcular_dre_completa(CURRENT_DATA)
-        c_nome = CURRENT_DATA['cliente_nome'] or "Cliente"
-        c_tel = CURRENT_DATA['cliente_telefone']
-        c_amb = CURRENT_DATA['cliente_ambiente'] or "Geral"
-        ambientes_list = CURRENT_DATA.get("ambientes", [c_amb])
-        c_prazo = CURRENT_DATA['prazo_entrega']
-        pv = dre["pv"]
-        entrada = dre["entrada"]
-        n_parc = dre["n_parc"]
-        forma_pgto = CURRENT_DATA.get("forma_pagamento", "PIX")
-
-    v_parc = (pv - entrada) / n_parc if n_parc > 0 else 0.0
-
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
-    styles = getSampleStyleSheet()
-    elements = []
-
-    title_style = ParagraphStyle(name='TitleStyle', parent=styles['Heading1'], fontSize=15, alignment=1, textColor=colors.HexColor('#0f172a'), spaceAfter=10)
-    body_style = ParagraphStyle(name='BodyStyle', parent=styles['Normal'], fontSize=9.5, leading=14, textColor=colors.HexColor('#1e293b'), spaceAfter=8)
-    clause_title = ParagraphStyle(name='ClauseTitle', parent=styles['Heading2'], fontSize=11, textColor=colors.HexColor('#d97706'), spaceBefore=8, spaceAfter=4)
-
-    elements.append(Paragraph("<b>INSTRUMENTO PARTICULAR DE PRESTAÇÃO DE SERVIÇOS DE MARCENARIA</b>", title_style))
-    elements.append(Spacer(1, 4))
-
-    elements.append(Paragraph("<b>1. IDENTIFICAÇÃO DAS PARTES CONTRATANTES</b>", clause_title))
-    p_partes = f"""
-    <b>CONTRATADA:</b> {empresa['nome_empresa']}, inscrita no CNPJ sob o nº {empresa['cnpj']}, contato {empresa['telefone_empresa']}.<br/>
-    <b>CONTRATANTE:</b> {c_nome}, telefone/WhatsApp {c_tel}.
-    """
-    elements.append(Paragraph(p_partes, body_style))
-
-    elements.append(Paragraph("<b>2. OBJETO DO CONTRATO (PROJETO COMPLETO)</b>", clause_title))
-    p_obj = f"O presente contrato tem por objeto a fabricação, acabamento e instalação de móveis sob medida pela <b>MVI Móveis Planejados</b> destinados aos seguintes ambientes: <b>{', '.join(ambientes_list) if ambientes_list else '-'}</b>, em conformidade com o projeto executivo e relação de insumos aprovados."
-    elements.append(Paragraph(p_obj, body_style))
-
-    elements.append(Paragraph("<b>3. VALOR E FORMA DE PAGAMENTO</b>", clause_title))
-    cond_extenso = f"Entrada no valor de <b>R$ {entrada:,.2f}</b> mais <b>{n_parc} parcela(s)</b> de <b>R$ {v_parc:,.2f}</b> através de {forma_pgto}." if n_parc > 1 else f"Pagamento à vista no valor de <b>R$ {pv:,.2f}</b> via {forma_pgto}."
-    p_preco = f"Pela execução integral dos serviços descritos, o CONTRATANTE pagará à CONTRATADA o valor total de <b>R$ {pv:,.2f}</b>, nas seguintes condições: {cond_extenso}"
-    elements.append(Paragraph(p_preco, body_style))
-
-    elements.append(Paragraph("<b>4. PRAZO DE FABRICAÇÃO E INSTALAÇÃO</b>", clause_title))
-    p_prazo = f"A CONTRATADA compromete-se a entregar e finalizar a montagem dos móveis no prazo estimado de <b>{c_prazo}</b>, contados a partir da aprovação final das medidas no local e confirmação do pagamento inicial."
-    elements.append(Paragraph(p_prazo, body_style))
-
-    elements.append(Paragraph("<b>5. TERMO DE GARANTIA</b>", clause_title))
-    p_garantia = "A CONTRATADA concede a garantia de <b>12 (doze) meses</b> a contar da data de entrega, cobrindo eventuais defeitos de fabricação e montagem de ferragens estruturais, não cobrindo danos ocasionados por umidade excessiva, mau uso ou intervenções de terceiros."
-    elements.append(Paragraph(p_garantia, body_style))
-    elements.append(Spacer(1, 16))
-
-    data_extenso = date.today().strftime("%d/%m/%Y")
-    elements.append(Paragraph(f"Data de formalização: {data_extenso}.", body_style))
-    elements.append(Spacer(1, 24))
-
-    sign_data = [
-        ["_____________________________________________", "_____________________________________________"],
-        [f"<b>{empresa['nome_empresa']}</b>\nCONTRATADA (CNPJ: {empresa['cnpj']})", f"<b>{c_nome}</b>\nCONTRATANTE"]
-    ]
-    sign_table = Table(sign_data, colWidths=[270, 270])
-    sign_table.setStyle(TableStyle([
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#0f172a')),
-        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
-    ]))
-    elements.append(sign_table)
-
-    doc.build(elements)
-    buffer.seek(0)
-    nome_arquivo = f"contrato-mvi-{c_nome.replace(' ', '_')}.pdf"
-    return Response(content=buffer.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"})
-
-@app.get("/gerar-pdf-compras")
-def gerar_pdf_compras(id: int = None):
-    empresa = get_empresa_config()
-    if id:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (id,))
-        row = cursor.fetchone()
-        conn.close()
-        if row:
-            keys = row.keys()
-            c_nome = row["cliente_nome"] if "cliente_nome" in keys and row["cliente_nome"] else "Cliente"
-            c_amb = row["cliente_ambiente"] if "cliente_ambiente" in keys and row["cliente_ambiente"] else "Ambiente"
-            items = json.loads(row["items_json"]) if "items_json" in keys and row["items_json"] else []
-        else:
-            return Response(content="Orçamento não encontrado", status_code=404)
-    else:
-        c_nome = CURRENT_DATA['cliente_nome'] or "Cliente"
-        c_amb = CURRENT_DATA['cliente_ambiente'] or "Geral"
-        items = CURRENT_DATA["items"]
-
-    compras = consolidar_compras_e_nesting(items)
-
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
-    styles = getSampleStyleSheet()
-    elements = []
-
-    title_style = ParagraphStyle(name='TitleStyle', parent=styles['Heading1'], fontSize=18, textColor=colors.HexColor('#1e1b4b'), spaceAfter=4)
-    elements.append(Paragraph(f"{empresa['nome_empresa']} - Cotação Fornecedor & Plano de Corte", title_style))
-    elements.append(Spacer(1, 8))
-
-    meta_data = [
-        ["Projeto / Ambiente:", c_amb, "Data de Emissão:", date.today().strftime("%d/%m/%Y")],
-        ["Identificação Interna:", f"Ref: {c_nome}", "Tipo:", "Cotação Direta / Madeireira"]
-    ]
-    meta_table = Table(meta_data, colWidths=[130, 160, 110, 140])
-    meta_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#fef3c7')),
-        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#92400e')),
-        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-        ('TOPPADDING', (0, 0), (-1, -1), 4),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#fde68a')),
-    ]))
-    elements.append(meta_table)
-    elements.append(Spacer(1, 14))
-
-    sum_title = ParagraphStyle(name='SumTitle', parent=styles['Heading2'], fontSize=13, textColor=colors.HexColor('#312e81'), spaceAfter=6)
-    elements.append(Paragraph("1. Resumo de Insumos a Comprar", sum_title))
-
-    sum_data = [
-        ["Item / Insumo Requerido", "Quantidade Consolidada", "Observações Técnicas"],
-        ["Chapas de MDF (Estimado)", f"{compras['chapas_mdf']} un", f"Área de corte aprox: {compras['area_m2']:.1f} m²"],
-        ["Fita de Borda PVC", f"{compras['fita_metros']} metros", "Espessura padrão 22mm"],
-        ["Dobradiças Amortecedor", f"{compras['dobradicas']} unidades", "Com amortecedor integrado"],
-        ["Corrediças Telescópicas", f"{compras['corredicas']} pares", "Extração total / reforçada"],
-        ["Puxadores / Perfis", f"{compras['puxadores']} unidades", "Conforme projeto aprovado"],
-        ["Insumos Gerais / Ferragens", f"{compras['outros']} itens", "Parafusos, cantoneiras e acabamentos"]
-    ]
-    sum_table = Table(sum_data, colWidths=[200, 140, 200])
-    sum_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#d97706')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f8fafc')),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
-    ]))
-    elements.append(sum_table)
-    elements.append(Spacer(1, 14))
-
-    elements.append(Paragraph("2. Detalhamento de Peças do Plano de Corte", sum_title))
-    items_table_data = [["Descrição da Peça", "Ambiente", "Dimensões (mm)", "Qtd"]]
-    for it in (items or [{"nome": "Sem itens", "ambiente": "-", "dimensoes": "-", "qtd": 1}]):
-        items_table_data.append([
-            it.get("nome", "Peça"),
-            it.get("ambiente", "Geral"),
-            it.get("dimensoes", "-"),
-            str(it.get("qtd", 1))
-        ])
-
-    items_doc_table = Table(items_table_data, colWidths=[220, 130, 140, 50])
-    items_doc_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#64748b')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (3, 0), (3, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e2e8f0')),
-    ]))
-    elements.append(items_doc_table)
-
-    doc.build(elements)
-    buffer.seek(0)
-    nome_arquivo = f"lista-compras-mvi-{c_amb.replace(' ', '_')}.pdf"
-    return Response(content=buffer.getvalue(), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"})
