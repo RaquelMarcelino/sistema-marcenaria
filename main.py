@@ -98,14 +98,15 @@ def init_db():
             except Exception:
                 pass
 
+        # Estrutura do estoque iniciando com quantidade ZERO
         cursor.execute("SELECT codigo FROM estoque WHERE codigo = 'mdf'")
         if not cursor.fetchone():
             itens_padrao = [
-                ('mdf', 'Chapas de MDF 18mm / 15mm', 15.0, 5.0, 'chapas'),
-                ('fita', 'Fita de Borda PVC 22mm', 250.0, 50.0, 'metros'),
-                ('dobradica', 'Dobradiças com Amortecedor 35mm', 80.0, 20.0, 'unidades'),
-                ('corredica', 'Corrediças Telescópicas 450mm', 24.0, 6.0, 'pares'),
-                ('puxador', 'Puxadores Perfil Alumínio / Pontos', 30.0, 10.0, 'unidades')
+                ('mdf', 'Chapas de MDF 18mm / 15mm', 0.0, 0.0, 'chapas'),
+                ('fita', 'Fita de Borda PVC 22mm', 0.0, 0.0, 'metros'),
+                ('dobradica', 'Dobradiças com Amortecedor 35mm', 0.0, 0.0, 'unidades'),
+                ('corredica', 'Corrediças Telescópicas 450mm', 0.0, 0.0, 'pares'),
+                ('puxador', 'Puxadores Perfil Alumínio / Pontos', 0.0, 0.0, 'unidades')
             ]
             cursor.executemany("INSERT INTO estoque VALUES (?, ?, ?, ?, ?)", itens_padrao)
 
@@ -220,30 +221,31 @@ def get_metricas_financeiras():
             "taxa_conversao": taxa_conversao
         }
 
+# ESTADO INICIAL 100% ZERADO E LIMPO
 CURRENT_DATA = {
     "user": "admin@mvi.com",
     "user_perfil": "admin",
     "user_nome": "Administrador MVI",
     "orcamento_id": None,
     "status": "Em Negociação",
-    "cliente_nome": "Cliente Exemplo",
-    "cliente_telefone": "11999998888",
-    "cliente_ambiente": "Casa Completa / MVI",
-    "prazo_entrega": "25 dias úteis",
-    "data_entrega_prevista": (date.today() + timedelta(days=25)).strftime("%Y-%m-%d"),
-    "entrada_valor": 1000.0,
-    "num_parcelas": 3,
-    "forma_pagamento": "Entrada + Cartão de Crédito",
+    "cliente_nome": "",
+    "cliente_telefone": "",
+    "cliente_ambiente": "",
+    "prazo_entrega": "20 dias úteis",
+    "data_entrega_prevista": (date.today() + timedelta(days=20)).strftime("%Y-%m-%d"),
+    "entrada_valor": 0.0,
+    "num_parcelas": 1,
+    "forma_pagamento": "PIX / Transferência",
     "estoque_baixado": 0,
-    "valor_recebido": 1000.0,
+    "valor_recebido": 0.0,
     "imagens": [],
-    "ambientes": ["Cozinha Planejada"],
+    "ambientes": [],
     "observacoes_tecnicas": "",
     "custo_materiais": 0.0,
-    "dias_producao": 3,
+    "dias_producao": 0,
     "valor_diaria": 180.0,
-    "custo_frete": 250.0,
-    "custo_montagem": 350.0,
+    "custo_frete": 0.0,
+    "custo_montagem": 0.0,
     "imposto_pct": 6.0,
     "comissao_pct": 4.0,
     "markup": 2.2,
@@ -399,26 +401,26 @@ def calcular_engenharia_avancada(
     return items, total_mat
 
 def calcular_dre_completa(d: dict):
-    custo_mat = d.get("custo_materiais", 0.0)
-    custo_mo = d.get("dias_producao", 0) * d.get("valor_diaria", 0.0)
-    custo_frete_mont = d.get("custo_frete", 0.0) + d.get("custo_montagem", 0.0)
+    custo_mat = float(d.get("custo_materiais", 0.0) or 0.0)
+    custo_mo = float(d.get("dias_producao", 0) or 0) * float(d.get("valor_diaria", 0.0) or 0.0)
+    custo_frete_mont = float(d.get("custo_frete", 0.0) or 0.0) + float(d.get("custo_montagem", 0.0) or 0.0)
     custo_direto_total = custo_mat + custo_mo + custo_frete_mont
     
-    markup = d.get("markup", 2.2)
+    markup = float(d.get("markup", 2.2) or 2.2)
     pv = custo_direto_total * markup if custo_direto_total > 0 else 0.0
     
-    imposto_val = (d.get("imposto_pct", 0.0) / 100.0) * pv
-    comissao_val = (d.get("comissao_pct", 0.0) / 100.0) * pv
+    imposto_val = (float(d.get("imposto_pct", 0.0) or 0.0) / 100.0) * pv
+    comissao_val = (float(d.get("comissao_pct", 0.0) or 0.0) / 100.0) * pv
     
     lucro_liquido = pv - (custo_direto_total + imposto_val + comissao_val) if pv > 0 else 0.0
     margem_liq_pct = (lucro_liquido / pv * 100.0) if pv > 0 else 0.0
     
-    entrada = min(float(d.get("entrada_valor", 0.0)), pv)
+    entrada = min(float(d.get("entrada_valor", 0.0) or 0.0), pv)
     saldo_restante = max(pv - entrada, 0.0)
-    n_parc = max(int(d.get("num_parcelas", 1)), 1)
+    n_parc = max(int(d.get("num_parcelas", 1) or 1), 1)
     valor_parcela = saldo_restante / n_parc if n_parc > 0 else 0.0
     
-    valor_recebido = float(d.get("valor_recebido", 0.0))
+    valor_recebido = float(d.get("valor_recebido", 0.0) or 0.0)
     saldo_devedor = max(pv - valor_recebido, 0.0)
 
     return {
@@ -764,7 +766,7 @@ def render_dashboard(data: dict):
     estoque = get_estoque_atual()
     metricas = get_metricas_financeiras()
     imagens = data.get("imagens", [])
-    ambientes = data.get("ambientes", ["Apartamento Completo"])
+    ambientes = data.get("ambientes", [])
     
     rows_html = ""
     if items:
@@ -785,7 +787,7 @@ def render_dashboard(data: dict):
         rows_html = """
         <tr>
             <td colspan="4" class="py-8 text-center text-sm text-slate-500">
-                Nenhum projeto importado ou gerado ainda. Os pedidos do Instagram aparecerão automaticamente aqui.
+                Nenhum projeto em edição. Selecione um lead na lista abaixo para visualizar.
             </td>
         </tr>
         """
@@ -819,7 +821,7 @@ def render_dashboard(data: dict):
             </div>
             """
     else:
-        svg_chapas_html = "<div class='py-8 text-center text-xs text-slate-500'>O diagrama do plano de corte aparecerá aqui após o cálculo.</div>"
+        svg_chapas_html = "<div class='py-8 text-center text-xs text-slate-500'>Nenhum projeto em corte no momento.</div>"
 
     galeria_html = ""
     if imagens:
@@ -834,7 +836,7 @@ def render_dashboard(data: dict):
             </div>
             """
     else:
-        galeria_html = "<div class='py-6 text-center text-xs text-slate-500 col-span-full'>Plantas baixas e fotos de inspiração do cliente aparecerão aqui.</div>"
+        galeria_html = "<div class='py-6 text-center text-xs text-slate-500 col-span-full'>Nenhuma imagem ou planta anexada.</div>"
 
     ambientes_tags_html = ""
     for amb_nome in ambientes:
@@ -847,10 +849,14 @@ def render_dashboard(data: dict):
             </form>
         </span>
         """
+    if not ambientes_tags_html:
+        ambientes_tags_html = "<span class='text-xs text-slate-500'>Nenhum ambiente adicionado.</span>"
 
     estoque_cards_html = ""
     for est in estoque:
-        is_baixo = est['quantidade'] <= est['qtd_minima']
+        qtd = float(est['quantidade'] or 0.0)
+        qtd_min = float(est['qtd_minima'] or 0.0)
+        is_baixo = (qtd <= qtd_min and qtd_min > 0)
         borda_cor = "border-rose-700/60 bg-rose-950/20" if is_baixo else "border-slate-800 bg-slate-950"
         tag_status = "<span class='text-[10px] text-rose-400 font-bold'>⚠️ Repor</span>" if is_baixo else "<span class='text-[10px] text-emerald-400'>✓ Regular</span>"
         estoque_cards_html += f"""
@@ -861,27 +867,28 @@ def render_dashboard(data: dict):
             </div>
             <div class="flex justify-between items-end">
                 <div>
-                    <span class="text-2xl font-bold text-white">{est['quantidade']:,.0f}</span>
+                    <span class="text-2xl font-bold text-white">{qtd:,.0f}</span>
                     <span class="text-xs text-slate-400"> {est['unidade']}</span>
                 </div>
-                <span class="text-[10px] text-slate-500">Mín: {est['qtd_minima']:,.0f}</span>
+                <span class="text-[10px] text-slate-500">Mín: {qtd_min:,.0f}</span>
             </div>
         </div>
         """
 
     cond_texto_zap = f"Entrada de R$ {dre['entrada']:,.2f} + {dre['n_parc']}x de R$ {dre['valor_parcela']:,.2f}" if dre['n_parc'] > 1 else f"R$ {dre['pv']:,.2f} à vista"
     
+    tel_limpo = str(data['cliente_telefone'] or "").replace('(', '').replace(')', '').replace('-', '').replace(' ', '')
     msg_proposta = f"Olá {data['cliente_nome']}! Segue a proposta da {empresa['nome_empresa']} para o projeto {data['cliente_ambiente']}: Total de R$ {dre['pv']:,.2f} ({cond_texto_zap}) com entrega em {data['prazo_entrega']}."
-    url_proposta = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone'].replace('(', '').replace(')', '').replace('-', '').replace(' ', '')}&text={urllib.parse.quote(msg_proposta)}"
+    url_proposta = f"https://api.whatsapp.com/send?phone=55{tel_limpo}&text={urllib.parse.quote(msg_proposta)}"
 
     msg_producao = f"Olá {data['cliente_nome']}! O seu projeto ({data['cliente_ambiente']}) já entrou em produção na fábrica da {empresa['nome_empresa']}! Previsão de montagem para {data.get('data_entrega_prevista', data['prazo_entrega'])}."
-    url_producao = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone'].replace('(', '').replace(')', '').replace('-', '').replace(' ', '')}&text={urllib.parse.quote(msg_producao)}"
+    url_producao = f"https://api.whatsapp.com/send?phone=55{tel_limpo}&text={urllib.parse.quote(msg_producao)}"
 
     msg_montagem = f"Olá {data['cliente_nome']}! Nossa equipe de montagem da {empresa['nome_empresa']} está agendada para a instalação do projeto ({data['cliente_ambiente']}) a partir de {data.get('data_entrega_prevista', 'breve')}."
-    url_montagem = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone'].replace('(', '').replace(')', '').replace('-', '').replace(' ', '')}&text={urllib.parse.quote(msg_montagem)}"
+    url_montagem = f"https://api.whatsapp.com/send?phone=55{tel_limpo}&text={urllib.parse.quote(msg_montagem)}"
 
     msg_cobranca = f"Olá {data['cliente_nome']}! Segue o lembrete sobre o saldo pendente de R$ {dre['saldo_devedor']:,.2f} referente ao projeto ({data['cliente_ambiente']}). Chave PIX: {empresa['pix']}."
-    url_cobranca = f"https://api.whatsapp.com/send?phone=55{data['cliente_telefone'].replace('(', '').replace(')', '').replace('-', '').replace(' ', '')}&text={urllib.parse.quote(msg_cobranca)}"
+    url_cobranca = f"https://api.whatsapp.com/send?phone=55{tel_limpo}&text={urllib.parse.quote(msg_cobranca)}"
 
     hoje = date.today()
     cronograma_cards_html = ""
@@ -1008,28 +1015,11 @@ def render_dashboard(data: dict):
             """
 
         if not historico_rows:
-            historico_html = "<tr><td colspan='10' class='py-6 text-center text-xs text-slate-500'>Nenhum orçamento salvo no histórico ainda.</td></tr>"
+            historico_html = "<tr><td colspan='10' class='py-6 text-center text-xs text-slate-500'>Nenhum lead recebido ainda. Divulgue o link do Instagram para captar orçamentos.</td></tr>"
 
-    cronograma_cards_html = cronograma_cards_html or "<div class='py-6 text-center text-xs text-slate-500 col-span-full'>Nenhum projeto em produção no momento. Passe orçamentos para 'Em Produção' ou 'Aprovado' para ver o cronograma.</div>"
+    cronograma_cards_html = cronograma_cards_html or "<div class='py-6 text-center text-xs text-slate-500 col-span-full'>Nenhum projeto em produção no momento.</div>"
 
-    usuarios_html = ""
-    if is_admin:
-        with get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT email, nome, perfil FROM usuarios")
-            for u in cursor.fetchall():
-                badge = "<span class='text-[10px] bg-amber-950 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded'>Admin</span>" if u['perfil'] == 'admin' else "<span class='text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded'>Vendedor</span>"
-                usuarios_html += f"""
-                <li class="flex items-center justify-between py-2 border-b border-slate-800/80 text-xs">
-                    <div>
-                        <span class="font-semibold text-white">{u['nome']}</span>
-                        <span class="text-slate-400 block text-[11px]">{u['email']}</span>
-                    </div>
-                    {badge}
-                </li>
-                """
-
-    status_tag = f"<span class='text-xs bg-amber-950 border border-amber-500/40 text-amber-300 px-2.5 py-1 rounded-full'>Editando Orçamento #{data['orcamento_id']} ({data.get('status', 'Em Negociação')})</span>" if data['orcamento_id'] else "<span class='text-xs bg-slate-800 border border-slate-700 text-slate-400 px-2.5 py-1 rounded-full'>Novo Orçamento MVI</span>"
+    status_tag = f"<span class='text-xs bg-amber-950 border border-amber-500/40 text-amber-300 px-2.5 py-1 rounded-full'>Editando Orçamento #{data['orcamento_id']} ({data.get('status', 'Em Negociação')})</span>" if data['orcamento_id'] else "<span class='text-xs bg-slate-800 border border-slate-700 text-slate-400 px-2.5 py-1 rounded-full'>Sem Projeto Selecionado</span>"
     perfil_badge = "<span class='text-[11px] bg-amber-500/20 border border-amber-500/40 text-amber-300 px-2.5 py-0.5 rounded-full font-bold'>👑 Administrador MVI</span>" if is_admin else "<span class='text-[11px] bg-emerald-900/60 border border-emerald-600 text-emerald-300 px-2.5 py-0.5 rounded-full font-medium'>💼 Vendedor</span>"
 
     dre_cards = f"""
@@ -1155,7 +1145,7 @@ def render_dashboard(data: dict):
                         <h2 class="text-base font-semibold text-white">📲 Central de Notificações WhatsApp - MVI</h2>
                         <p class="text-xs text-amber-400">Mensagens pré-formatadas para comunicação com o cliente</p>
                     </div>
-                    <span class="text-xs text-slate-400">Cliente Atual: <b class="text-white">""" + str(data['cliente_nome']) + """</b> (""" + str(data['cliente_telefone']) + """)</span>
+                    <span class="text-xs text-slate-400">Cliente Atual: <b class="text-white">""" + str(data['cliente_nome'] or "Nenhum selecionado") + """</b></span>
                 </div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
                     <a href='""" + url_proposta + """' target="_blank" class="p-3.5 bg-slate-950 hover:bg-amber-950/40 border border-slate-800 hover:border-amber-500/50 rounded-2xl text-left transition-colors group flex flex-col justify-between">
@@ -1330,7 +1320,7 @@ def render_dashboard(data: dict):
 
             <div class="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-lg">
                 <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-850">
-                    <h3 class="text-sm font-semibold text-white">Listagem de Peças e Insumos (""" + str(data['cliente_ambiente']) + """)</h3>
+                    <h3 class="text-sm font-semibold text-white">Listagem de Peças e Insumos (""" + str(data['cliente_ambiente'] or "Geral") + """)</h3>
                     <span class="text-xs text-slate-400">""" + str(len(items)) + """ itens calculados</span>
                 </div>
                 <div class="overflow-x-auto">
@@ -1981,9 +1971,9 @@ def criar_usuario(nome: str = Form(...), email: str = Form(...), senha: str = Fo
 def novo_orcamento():
     CURRENT_DATA["orcamento_id"] = None
     CURRENT_DATA["status"] = "Em Negociação"
-    CURRENT_DATA["cliente_nome"] = "Novo Cliente"
+    CURRENT_DATA["cliente_nome"] = ""
     CURRENT_DATA["cliente_telefone"] = ""
-    CURRENT_DATA["cliente_ambiente"] = "Casa Completa"
+    CURRENT_DATA["cliente_ambiente"] = ""
     CURRENT_DATA["prazo_entrega"] = "20 dias úteis"
     CURRENT_DATA["data_entrega_prevista"] = (date.today() + timedelta(days=20)).strftime("%Y-%m-%d")
     CURRENT_DATA["entrada_valor"] = 0.0
@@ -1992,13 +1982,13 @@ def novo_orcamento():
     CURRENT_DATA["forma_pagamento"] = "PIX / Transferência"
     CURRENT_DATA["estoque_baixado"] = 0
     CURRENT_DATA["imagens"] = []
-    CURRENT_DATA["ambientes"] = ["Cozinha", "Dormitório Casal"]
+    CURRENT_DATA["ambientes"] = []
     CURRENT_DATA["observacoes_tecnicas"] = ""
     CURRENT_DATA["custo_materiais"] = 0.0
-    CURRENT_DATA["dias_producao"] = 3
+    CURRENT_DATA["dias_producao"] = 0
     CURRENT_DATA["valor_diaria"] = 180.0
-    CURRENT_DATA["custo_frete"] = 250.0
-    CURRENT_DATA["custo_montagem"] = 350.0
+    CURRENT_DATA["custo_frete"] = 0.0
+    CURRENT_DATA["custo_montagem"] = 0.0
     CURRENT_DATA["imposto_pct"] = 6.0
     CURRENT_DATA["comissao_pct"] = 4.0
     CURRENT_DATA["markup"] = 2.2
@@ -2007,10 +1997,10 @@ def novo_orcamento():
 
 @app.post("/salvar-operacionais", response_class=HTMLResponse)
 def salvar_operacionais(
-    dias_producao: int = Form(3),
+    dias_producao: int = Form(0),
     valor_diaria: float = Form(180.0),
-    custo_frete: float = Form(250.0),
-    custo_montagem: float = Form(350.0),
+    custo_frete: float = Form(0.0),
+    custo_montagem: float = Form(0.0),
     imposto_pct: float = Form(6.0)
 ):
     if CURRENT_DATA.get("user_perfil") == "admin":
