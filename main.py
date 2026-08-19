@@ -14,7 +14,7 @@ from datetime import datetime, date, timedelta
 from typing import List
 
 app = FastAPI(title="MVI Móveis Planejados - Master SaaS")
-DB_PATH = "mvi_production_v46.db"
+DB_PATH = "mvi_production_v47.db"
 
 # ==============================================================================
 # 1. TRATAMENTO DE ERROS GLOBAL
@@ -41,14 +41,16 @@ def init_db():
         CREATE TABLE IF NOT EXISTS empresas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             slug TEXT UNIQUE,
-            nome_empresa TEXT DEFAULT '',
+            nome_empresa TEXT DEFAULT 'MVI Móveis Planejados',
             cnpj TEXT DEFAULT '',
             endereco TEXT DEFAULT '',
             telefone TEXT DEFAULT '',
             email TEXT DEFAULT '',
             pix TEXT DEFAULT '',
             precos_json TEXT DEFAULT '{}',
-            chave_mestra TEXT DEFAULT 'MVI2026'
+            chave_mestra TEXT DEFAULT 'MVI2026',
+            desconto_max_vendedor REAL DEFAULT 3.0,
+            comissao_padrao_pct REAL DEFAULT 4.0
         )
     """)
 
@@ -57,7 +59,7 @@ def init_db():
             email TEXT PRIMARY KEY,
             senha TEXT,
             nome TEXT,
-            perfil TEXT,
+            perfil TEXT, -- 'adm', 'gerente', 'vendedor', 'financeiro', 'liberacao'
             empresa_id INTEGER,
             token_primeiro_acesso TEXT DEFAULT '',
             primeiro_acesso_concluido INTEGER DEFAULT 1,
@@ -70,6 +72,8 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             empresa_id INTEGER DEFAULT 1,
             criado_em TEXT,
+            vendedor_responsavel TEXT DEFAULT 'Raquel Marcelino',
+            vendedor_email TEXT DEFAULT 'admin@mvi.com',
             cliente_nome TEXT,
             cliente_cpf TEXT DEFAULT '',
             cliente_rg TEXT DEFAULT '',
@@ -110,7 +114,8 @@ def init_db():
             custo_mao_obra REAL DEFAULT 0,
             custo_frete_montagem REAL DEFAULT 0,
             imposto_pct REAL DEFAULT 6,
-            comissao_pct REAL DEFAULT 4,
+            comissao_pct REAL DEFAULT 4.0,
+            comissao_valor REAL DEFAULT 0,
             markup REAL DEFAULT 2.2,
             preco_bruto REAL DEFAULT 0,
             preco_venda REAL DEFAULT 0,
@@ -147,12 +152,15 @@ def init_db():
             "fita_borda_m": 3.20, "puxador": 25.00
         }
         cursor.execute("""
-            INSERT INTO empresas (id, slug, nome_empresa, cnpj, endereco, telefone, email, pix, precos_json, chave_mestra)
-            VALUES (1, 'mvi', '', '', '', '', '', '', ?, 'MVI2026')
+            INSERT INTO empresas (id, slug, nome_empresa, cnpj, endereco, telefone, email, pix, precos_json, chave_mestra, desconto_max_vendedor, comissao_padrao_pct)
+            VALUES (1, 'mvi', 'MVI Móveis Planejados', '', '', '', '', '', ?, 'MVI2026', 3.0, 4.0)
         """, (json.dumps(precos_iniciais),))
         
-        cursor.execute("INSERT OR REPLACE INTO usuarios VALUES ('admin@mvi.com', '123456', 'Administrador Geral MVI', 'admin', 1, '', 1, 1)")
-        cursor.execute("INSERT OR REPLACE INTO usuarios VALUES ('vendedor@mvi.com', '123456', 'Raquel Marcelino', 'vendedor', 1, '', 1, 1)")
+        cursor.execute("INSERT OR REPLACE INTO usuarios VALUES ('admin@mvi.com', '123456', 'Administrador Geral MVI', 'adm', 1, '', 1, 1)")
+        cursor.execute("INSERT OR REPLACE INTO usuarios VALUES ('gerente@mvi.com', '123456', 'Gerente Comercial', 'gerente', 1, '', 1, 1)")
+        cursor.execute("INSERT OR REPLACE INTO usuarios VALUES ('raquel@mvi.com', '123456', 'Raquel Marcelino', 'vendedor', 1, '', 1, 1)")
+        cursor.execute("INSERT OR REPLACE INTO usuarios VALUES ('financeiro@mvi.com', '123456', 'Auditor Financeiro', 'financeiro', 1, '', 1, 1)")
+        cursor.execute("INSERT OR REPLACE INTO usuarios VALUES ('liberacao@mvi.com', '123456', 'Equipe de Liberação & Fábrica', 'liberacao', 1, '', 1, 1)")
         conn.commit()
 
     conn.close()
@@ -161,8 +169,8 @@ init_db()
 
 CURRENT_SESSION = {
     "user_email": "admin@mvi.com",
-    "user_nome": "Raquel Marcelino",
-    "user_perfil": "admin",
+    "user_nome": "Administrador Geral",
+    "user_perfil": "adm",
     "empresa_id": 1,
     "cliente_ativo_id": None
 }
@@ -177,36 +185,39 @@ def get_empresa_dados(empresa_id=1):
     if row:
         return dict(row)
     return {
-        "id": 1, "slug": "mvi", "nome_empresa": "",
+        "id": 1, "slug": "mvi", "nome_empresa": "MVI Móveis Planejados",
         "cnpj": "", "endereco": "", "telefone": "",
-        "email": "", "pix": "", "precos_json": "{}", "chave_mestra": "MVI2026"
+        "email": "", "pix": "", "precos_json": "{}", "chave_mestra": "MVI2026",
+        "desconto_max_vendedor": 3.0, "comissao_padrao_pct": 4.0
     }
 
 def get_metricas():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT preco_venda, adendo_valor, lucro_liquido, status, valor_recebido FROM orcamentos WHERE empresa_id = ?", (CURRENT_SESSION.get("empresa_id", 1),))
+    cursor.execute("SELECT preco_venda, adendo_valor, lucro_liquido, status, valor_recebido, comissao_valor FROM orcamentos WHERE empresa_id = ?", (CURRENT_SESSION.get("empresa_id", 1),))
     rows = cursor.fetchall()
     conn.close()
     
     total = len(rows)
-    fat_total, lucro_total, aprovados = 0.0, 0.0, 0
+    fat_total, lucro_total, aprovados, comissao_total = 0.0, 0.0, 0, 0.0
     
     for r in rows:
         st = r["status"] or "Em Negociação"
         pv = float(r["preco_venda"] or 0) + float(r["adendo_valor"] or 0)
         lucro = float(r["lucro_liquido"] or 0)
+        com = float(r["comissao_valor"] or (pv * 0.04))
         
         if st in ["Aprovado", "Em Produção", "Entregue", "Liberado para Financeiro & Fábrica", "Contrato Assinado Digitalmente", "Desconto Autorizado pela Diretoria"]:
             fat_total += pv
             lucro_total += lucro
+            comissao_total += com
             aprovados += 1
 
     taxa = (aprovados / total * 100.0) if total > 0 else 0.0
     ticket = (fat_total / aprovados) if aprovados > 0 else 0.0
     
-    return {"total": total, "aprovados": aprovados, "faturamento": fat_total, "lucro": lucro_total, "ticket": ticket, "taxa": taxa}
+    return {"total": total, "aprovados": aprovados, "faturamento": fat_total, "lucro": lucro_total, "ticket": ticket, "taxa": taxa, "comissoes": comissao_total}
 
 # ==============================================================================
 # 3. ENGENHARIA & PROMOB
@@ -290,12 +301,14 @@ def calcular_engenharia(
 
     preco_bruto = round((total_materiais + custo_mo + custo_frete) * markup)
     preco_venda = preco_bruto
+    comissao_venda = round(preco_venda * 0.04)
     lucro = round(preco_venda - (total_materiais + custo_mo + custo_frete + (preco_venda * 0.10)))
 
     return {
         "items": items, "total_mat": total_materiais,
         "custo_mo": custo_mo, "custo_frete": custo_frete,
         "preco_bruto": preco_bruto, "preco_venda": preco_venda, "lucro": lucro,
+        "comissao": comissao_venda,
         "desc_promob": "\n".join(desc_promob_auto)
     }
 
@@ -361,7 +374,7 @@ def processar_arquivo_promob(conteudo_texto: str, nome_arquivo: str):
     return {"items": items, "total_mat": total_mat, "custo_mo": custo_mo, "custo_frete": custo_frete, "preco_bruto": preco_bruto, "preco_venda": preco_venda, "lucro": lucro}
 
 # ==============================================================================
-# 4. TODAS AS FUNÇÕES DE RENDERIZAÇÃO HTML (DECLARADAS ANTES DAS ROTAS)
+# 4. FUNÇÕES DE RENDERIZAÇÃO
 # ==============================================================================
 def render_login(msg=""):
     erro = f"<div class='p-3 bg-rose-950/70 border border-rose-800 text-rose-300 text-xs rounded-xl text-center'>{msg}</div>" if msg else ""
@@ -380,15 +393,15 @@ def render_login(msg=""):
         </div>
         {erro}
         <form action="/painel" method="post" class="space-y-4">
-            <div><label class="block text-xs font-semibold text-slate-300 uppercase mb-1">E-mail</label>
-            <input type="email" name="username" required value="admin@mvi.com" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white"></div>
+            <div><label class="block text-xs font-semibold text-slate-300 uppercase mb-1">E-mail Corporativo</label>
+            <input type="email" name="username" required placeholder="seuemail@mvi.com" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white"></div>
             <div><label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Senha</label>
-            <input type="password" name="password" required value="123456" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white"></div>
+            <input type="password" name="password" required placeholder="••••••••" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white"></div>
             <button type="submit" class="w-full py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-sm shadow-lg">Acessar Painel</button>
         </form>
         <div class="border-t border-slate-800 pt-4 text-center">
-            <a href="/solicitar-orcamento" target="_blank" class="text-xs text-amber-400 hover:underline font-semibold block mb-1">🔗 Ver Simulador Público (Instagram)</a>
-            <p class="text-[11px] text-slate-500">Admin: <b>admin@mvi.com</b> | Senha: <b>123456</b></p>
+            <a href="/solicitar-orcamento" target="_blank" class="text-xs text-amber-400 hover:underline font-semibold block mb-1">🔗 Simulador Público Aberto (Instagram)</a>
+            <p class="text-[11px] text-slate-500">Perfis: <b>adm</b>, <b>gerente</b>, <b>vendedor</b>, <b>financeiro</b>, <b>liberacao</b></p>
         </div>
     </div>
 </body></html>"""
@@ -466,9 +479,6 @@ def render_form_captacao(empresa):
                             <option value="1" selected>1</option>
                             <option value="2">2</option>
                             <option value="3">3</option>
-                            <option value="4">4</option>
-                            <option value="5">5</option>
-                            <option value="6">6</option>
                         </select>
                     </div>
 
@@ -478,10 +488,6 @@ def render_form_captacao(empresa):
                             <option value="0">0</option>
                             <option value="1" selected>1</option>
                             <option value="2">2</option>
-                            <option value="3">3</option>
-                            <option value="4">4</option>
-                            <option value="5">5</option>
-                            <option value="6">6</option>
                         </select>
                     </div>
 
@@ -491,10 +497,6 @@ def render_form_captacao(empresa):
                             <option value="0">0</option>
                             <option value="1">1</option>
                             <option value="2" selected>2</option>
-                            <option value="3">3</option>
-                            <option value="4">4</option>
-                            <option value="5">5</option>
-                            <option value="6">6</option>
                         </select>
                     </div>
                 </div>
@@ -556,7 +558,6 @@ def render_form_captacao(empresa):
                             <option value="Hettich (Linha Sensys Alemanha)">Hettich (Linha Sensys Alemanha)</option>
                             <option value="Häfele (Linha Matrix Box)">Häfele (Linha Matrix Box)</option>
                             <option value="FGVTN (Linha Slowmotion)">FGVTN (Linha Slowmotion)</option>
-                            <option value="Standard com Amortecedor">Standard com Amortecedor</option>
                         </select>
                     </div>
                     <div>
@@ -572,7 +573,7 @@ def render_form_captacao(empresa):
 
                 <div>
                     <label class="block text-slate-300 font-semibold mb-1">Observações & Detalhes Especiais do seu Projeto</label>
-                    <textarea name="descricao" rows="3" placeholder="Ex: Gostaria de iluminação em LED embutida nos aéreos, puxador cava usinada nos gaveteiros da cozinha, amortecedor em todas as portas e portas de vidro reflecta bronze na suíte..." class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-amber-500 text-xs"></textarea>
+                    <textarea name="descricao" rows="2" placeholder="Ex: Iluminação em LED nos aéreos, cava nos gaveteiros..." class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white text-xs"></textarea>
                 </div>
             </div>
 
@@ -604,268 +605,110 @@ def render_pre_orcamento_agendamento(
     parcela_12x = round(saldo_restante / 12.0)
     desconto_vista_5 = round(pv_redondo * 0.95)
     economia_5 = pv_redondo - desconto_vista_5
-
-    tel_limpo = empresa["telefone"].replace("-","").replace(" ","").replace("(","").replace(")","")
+    tel_limpo = (empresa.get("telefone") or "").replace("-","").replace(" ","").replace("(","").replace(")","")
 
     return f"""<!DOCTYPE html>
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{empresa['nome_empresa']} - Pré-Orçamento & Agendamento</title>
+    <title>{empresa['nome_empresa']} - Pré-Orçamento</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen p-4 sm:p-8 font-sans flex items-center justify-center">
     <div class="max-w-2xl w-full bg-slate-900 border border-amber-500/40 rounded-3xl p-6 sm:p-10 shadow-2xl space-y-6">
-        
         <div class="text-center space-y-2 border-b border-slate-800 pb-4">
-            <span class="text-4xl block animate-bounce">✨</span>
-            <h1 class="text-xl sm:text-2xl font-bold text-white">Seu Pré-Orçamento Sob Medida foi Calculado!</h1>
+            <span class="text-4xl block">✨</span>
+            <h1 class="text-xl sm:text-2xl font-bold text-white">Pré-Orçamento Calculado com Sucesso!</h1>
             <p class="text-xs text-slate-400">Olá, <b>{nome}</b>! Estimativa para <b>{cidade} ({area_m2} m²)</b>.</p>
             <p class="text-[11px] text-amber-300 font-semibold">{ambientes_str}</p>
         </div>
 
         <div class="bg-slate-950 p-6 rounded-2xl border border-amber-500/40 text-center space-y-2">
-            <span class="text-xs text-slate-400 font-bold uppercase tracking-wider block">Valor de Tabela do Projeto</span>
-            <span id="txt_valor_principal" class="text-3xl sm:text-4xl font-black text-amber-400">R$ {pv_redondo:,.0f}</span>
-            
+            <span class="text-xs text-slate-400 font-bold uppercase tracking-wider block">Valor Estimado do Projeto</span>
+            <span class="text-3xl sm:text-4xl font-black text-amber-400">R$ {pv_redondo:,.0f}</span>
             <div class="p-3 bg-emerald-950/60 border border-emerald-500/40 rounded-xl inline-block mt-1">
-                <span class="text-xs text-emerald-300 font-bold block">⚡ Valor à Vista no PIX (com 5% de desconto):</span>
+                <span class="text-xs text-emerald-300 font-bold block">⚡ À Vista no PIX (5% de Desconto):</span>
                 <span class="text-xl sm:text-2xl font-black text-emerald-400">R$ {desconto_vista_5:,.0f}</span>
-                <span class="text-[11px] text-emerald-200 block">Economia de R$ {economia_5:,.0f}</span>
-            </div>
-
-            <p class="text-[11px] text-slate-500 pt-1">Caixas {esp_caixa} ({cor_caixa}) • Portas {acab_porta} • Ferragens {marca_ferr}</p>
-        </div>
-
-        <div class="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4 text-xs">
-            <h3 class="text-xs font-bold text-amber-400 uppercase tracking-wide flex items-center gap-1">
-                <span>📅 1. Interesse em Agendamento na Loja</span>
-            </h3>
-            
-            <div class="grid sm:grid-cols-2 gap-3">
-                <div>
-                    <label class="block text-slate-300 font-semibold mb-1">Deseja agendar um atendimento?</label>
-                    <select id="tipo_agendamento" onchange="verificarInteresseAgendamento()" class="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white">
-                        <option value="Agendamento Presencial na Loja">🏢 Sim, quero agendamento na loja</option>
-                        <option value="Não tenho interesse no momento">❌ Não tenho interesse no momento</option>
-                    </select>
-                </div>
-                <div id="box_horario">
-                    <label class="block text-slate-300 font-semibold mb-1">Melhor Período para Atendimento</label>
-                    <select id="preferencia_horario" onchange="atualizarMensagemZap()" class="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white">
-                        <option value="Manhã (09h às 12h)">🌅 Manhã (09h às 12h)</option>
-                        <option value="Tarde (14h às 18h)" selected>☀️ Tarde (14h às 18h)</option>
-                        <option value="Sábado (09h às 13h)">📅 Sábado (09h às 13h)</option>
-                    </select>
-                </div>
-            </div>
-        </div>
-
-        <div class="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4 text-xs">
-            <h3 class="text-xs font-bold text-amber-400 uppercase tracking-wide flex items-center gap-1">
-                <span>💳 2. Como você pretende realizar o pagamento?</span>
-            </h3>
-
-            <div class="grid sm:grid-cols-3 gap-3">
-                <div>
-                    <label class="block text-slate-300 font-semibold mb-1">Forma de Pagamento</label>
-                    <select id="forma_pagamento_cli" onchange="calcularParcelasCliente()" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-medium">
-                        <option value="Cartão de Crédito">Cartão de Crédito (até 12x)</option>
-                        <option value="PIX à Vista (5% OFF)">⚡ PIX à Vista (5% de Desconto)</option>
-                        <option value="Boleto Bancário">Boleto Bancário (até 24x)</option>
-                    </select>
-                </div>
-
-                <div id="box_entrada_cli">
-                    <label class="block text-slate-300 font-semibold mb-1">
-                        Entrada (Mínimo de 20%)
-                    </label>
-                    <input type="number" id="entrada_cli" min="{entrada_minima}" step="100" value="{entrada_minima}" oninput="calcularParcelasCliente()" class="w-full px-3 py-2 bg-slate-900 border border-amber-500/50 rounded-xl text-amber-300 font-bold">
-                    <span class="text-[10px] text-slate-500 block mt-0.5">Mínimo: R$ {entrada_minima:,.0f}</span>
-                </div>
-
-                <div id="box_parcelas_cli">
-                    <label class="block text-slate-300 font-semibold mb-1">Nº de Parcelas</label>
-                    <select id="parcelas_cli" onchange="calcularParcelasCliente()" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold">
-                        <option value="1">1x (Sem juros)</option>
-                        <option value="3">3x</option>
-                        <option value="6">6x</option>
-                        <option value="10">10x</option>
-                        <option value="12" selected>12x</option>
-                        <option value="18">18x (Boleto)</option>
-                        <option value="24">24x (Boleto)</option>
-                    </select>
-                </div>
-            </div>
-
-            <div id="box_resultado_parcelas" class="p-4 bg-slate-900 rounded-xl border border-slate-800 text-center space-y-1">
-                <span class="text-slate-400 text-[11px] uppercase tracking-wider block">Seu Plano Simulado:</span>
-                <p class="text-sm font-bold text-white">
-                    Entrada de <span id="res_entrada" class="text-amber-400">R$ {entrada_minima:,.0f}</span> + 
-                    <span id="res_num_parc">12</span>x de <span id="res_valor_parc" class="text-emerald-400 font-black text-base">R$ {parcela_12x:,.0f}</span>
-                </p>
-                <p class="text-[10px] text-slate-500">Saldo a parcelar: R$ <span id="res_saldo">{saldo_restante:,.0f}</span></p>
             </div>
         </div>
 
         <div class="pt-2">
-            <a id="btn_whatsapp_agendar" href="#" target="_blank" class="flex items-center justify-center gap-2 w-full py-4 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 font-black rounded-xl text-sm transition-all shadow-xl">
-                <span id="txt_btn_zap">📲 Quero ser direcionado ao WhatsApp para agendar atendimento</span>
+            <a href="https://api.whatsapp.com/send?phone=55{tel_limpo}&text=Ol%C3%A1!%20Simulei%20meu%20projeto%20no%20site%20da%20{empresa['nome_empresa']}%20(Projeto%20#{orcamento_id:04d})%20e%20gostaria%20de%20atendimento." target="_blank" class="flex items-center justify-center gap-2 w-full py-4 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 font-black rounded-xl text-sm transition-all shadow-xl">
+                📲 Enviar Simulação para o WhatsApp da Empresa
             </a>
-            <p class="text-[11px] text-center text-slate-500 mt-2">Você será atendido pela equipe oficial da <b>{empresa['nome_empresa']}</b> com sua simulação salva.</p>
+        </div>
+    </div>
+</body></html>"""
+
+def render_convite_gerado(nome, email, perfil, telefone, link, senha_temp):
+    return f"""<!DOCTYPE html>
+<html lang="pt-br"><head><title>Acesso Criado</title><script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4 font-sans">
+    <div class="max-w-md w-full bg-slate-900 border border-amber-500/40 rounded-3xl p-8 shadow-2xl space-y-4 text-center">
+        <span class="text-4xl">🔐</span>
+        <h2 class="text-xl font-bold text-white">Credenciais Geradas</h2>
+        <p class="text-xs text-slate-400">Envie o link ou a senha provisória para o funcionário:</p>
+        
+        <div class="bg-slate-950 p-4 rounded-2xl border border-slate-800 text-left text-xs space-y-2 font-mono">
+            <p><span class="text-slate-500">Nome:</span> <b class="text-white">{nome}</b></p>
+            <p><span class="text-slate-500">E-mail:</span> <b class="text-amber-400">{email}</b></p>
+            <p><span class="text-slate-500">Perfil:</span> <b class="text-emerald-400 uppercase">{perfil}</b></p>
+            <p><span class="text-slate-500">Senha Provisória:</span> <b class="text-rose-400">{senha_temp}</b></p>
         </div>
 
+        <div class="p-3 bg-slate-950 rounded-xl border border-slate-800 text-left">
+            <span class="text-[10px] text-slate-500 block uppercase font-bold mb-1">Link de Primeiro Acesso:</span>
+            <input type="text" readonly value="{link}" onclick="this.select();" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-amber-300 font-mono">
+        </div>
+
+        <a href="/painel-get" class="inline-block w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs">Voltar ao Painel</a>
     </div>
-
-    <script>
-        var valorTotalOriginal = {pv_redondo};
-        var valorComDesconto5 = {desconto_vista_5};
-        var entradaMinimaPermitida = {entrada_minima};
-        var telEmpresa = "{tel_limpo}";
-        var nomeCliente = "{nome}";
-        var cidadeCliente = "{cidade}";
-        var areaCliente = "{area_m2}";
-        var ambientesTexto = "{ambientes_str}";
-        var idOrc = "{orcamento_id:04d}";
-
-        function verificarInteresseAgendamento() {{
-            var tipoAgend = document.getElementById('tipo_agendamento').value;
-            var boxHorario = document.getElementById('box_horario');
-            var txtBtnZap = document.getElementById('txt_btn_zap');
-
-            if (tipoAgend === "Não tenho interesse no momento") {{
-                boxHorario.classList.add('opacity-40', 'pointer-events-none');
-                txtBtnZap.innerText = "📲 Enviar simulação para o WhatsApp da loja";
-            }} else {{
-                boxHorario.classList.remove('opacity-40', 'pointer-events-none');
-                txtBtnZap.innerText = "📲 Quero ser direcionado ao WhatsApp para agendar atendimento";
-            }}
-            atualizarMensagemZap();
-        }}
-
-        function calcularParcelasCliente() {{
-            var forma = document.getElementById('forma_pagamento_cli').value;
-            var boxEntrada = document.getElementById('box_entrada_cli');
-            var boxParcelas = document.getElementById('box_parcelas_cli');
-            var boxResultado = document.getElementById('box_resultado_parcelas');
-            var entradaInput = document.getElementById('entrada_cli');
-
-            if (forma.indexOf("PIX") !== -1) {{
-                boxEntrada.style.display = "none";
-                boxParcelas.style.display = "none";
-                boxResultado.innerHTML = `
-                    <span class="text-slate-400 text-[11px] uppercase tracking-wider block">Condição Especial Selecionada:</span>
-                    <p class="text-sm font-bold text-white">Pagamento Integral no PIX: <span class="text-emerald-400 font-black text-lg">R$ ` + valorComDesconto5.toLocaleString('pt-BR') + `</span></p>
-                    <p class="text-[10px] text-emerald-300">Desconto de 5% aplicado com sucesso!</p>
-                `;
-            }} else {{
-                boxEntrada.style.display = "block";
-                boxParcelas.style.display = "block";
-                
-                var entrada = Math.round(parseFloat(entradaInput.value) || 0);
-                var nParc = parseInt(document.getElementById('parcelas_cli').value) || 1;
-
-                if (entrada < entradaMinimaPermitida) {{
-                    entrada = entradaMinimaPermitida;
-                    entradaInput.value = entradaMinimaPermitida;
-                }}
-
-                var saldo = Math.max(valorTotalOriginal - entrada, 0);
-                var valorParc = nParc > 0 ? Math.round(saldo / nParc) : 0;
-
-                boxResultado.innerHTML = `
-                    <span class="text-slate-400 text-[11px] uppercase tracking-wider block">Seu Plano Simulado:</span>
-                    <p class="text-sm font-bold text-white">
-                        Entrada de <span id="res_entrada" class="text-amber-400">R$ ` + entrada.toLocaleString('pt-BR') + `</span> + 
-                        <span id="res_num_parc">` + nParc + `</span>x de <span id="res_valor_parc" class="text-emerald-400 font-black text-base">R$ ` + valorParc.toLocaleString('pt-BR') + `</span>
-                    </p>
-                    <p class="text-[10px] text-slate-500">Saldo a parcelar: R$ ` + saldo.toLocaleString('pt-BR') + `</p>
-                `;
-            }}
-
-            atualizarMensagemZap();
-        }}
-
-        function atualizarMensagemZap() {{
-            var tipoAgend = document.getElementById('tipo_agendamento').value;
-            var prefHorario = document.getElementById('preferencia_horario').value;
-            var forma = document.getElementById('forma_pagamento_cli').value;
-            var entrada = Math.round(parseFloat(document.getElementById('entrada_cli').value) || entradaMinimaPermitida);
-            var nParc = document.getElementById('parcelas_cli').value;
-
-            var agendamentoTexto = "";
-            if (tipoAgend === "Não tenho interesse no momento") {{
-                agendamentoTexto = "📅 *AGENDAMENTO:* Cliente prefere avaliar a proposta antes de agendar.";
-            }} else {{
-                agendamentoTexto = "📅 *AGENDAMENTO NA LOJA:*\n• Preferência: *Agendamento Presencial na Loja*\n• Horário: *" + prefHorario + "*";
-            }}
-
-            var financeiroTexto = "";
-            if (forma.indexOf("PIX") !== -1) {{
-                financeiroTexto = "💳 *FORMA DE PAGAMENTO:* PIX à Vista com 5% de Desconto\n• Valor Final c/ Desconto: *R$ " + valorComDesconto5.toLocaleString('pt-BR') + "*";
-            }} else {{
-                var saldo = Math.max(valorTotalOriginal - entrada, 0);
-                var valorParc = Math.round(saldo / nParc).toLocaleString('pt-BR');
-                financeiroTexto = "💳 *SIMULAÇÃO DE PAGAMENTO:*\n• Forma: " + forma + "\n• Entrada (mín. 20%): R$ " + entrada.toLocaleString('pt-BR') + "\n• Parcelamento: *" + nParc + "x de R$ " + valorParc + "*";
-            }}
-
-            var msg = "Olá! Meu nome é *" + nomeCliente + "*.\n" +
-                      "Gerei meu pré-orçamento no site da *{empresa['nome_empresa']}* (Projeto #" + idOrc + ").\n\n" +
-                      "📋 *DADOS DO PROJETO:*\n" +
-                      "• Cidade: " + cidadeCliente + "\n" +
-                      "• Metragem: " + areaCliente + " m²\n" +
-                      "• Ambientes: " + ambientesTexto + "\n" +
-                      "• Valor de Tabela: *R$ " + valorTotalOriginal.toLocaleString('pt-BR') + "*\n\n" +
-                      financeiroTexto + "\n\n" +
-                      agendamentoTexto + "\n\n" +
-                      "Gostaria de dar andamento no meu atendimento!";
-
-            var zapUrl = "https://api.whatsapp.com/send?phone=55" + telEmpresa + "&text=" + encodeURIComponent(msg);
-            document.getElementById('btn_whatsapp_agendar').href = zapUrl;
-        }}
-
-        window.onload = function() {{
-            calcularParcelasCliente();
-        }};
-    </script>
-</body>
-</html>"""
-
-def render_convite_gerado(nome, email, p, tel, link):
-    return f"""<html><body style='background:#0f172a; color:#fff; text-align:center; padding:50px; font-family:sans-serif;'>
-        <h1 style='color:#f59e0b;'>Convite de Acesso Gerado</h1>
-        <p style='margin:20px 0;'>Link Seguro: <br><b style='color:#38bdf8;'>{link}</b></p>
-        <a href='/painel-get' style='color:#f59e0b;'>Voltar ao Painel</a>
-    </body></html>"""
+</body></html>"""
 
 def render_tela_nova_senha(user, token):
     return f"""<!DOCTYPE html>
 <html lang="pt-br">
-<head><title>Nova Senha</title><script src="https://cdn.tailwindcss.com"></script></head>
-<body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4">
-    <form action="/salvar-nova-senha" method="post" class="bg-slate-900 p-8 rounded-3xl space-y-4 max-w-sm w-full shadow-2xl">
-        <h1 class="text-xl font-bold">Definir Nova Senha</h1>
+<head><title>Nova Senha - MVI</title><script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4 font-sans">
+    <form action="/salvar-nova-senha" method="post" class="bg-slate-900 border border-amber-500/40 p-8 rounded-3xl space-y-4 max-w-sm w-full shadow-2xl">
+        <h1 class="text-lg font-bold text-white text-center">Ativar Acesso & Definir Nova Senha</h1>
+        <p class="text-xs text-slate-400 text-center">Olá <b>{user['nome']}</b> ({user['perfil']})</p>
         <input type="hidden" name="token" value="{token}">
-        <input type="password" name="nova_senha" required placeholder="Nova Senha" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white">
-        <input type="password" name="confirma_senha" required placeholder="Confirme Senha" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white">
-        <button type="submit" class="w-full py-3 bg-amber-500 font-bold text-slate-950 rounded-xl">Ativar Conta</button>
+        <input type="password" name="nova_senha" required placeholder="Nova Senha Pessoal" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs">
+        <input type="password" name="confirma_senha" required placeholder="Confirme sua Nova Senha" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs">
+        <button type="submit" class="w-full py-3 bg-amber-500 font-bold text-slate-950 rounded-xl text-xs">Salvar Senha e Entrar</button>
     </form>
 </body></html>"""
 
 # ==============================================================================
-# NOVO LAYOUT DO COCKPIT NO PADRÃO MVI DARK/GOLD COM MULTI-AMBIENTES E MULTI-ORÇAMENTOS
+# PAINEL GERAL DO COCKPIT
 # ==============================================================================
 def render_dashboard_view():
     empresa = get_empresa_dados(1)
     met = get_metricas()
-    is_admin = (CURRENT_SESSION["user_perfil"] == "admin")
+    perfil = CURRENT_SESSION.get("user_perfil", "vendedor")
+    
+    # REGRAS DE PERMISSÃO POR PERFIL
+    pode_ver_lucro = (perfil == "adm")
+    pode_ver_comissoes_geral = (perfil in ["adm", "gerente", "financeiro"])
+    pode_editar_empresa = (perfil == "adm")
+    pode_gerenciar_equipe = (perfil == "adm")
+    somente_leitura_fabrica = (perfil == "liberacao")
     
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 ORDER BY id DESC LIMIT 50")
+
+    if perfil == "financeiro":
+        cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 AND status IN ('Aprovado', 'Em Produção', 'Entregue', 'Liberado para Financeiro & Fábrica', 'Contrato Assinado Digitalmente', 'Desconto Autorizado pela Diretoria') ORDER BY id DESC")
+    elif perfil == "vendedor":
+        cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 AND (vendedor_email = ? OR vendedor_responsavel = ?) ORDER BY id DESC", (CURRENT_SESSION['user_email'], CURRENT_SESSION['user_nome']))
+    else:
+        cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 ORDER BY id DESC LIMIT 50")
+    
     leads = cursor.fetchall()
-    cursor.execute("SELECT * FROM usuarios WHERE empresa_id = 1")
+    
+    cursor.execute("SELECT * FROM usuarios WHERE empresa_id = 1 ORDER BY nome ASC")
     equipe = cursor.fetchall()
     conn.close()
 
@@ -889,6 +732,7 @@ def render_dashboard_view():
     c_cep_ent = cliente_ativo.get("cliente_cep_entrega") or ""
     c_end_ent = cliente_ativo.get("cliente_endereco_entrega") or ""
     c_email = cliente_ativo.get("cliente_email") or ""
+    c_vendedor = cliente_ativo.get("vendedor_responsavel") or CURRENT_SESSION["user_nome"]
 
     c_prazo = cliente_ativo.get("prazo_entrega") or "25 dias úteis"
     c_amb = cliente_ativo.get("cliente_ambiente") or "Cozinha Planejada"
@@ -901,6 +745,7 @@ def render_dashboard_view():
     c_entrada = round(float(cliente_ativo.get("entrada_valor") or 0))
     c_parc = int(cliente_ativo.get("num_parcelas") or 1)
     c_mod = cliente_ativo.get("modalidade_pagamento") or "Entrada + Cartão de Crédito"
+    c_comissao = float(cliente_ativo.get("comissao_valor") or (c_p_venda * (float(empresa.get("comissao_padrao_pct", 4.0)) / 100.0)))
     
     chk_dados = int(cliente_ativo.get("check_dados") or (1 if c_cpf != 'Não informado' else 0))
     chk_comercial = int(cliente_ativo.get("check_comercial") or 1)
@@ -908,7 +753,7 @@ def render_dashboard_view():
     chk_contrato = int(cliente_ativo.get("check_contrato") or 0)
     potencial = cliente_ativo.get("potencial_cliente") or "Morno"
 
-    # Carrega Ambientes Individuais do Cliente Ativo
+    # Carrega Ambientes
     ambientes_cadastrados = []
     try:
         ambientes_cadastrados = json.loads(cliente_ativo.get("ambientes_json") or "[]")
@@ -918,7 +763,7 @@ def render_dashboard_view():
     if not ambientes_cadastrados and c_id > 0:
         ambientes_cadastrados = [{"id": 1, "nome": c_amb, "valor": c_p_venda}]
 
-    # Carrega Versões de Orçamentos Diferenciadas do Cliente Ativo
+    # Carrega Versões
     versoes_orcamentos = []
     try:
         versoes_orcamentos = json.loads(cliente_ativo.get("versoes_orcamentos_json") or "[]")
@@ -943,18 +788,13 @@ def render_dashboard_view():
             <td class="py-2.5 px-3 text-slate-300">{dt_parc}</td>
             <td class="py-2.5 px-3 font-bold text-amber-400 text-right">R$ {valor_por_parcela:,.2f}</td>
             <td class="py-2.5 px-3 text-slate-300">{c_mod}</td>
-            <td class="py-2.5 px-3 text-center text-slate-500">—</td>
-            <td class="py-2.5 px-3 text-center text-slate-500">—</td>
-            <td class="py-2.5 px-3 text-center text-slate-500">—</td>
             <td class="py-2.5 px-3 text-slate-400">Parcela regular do projeto</td>
-            <td class="py-2.5 px-3 text-center"><button class="text-amber-400 hover:underline">📄</button></td>
         </tr>
         """
 
     if not linhas_parcelas:
-        linhas_parcelas = "<tr><td colspan='9' class='py-4 text-center text-xs text-slate-500'>Nenhuma parcela gerada.</td></tr>"
+        linhas_parcelas = "<tr><td colspan='5' class='py-4 text-center text-xs text-slate-500'>Nenhuma parcela gerada.</td></tr>"
 
-    # Geração dos cards de ambientes na barra lateral
     lista_ambientes_html = ""
     for amb_item in ambientes_cadastrados:
         val_amb = float(amb_item.get("valor", 0))
@@ -964,30 +804,20 @@ def render_dashboard_view():
                 <span class="text-white font-semibold block">📦 {amb_item.get('nome','Ambiente')}</span>
                 <span class="text-[11px] font-bold text-amber-400">R$ {val_amb:,.2f}</span>
             </div>
-            <form action="/remover-ambiente-pasta" method="post" class="inline opacity-80 group-hover:opacity-100">
+            {f'''<form action="/remover-ambiente-pasta" method="post" class="inline opacity-80 group-hover:opacity-100">
                 <input type="hidden" name="orcamento_id" value="{c_id}">
                 <input type="hidden" name="ambiente_id" value="{amb_item.get('id')}">
-                <button type="submit" class="text-rose-400 hover:text-rose-300 text-xs font-bold px-1" title="Excluir ambiente">✕</button>
-            </form>
+                <button type="submit" class="text-rose-400 hover:text-rose-300 text-xs font-bold px-1">✕</button>
+            </form>''' if not somente_leitura_fabrica else ''}
         </li>
         """
 
-    if not lista_ambientes_html:
-        lista_ambientes_html = f"""
-        <li class="p-2 bg-slate-950 rounded-xl border border-slate-800 flex justify-between items-center">
-            <span class="text-white font-medium">📦 {c_amb}</span>
-            <span class="font-bold text-amber-400">R$ {c_p_venda:,.2f}</span>
-        </li>
-        """
-
-    # Geração das opções de orçamentos diferenciados
     lista_versoes_html = ""
     for v in versoes_orcamentos:
         v_id = v.get("id")
         v_nome = v.get("nome", f"Orçamento #{v_id}")
         v_val = float(v.get("valor", c_p_venda))
         v_ativo = (v_id == versao_ativa_id)
-        
         badge_ativo = "<span class='text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded-full font-bold'>Ativo</span>" if v_ativo else ""
         
         lista_versoes_html += f"""
@@ -1022,7 +852,7 @@ def render_dashboard_view():
         leads_geral_html += f"""
         <tr class="border-b border-slate-800 text-xs hover:bg-slate-800/40">
             <td class="py-3 px-4 font-mono font-bold text-amber-400">P{h_d['id']:05d}</td>
-            <td class="py-3 px-4 text-white font-bold">{h_d.get('cliente_nome','')}<span class="block text-[11px] text-slate-400 font-normal">CPF: {h_d.get('cliente_cpf') or 'Pendente'}</span></td>
+            <td class="py-3 px-4 text-white font-bold">{h_d.get('cliente_nome','')}<span class="block text-[11px] text-slate-400 font-normal">Vendedor: {h_d.get('vendedor_responsavel','')}</span></td>
             <td class="py-3 px-4 text-slate-300">{h_d.get('cliente_ambiente','')}</td>
             <td class="py-3 px-4 text-amber-400 font-bold text-right">R$ {pv_total:,.2f}</td>
             <td class="py-3 px-4 text-center"><span class="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-950 text-amber-300 border border-amber-500/30">{st}</span></td>
@@ -1030,15 +860,61 @@ def render_dashboard_view():
                 <form action="/selecionar-cliente-trabalho" method="post" class="inline">
                     <input type="hidden" name="orcamento_id" value="{h_d['id']}">
                     <button type="submit" class="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded text-xs shadow-sm">
-                        📂 Abrir Pasta / Negociar
+                        📂 Abrir Pasta
                     </button>
                 </form>
             </td>
         </tr>
         """
 
-    if not leads_geral_html:
-        leads_geral_html = "<tr><td colspan='6' class='py-8 text-center text-xs text-slate-500'>Nenhum cliente cadastrado ainda. Use a aba 'Dados do Cliente & CEP'.</td></tr>"
+    # TABELA DE COMISSÕES
+    tabela_comissoes_html = ""
+    for h in leads:
+        h_d = dict(h)
+        pv = float(h_d.get("preco_venda") or 0) + float(h_d.get("adendo_valor") or 0)
+        vendedor_linha = h_d.get("vendedor_responsavel") or "Raquel Marcelino"
+        
+        # Filtro de comissão para o vendedor ver só a dele
+        if perfil == "vendedor" and vendedor_linha != CURRENT_SESSION["user_nome"]:
+            continue
+
+        pct_com = float(h_d.get("comissao_pct") or 4.0)
+        val_com = float(h_d.get("comissao_valor") or (pv * (pct_com / 100.0)))
+        st = h_d.get("status") or "Em Negociação"
+
+        tabela_comissoes_html += f"""
+        <tr class="border-b border-slate-800 text-xs hover:bg-slate-800/40">
+            <td class="py-2.5 px-3 font-mono text-amber-400 font-bold">P{h_d['id']:05d}</td>
+            <td class="py-2.5 px-3 text-white font-semibold">{h_d.get('cliente_nome','')}</td>
+            <td class="py-2.5 px-3 text-slate-300 font-semibold">{vendedor_linha}</td>
+            <td class="py-2.5 px-3 text-right text-slate-300">R$ {pv:,.2f}</td>
+            <td class="py-2.5 px-3 text-center text-amber-400 font-bold">{pct_com:.1f}%</td>
+            <td class="py-2.5 px-3 text-right font-black text-emerald-400">R$ {val_com:,.2f}</td>
+            <td class="py-2.5 px-3 text-center"><span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-950 border border-slate-700 text-slate-300">{st}</span></td>
+        </tr>
+        """
+
+    if not tabela_comissoes_html:
+        tabela_comissoes_html = "<tr><td colspan='7' class='py-4 text-center text-xs text-slate-500'>Nenhum lançamento de comissão registrado para esta visualização.</td></tr>"
+
+    # TABELA DE FUNCIONÁRIOS (ADM ONLY)
+    tabela_equipe_html = ""
+    for u in equipe:
+        u_d = dict(u)
+        tabela_equipe_html += f"""
+        <tr class="border-b border-slate-800 text-xs hover:bg-slate-800/40">
+            <td class="py-2.5 px-3 text-white font-bold">{u_d.get('nome')}</td>
+            <td class="py-2.5 px-3 text-amber-300 font-mono">{u_d.get('email')}</td>
+            <td class="py-2.5 px-3 text-center"><span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950 border border-amber-500/40 text-amber-300 uppercase">{u_d.get('perfil')}</span></td>
+            <td class="py-2.5 px-3 text-center"><span class="text-emerald-400 font-bold">{'✓ Ativo' if u_d.get('ativo') else '✕ Inativo'}</span></td>
+            <td class="py-2.5 px-3 text-center">
+                <form action="/redefinir-senha-funcionario" method="post" class="inline">
+                    <input type="hidden" name="email_funcionario" value="{u_d.get('email')}">
+                    <button type="submit" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded text-[11px] font-bold">🔑 Gerar Nova Senha Provisória</button>
+                </form>
+            </td>
+        </tr>
+        """
 
     def cor_bolinha(val):
         if val == 2: return "bg-emerald-500 shadow-emerald-500/50 shadow-md", "✓ Concluído"
@@ -1054,7 +930,7 @@ def render_dashboard_view():
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MVI Gestão - Contrato P{c_id:05d}</title>
+    <title>MVI Gestão - CRM Master</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         .tree-item {{ transition: all 0.2s; cursor: pointer; }}
@@ -1076,10 +952,11 @@ def render_dashboard_view():
                 <span class="font-bold text-base tracking-wide text-white">{empresa.get('nome_empresa') or 'MVI Sistemas'}</span>
             </div>
             <nav class="flex items-center space-x-3 text-xs font-semibold">
-                <button onclick="mudarAba('aba-geral')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">📂 Todas as Pastas</button>
-                <button onclick="mudarAba('aba-empresa')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700">🏢 Dados da Empresa</button>
-                <a href="/solicitar-orcamento" target="_blank" class="px-3 py-1.5 rounded-lg bg-amber-950 text-amber-300 hover:bg-amber-900 border border-amber-500/40">🔗 Simulador Web</a>
-                <a href="/exportar-csv" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">📊 Relatório CSV</a>
+                <button onclick="mudarAba('aba-geral')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">📂 Pastas</button>
+                <button onclick="mudarAba('aba-comissoes')" class="px-3 py-1.5 rounded-lg bg-emerald-950/80 text-emerald-300 hover:bg-emerald-900 border border-emerald-500/40">💰 Extrato de Comissões</button>
+                {f'''<button onclick="mudarAba('aba-equipe')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700">👥 Equipe & Acessos</button>
+                <button onclick="mudarAba('aba-empresa')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700">🏢 Empresa</button>''' if pode_gerenciar_equipe else ''}
+                <a href="/solicitar-orcamento" target="_blank" class="px-3 py-1.5 rounded-lg bg-amber-950 text-amber-300 hover:bg-amber-900 border border-amber-500/40">🔗 Link Público</a>
             </nav>
         </div>
 
@@ -1089,16 +966,16 @@ def render_dashboard_view():
                     {options_leads}
                 </select>
             </form>
-            <span class="bg-amber-500 text-slate-950 px-2.5 py-0.5 rounded-full font-bold">{met['aprovados']} Fechados</span>
+            <span class="bg-amber-500 text-slate-950 px-2.5 py-0.5 rounded-full font-bold uppercase text-[10px]">{perfil}</span>
             <span class="text-slate-300 font-semibold">{CURRENT_SESSION['user_nome']}</span>
             <a href="/" class="bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-xl text-slate-300 border border-slate-700">Sair</a>
         </div>
     </header>
 
-    <!-- CORPO PRINCIPAL COM ARQUITETURA DE 3 COLUNAS -->
+    <!-- CORPO PRINCIPAL -->
     <div class="max-w-7xl mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-5">
         
-        <!-- COLUNA 1: MENU LATERAL COM MULTI-AMBIENTES E MULTI-ORÇAMENTOS -->
+        <!-- MENU LATERAL -->
         <div class="lg:col-span-3 bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-xl space-y-4 text-xs">
             <div>
                 <h3 class="font-bold text-white flex items-center justify-between pb-2 border-b border-slate-800">
@@ -1106,59 +983,52 @@ def render_dashboard_view():
                     <span class="text-[10px] bg-amber-950 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full">Ativa</span>
                 </h3>
                 <ul class="mt-2 space-y-1">
-                    <li><button onclick="mudarAba('aba-resumo')" id="btn-aba-resumo" class="tree-item active w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-white font-semibold">📋 1. Resumo Financeiro</button></li>
-                    <li><button onclick="mudarAba('aba-cliente')" id="btn-aba-cliente" class="tree-item w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-slate-300 font-medium">👤 2. Dados do Cliente & CEP</button></li>
-                    <li><button onclick="mudarAba('aba-mesa')" id="btn-aba-mesa" class="tree-item w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-slate-300 font-medium">💼 3. Mesa de Negociação</button></li>
-                    <li><button onclick="mudarAba('aba-promob')" id="btn-aba-promob" class="tree-item w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-slate-300 font-medium">🚀 4. Integrador Promob</button></li>
-                    <li><button onclick="mudarAba('aba-empresa')" id="btn-aba-empresa" class="tree-item w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-slate-300 font-medium">🏢 5. Dados da Empresa</button></li>
-                    <li><a href="/minuta-contrato/{c_id}" target="_blank" class="tree-item flex items-center gap-2 p-2.5 rounded-xl text-amber-400 font-bold hover:bg-slate-800">📜 6. Gerar Contrato PDF</a></li>
-                    <li><a href="/assinar/{c_id}" target="_blank" class="tree-item flex items-center gap-2 p-2.5 rounded-xl text-emerald-400 font-bold hover:bg-slate-800">✍️ 7. Assinatura Digital</a></li>
+                    <li><button onclick="mudarAba('aba-resumo')" id="btn-aba-resumo" class="tree-item active w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-white font-semibold">📋 1. Resumo da Venda</button></li>
+                    <li><button onclick="mudarAba('aba-cliente')" id="btn-aba-cliente" class="tree-item w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-slate-300 font-medium">👤 2. Dados do Cliente</button></li>
+                    {f'''<li><button onclick="mudarAba('aba-mesa')" id="btn-aba-mesa" class="tree-item w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-slate-300 font-medium">💼 3. Mesa de Negociação</button></li>
+                    <li><button onclick="mudarAba('aba-promob')" id="btn-aba-promob" class="tree-item w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-slate-300 font-medium">🚀 4. Integrador Promob</button></li>''' if not somente_leitura_fabrica else ''}
+                    <li><a href="/minuta-contrato/{c_id}" target="_blank" class="tree-item flex items-center gap-2 p-2.5 rounded-xl text-amber-400 font-bold hover:bg-slate-800">📜 5. Minuta Contrato PDF</a></li>
+                    <li><a href="/assinar/{c_id}" target="_blank" class="tree-item flex items-center gap-2 p-2.5 rounded-xl text-emerald-400 font-bold hover:bg-slate-800">✍️ 6. Assinatura Digital</a></li>
+                    <li><button onclick="mudarAba('aba-comissoes')" id="btn-aba-comissoes" class="tree-item w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-emerald-300 font-semibold">💰 7. Extrato de Comissões</button></li>
+                    {f'''<li><button onclick="mudarAba('aba-equipe')" id="btn-aba-equipe" class="tree-item w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-amber-300 font-semibold">👥 8. Gestão de Equipe</button></li>''' if pode_gerenciar_equipe else ''}
                 </ul>
             </div>
 
-            <!-- SEÇÃO DE AMBIENTES MULTI-INSERÇÃO -->
+            <!-- SEÇÃO DE AMBIENTES -->
             <div>
                 <div class="flex justify-between items-center pb-1 border-b border-slate-800 font-bold text-white">
                     <span>🏠 Ambientes</span>
-                    <button onclick="mudarAba('aba-novo-ambiente')" class="text-[11px] px-2 py-0.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg font-bold">
-                        + Novo
-                    </button>
+                    {f'''<button onclick="mudarAba('aba-novo-ambiente')" class="text-[11px] px-2 py-0.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg font-bold">+ Novo</button>''' if not somente_leitura_fabrica else ''}
                 </div>
-                <ul class="mt-2 space-y-1.5 text-slate-400">
-                    {lista_ambientes_html}
-                </ul>
+                <ul class="mt-2 space-y-1.5 text-slate-400">{lista_ambientes_html}</ul>
             </div>
 
-            <!-- SEÇÃO DE MÚLTIPLOS ORÇAMENTOS / PROPOSTAS -->
+            <!-- SEÇÃO DE ORÇAMENTOS -->
             <div>
                 <div class="flex justify-between items-center pb-1 border-b border-slate-800 font-bold text-white">
                     <span>⭐ Orçamentos</span>
-                    <button onclick="mudarAba('aba-novo-orcamento-versao')" class="text-[11px] px-2 py-0.5 bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 rounded-lg font-bold">
-                        + Nova Opção
-                    </button>
+                    {f'''<button onclick="mudarAba('aba-novo-orcamento-versao')" class="text-[11px] px-2 py-0.5 bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 rounded-lg font-bold">+ Nova Opção</button>''' if not somente_leitura_fabrica else ''}
                 </div>
-                <ul class="mt-2 space-y-1.5 text-slate-400">
-                    {lista_versoes_html}
-                </ul>
+                <ul class="mt-2 space-y-1.5 text-slate-400">{lista_versoes_html}</ul>
             </div>
         </div>
 
-        <!-- COLUNA 2: PAINEL CENTRAL DINÂMICO -->
+        <!-- PAINEL CENTRAL -->
         <div class="lg:col-span-6 space-y-4">
             
-            <!-- ABA 1: RESUMO FINANCEIRO (DEFAULT) -->
+            <!-- ABA 1: RESUMO DA VENDA -->
             <div id="aba-resumo" class="tab-content active space-y-4">
                 <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3">
                     <div class="text-center pb-2 border-b border-slate-800">
-                        <h2 class="text-xs font-bold text-amber-400 uppercase tracking-wide">CONTRATO IT{c_id:05d} vendido em: {c_data_venda} por {CURRENT_SESSION['user_nome']}</h2>
+                        <h2 class="text-xs font-bold text-amber-400 uppercase tracking-wide">CONTRATO IT{c_id:05d} | Vendedor: {c_vendedor}</h2>
                     </div>
 
                     <div class="flex flex-wrap gap-2 justify-between items-center">
                         <div class="flex gap-2">
-                            <a href="/minuta-contrato/{c_id}" target="_blank" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-xs font-bold text-slate-200">🖨️ Gerar / Imprimir PDF</a>
-                            <a href="/assinar/{c_id}" target="_blank" class="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold rounded-xl text-xs shadow-lg">✍️ Assinatura Digital</a>
+                            <a href="/minuta-contrato/{c_id}" target="_blank" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-xs font-bold text-slate-200">🖨️ Gerar PDF</a>
+                            <a href="/assinar/{c_id}" target="_blank" class="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold rounded-xl text-xs shadow-lg">✍️ Assinatura</a>
                         </div>
-                        <span class="text-[11px] text-slate-500 font-semibold">MVI Enterprise</span>
+                        <span class="text-[11px] text-slate-400 font-semibold">Comissão: <b class="text-emerald-400">R$ {c_comissao:,.2f}</b></span>
                     </div>
 
                     <div class="grid grid-cols-2 gap-3 text-xs pt-2">
@@ -1169,51 +1039,18 @@ def render_dashboard_view():
                     </div>
                 </div>
 
-                <!-- TABELA DE ENTRADA -->
-                <div class="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
-                    <div class="bg-slate-850 px-4 py-2.5 border-b border-slate-800 text-xs font-bold text-amber-400 text-center uppercase tracking-wide">ENTRADA (20% MÍNIMO)</div>
-                    <table class="w-full text-left text-xs border-collapse">
-                        <thead class="bg-slate-950/60 border-b border-slate-800 text-slate-400 font-semibold">
-                            <tr>
-                                <th class="py-2.5 px-3 text-center">#</th>
-                                <th class="py-2.5 px-3">Data Entrada</th>
-                                <th class="py-2.5 px-3 text-right">Valor</th>
-                                <th class="py-2.5 px-3">Tipo de Cobrança</th>
-                                <th class="py-2.5 px-3 text-center">Banco</th>
-                                <th class="py-2.5 px-3 text-center">Agência</th>
-                                <th class="py-2.5 px-3 text-center">Conta</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr class="border-b border-slate-800/60">
-                                <td class="py-2.5 px-3 text-center text-slate-500">1</td>
-                                <td class="py-2.5 px-3 text-slate-300">{hoje.strftime('%d/%m/%Y')}</td>
-                                <td class="py-2.5 px-3 font-bold text-emerald-400 text-right">R$ {c_entrada:,.2f}</td>
-                                <td class="py-2.5 px-3 text-amber-300 font-semibold">{c_mod}</td>
-                                <td class="py-2.5 px-3 text-center text-slate-500">—</td>
-                                <td class="py-2.5 px-3 text-center text-slate-500">—</td>
-                                <td class="py-2.5 px-3 text-center text-slate-500">—</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-
                 <!-- CRONOGRAMA DE PARCELAS -->
                 <div class="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
-                    <div class="bg-slate-850 px-4 py-2.5 border-b border-slate-800 text-xs font-bold text-amber-400 text-center uppercase tracking-wide">CRONOGRAMA DE PARCELAS</div>
+                    <div class="bg-slate-850 px-4 py-2.5 border-b border-slate-800 text-xs font-bold text-amber-400 text-center uppercase tracking-wide">PLANO DE PAGAMENTO & CRONOGRAMA</div>
                     <div class="overflow-x-auto">
                         <table class="w-full text-left text-xs border-collapse">
                             <thead class="bg-slate-950/60 border-b border-slate-800 text-slate-400 font-semibold">
                                 <tr>
                                     <th class="py-2.5 px-3 text-center">#</th>
-                                    <th class="py-2.5 px-3">Data Parcelas</th>
+                                    <th class="py-2.5 px-3">Data</th>
                                     <th class="py-2.5 px-3 text-right">Valor</th>
-                                    <th class="py-2.5 px-3">Tipo de Cobrança</th>
-                                    <th class="py-2.5 px-3 text-center">Bco</th>
-                                    <th class="py-2.5 px-3 text-center">Ag</th>
-                                    <th class="py-2.5 px-3 text-center">Conta</th>
-                                    <th class="py-2.5 px-3">Observação</th>
-                                    <th class="py-2.5 px-3 text-center">Ação</th>
+                                    <th class="py-2.5 px-3">Modalidade</th>
+                                    <th class="py-2.5 px-3">Status</th>
                                 </tr>
                             </thead>
                             <tbody>{linhas_parcelas}</tbody>
@@ -1222,240 +1059,270 @@ def render_dashboard_view():
                 </div>
             </div>
 
-            <!-- ABA 2: DADOS DO CLIENTE & BUSCA DE CEP -->
+            <!-- ABA 2: DADOS DO CLIENTE -->
             <div id="aba-cliente" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
-                <h3 class="font-bold text-amber-400 uppercase pb-1 border-b border-slate-800">👤 Ficha Cadastral do Cliente & Endereços</h3>
+                <h3 class="font-bold text-amber-400 uppercase pb-1 border-b border-slate-800">👤 Cadastro de Contratante & Obra</h3>
                 <form action="/salvar-dados-completos-cliente" method="post" class="space-y-3">
                     <input type="hidden" name="orcamento_id" value="{c_id}">
                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
                         <div class="sm:col-span-2">
                             <label class="block text-slate-400 mb-1">Nome Completo</label>
-                            <input type="text" name="cliente_nome" value="{c_nome if c_nome != 'Novo Cliente (Sem Pasta)' else ''}" required placeholder="Nome do Cliente" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold">
+                            <input type="text" name="cliente_nome" value="{c_nome if c_nome != 'Novo Cliente (Sem Pasta)' else ''}" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold">
                         </div>
                         <div>
                             <label class="block text-slate-400 mb-1">CPF</label>
-                            <input type="text" name="cliente_cpf" value="{c_cpf if c_cpf != 'Não informado' else ''}" placeholder="000.000.000-00" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                            <input type="text" name="cliente_cpf" value="{c_cpf if c_cpf != 'Não informado' else ''}" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
                         </div>
                         <div>
-                            <label class="block text-slate-400 mb-1">RG</label>
-                            <input type="text" name="cliente_rg" value="{c_rg if c_rg != '—' else ''}" placeholder="RG" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                        </div>
-                        <div>
-                            <label class="block text-slate-400 mb-1">Telefone Principal</label>
-                            <input type="text" name="cliente_telefone" value="{c_tel if c_tel != '—' else ''}" placeholder="WhatsApp" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                        </div>
-                        <div>
-                            <label class="block text-slate-400 mb-1">E-mail</label>
-                            <input type="email" name="cliente_email" value="{c_email}" placeholder="E-mail" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                            <label class="block text-slate-400 mb-1">Telefone WhatsApp</label>
+                            <input type="text" name="cliente_telefone" value="{c_tel if c_tel != '—' else ''}" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
                         </div>
                     </div>
 
                     <div class="border-t border-slate-800 pt-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div class="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-2">
                             <label class="font-bold text-amber-400 block">📬 Endereço Postal</label>
-                            <div class="flex gap-2">
-                                <input type="text" id="cep_postal" name="cliente_cep_postal" value="{c_cep_post}" placeholder="CEP" class="w-1/2 p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
-                                <button type="button" onclick="buscarCep('postal')" class="w-1/2 px-2 py-1 bg-amber-500 font-bold text-slate-950 rounded-xl">🔍 Buscar CEP</button>
-                            </div>
-                            <textarea id="end_postal" name="cliente_endereco_postal" rows="2" placeholder="Rua, Número, Bairro, Cidade - UF" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">{c_end_post}</textarea>
+                            <input type="text" name="cliente_cep_postal" value="{c_cep_post}" placeholder="CEP" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                            <textarea name="cliente_endereco_postal" rows="2" placeholder="Rua, Número, Bairro, Cidade - UF" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">{c_end_post}</textarea>
                         </div>
                         <div class="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-2">
-                            <label class="font-bold text-slate-300 block">🚚 Endereço da Obra</label>
-                            <div class="flex gap-2">
-                                <input type="text" id="cep_entrega" name="cliente_cep_entrega" value="{c_cep_ent}" placeholder="CEP Obra" class="w-1/2 p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
-                                <button type="button" onclick="buscarCep('entrega')" class="w-1/2 px-2 py-1 bg-amber-500 font-bold text-slate-950 rounded-xl">🔍 Buscar CEP</button>
-                            </div>
-                            <textarea id="end_entrega" name="cliente_endereco_entrega" rows="2" placeholder="Endereço da Instalação..." class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">{c_end_ent}</textarea>
+                            <label class="font-bold text-slate-300 block">🚚 Endereço da Instalação / Obra</label>
+                            <input type="text" name="cliente_cep_entrega" value="{c_cep_ent}" placeholder="CEP Obra" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                            <textarea name="cliente_endereco_entrega" rows="2" placeholder="Endereço da Montagem..." class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">{c_end_ent}</textarea>
                         </div>
                     </div>
 
-                    <button type="submit" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-lg">💾 Salvar Dados do Cliente</button>
+                    <button type="submit" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-lg">💾 Salvar Ficha Cadastral</button>
                 </form>
             </div>
 
-            <!-- ABA 3: MESA DE NEGOCIAÇÃO E FECHAMENTO -->
+            <!-- ABA 3: MESA DE NEGOCIAÇÃO (COM TRAVA DE DESCONTO & LUCRO BLOQUEADO PARA NÃO-ADM) -->
             <div id="aba-mesa" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
                 <div class="flex justify-between items-center pb-1 border-b border-slate-800">
-                    <h3 class="font-bold text-amber-400 uppercase">💼 Mesa de Negociação & Fechamento Financeiro</h3>
+                    <h3 class="font-bold text-amber-400 uppercase">💼 Mesa de Negociação & Fechamento</h3>
                     <input type="hidden" id="preco_bruto_base" value="{c_p_bruto if c_p_bruto > 0 else c_p_venda}">
                 </div>
 
-                <form id="form_mesa_negociacao" action="/salvar-negociacao-mesa" method="post" class="space-y-4" onkeydown="impedirEnterSubmit(event)">
+                <form id="form_mesa_negociacao" action="/salvar-negociacao-mesa" method="post" class="space-y-4">
                     <input type="hidden" name="orcamento_id" value="{c_id}">
 
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div>
                             <label class="block text-slate-400 mb-1 font-semibold">Valor Venda (R$)</label>
-                            <input type="number" step="1" name="preco_venda" id="preco_venda_input" value="{c_p_venda}" required oninput="calcularDescontoPorValorVenda()" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-amber-400 text-sm focus:border-amber-500">
+                            <input type="number" step="1" name="preco_venda" id="preco_venda_input" value="{c_p_venda}" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-amber-400 text-sm">
                         </div>
 
                         <div>
                             <label class="block text-slate-400 mb-1 font-semibold">Desconto (%)</label>
-                            <div class="flex gap-1.5">
-                                <input type="number" step="0.1" name="desconto_pct" id="desconto_pct_input" value="{c_desc_pct}" oninput="calcularValorVendaPorDesconto()" class="w-2/3 p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-white">
-                                <button type="button" onclick="calcularValorVendaPorDesconto()" class="w-1/3 px-2 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-[11px]">
-                                    ⚡ Simular
-                                </button>
-                            </div>
+                            <input type="number" step="0.1" name="desconto_pct" id="desconto_pct_input" value="{c_desc_pct}" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-white">
+                            <span class="text-[10px] text-slate-500 mt-0.5 block">Teto sem autorização: {empresa.get('desconto_max_vendedor', 3.0)}%</span>
                         </div>
 
                         <div>
                             <label class="block text-slate-400 mb-1 font-semibold">Entrada (R$)</label>
-                            <input type="number" step="100" name="entrada_valor" id="entrada_valor_input" value="{c_entrada}" required oninput="recalcularLucroEMesa()" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-emerald-400 text-sm">
+                            <input type="number" step="100" name="entrada_valor" id="entrada_valor_input" value="{c_entrada}" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-emerald-400 text-sm">
                         </div>
                     </div>
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                             <label class="block text-slate-400 mb-1 font-semibold">Forma de Pagamento</label>
-                            <select name="forma_opcao" id="forma_opcao_select" onchange="atualizarFormaPagamento()" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-semibold text-white">
-                                <option value="Entrada PIX + 3 à Vista" {"selected" if "3 à Vista" in c_mod or "PIX + 3" in c_mod else ""}>Entrada PIX + 3 à Vista (PIX/TED)</option>
-                                <option value="Entrada + Cartão de Crédito" {"selected" if "Cartão" in c_mod and "3 à Vista" not in c_mod else ""}>Entrada + Cartão de Crédito</option>
-                                <option value="Entrada + Boleto Bancário" {"selected" if "Boleto" in c_mod else ""}>Entrada + Boleto Bancário</option>
-                                <option value="PIX Integral à Vista" {"selected" if "PIX Integral" in c_mod else ""}>PIX Integral à Vista (5% OFF)</option>
-                            </select>
-                            <input type="hidden" name="modalidade_pagamento" id="modalidade_pagamento_hidden" value="{c_mod}">
-                        </div>
-
-                        <div id="box_parcelas_dinamico">
-                            <label class="block text-slate-400 mb-1 font-semibold" id="label_vezes">Quantidade de Parcelas</label>
-                            <select name="num_parcelas" id="num_parcelas_select" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-white">
-                                <!-- Preenchido dinamicamente via JS -->
+                            <select name="forma_opcao" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-semibold text-white">
+                                <option value="Entrada PIX + Cartão de Crédito">Entrada PIX + Cartão de Crédito</option>
+                                <option value="Entrada PIX + Boleto Bancário">Entrada PIX + Boleto Bancário</option>
+                                <option value="PIX Integral à Vista">PIX Integral à Vista (5% OFF)</option>
                             </select>
                         </div>
-                    </div>
-
-                    <div class="p-4 bg-slate-950 border border-emerald-500/30 rounded-2xl flex justify-between items-center">
                         <div>
-                            <span class="font-bold text-slate-400 block text-xs uppercase">Lucro Líquido da Operação:</span>
-                            <span id="valor_lucro_operacao" data-real="R$ {c_lucro:,.2f}" class="font-black text-emerald-400 text-lg">R$ {c_lucro:,.2f}</span>
+                            <label class="block text-slate-400 mb-1 font-semibold">Parcelas</label>
+                            <input type="number" name="num_parcelas" value="{c_parc}" min="1" max="24" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-white">
                         </div>
-                        <button type="button" onclick="alternarOlhoLucro()" id="btn_olho_lucro" title="Ocultar / Revelar Lucro" class="p-2 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-xl text-slate-300 text-sm font-bold shadow">
-                            👁️
-                        </button>
                     </div>
+
+                    {f'''<div class="p-4 bg-slate-950 border border-emerald-500/30 rounded-2xl flex justify-between items-center">
+                        <div>
+                            <span class="font-bold text-slate-400 block text-xs uppercase">Lucro Líquido da Empresa (Restrito ADM):</span>
+                            <span class="font-black text-emerald-400 text-lg">R$ {c_lucro:,.2f}</span>
+                        </div>
+                    </div>''' if pode_ver_lucro else f'''<div class="p-3 bg-slate-950/60 border border-slate-800 rounded-xl text-center text-slate-500 text-[11px]">
+                        🔒 Lucro e custos internos protegidos por política de privacidade da empresa.
+                    </div>'''}
 
                     <button type="submit" class="w-full py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-xs shadow-lg">
-                        💾 Atualizar Negociação & Salvar
+                        💾 Atualizar Proposta & Salvar
                     </button>
                 </form>
             </div>
 
-            <!-- ABA 4: PROMOB INTEGRADOR -->
+            <!-- ABA 4: PROMOB -->
             <div id="aba-promob" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
-                <h3 class="font-bold text-amber-400 uppercase pb-1 border-b border-slate-800">🚀 Importação Direta de Arquivo Promob</h3>
+                <h3 class="font-bold text-amber-400 uppercase pb-1 border-b border-slate-800">🚀 Importação Direta Promob</h3>
                 <form action="/importar-promob" method="post" enctype="multipart/form-data" class="space-y-3">
                     <input type="text" name="cliente_nome" value="{c_nome if c_nome != 'Novo Cliente (Sem Pasta)' else ''}" placeholder="Nome do Cliente" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold">
                     <input type="text" name="cliente_telefone" value="{c_tel if c_tel != '—' else ''}" placeholder="WhatsApp" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
                     <input type="text" name="cliente_ambiente" value="{c_amb}" placeholder="Ambiente" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
                     <div class="p-4 bg-slate-950 border border-slate-800 rounded-2xl">
-                        <label class="block font-bold text-amber-400 mb-1">Selecione o arquivo exportado (.xml, .csv, .txt, .cut):</label>
+                        <label class="block font-bold text-amber-400 mb-1">Arquivo Promob (.xml, .csv, .txt):</label>
                         <input type="file" name="arquivo_promob" accept=".xml,.csv,.txt,.cut" required class="w-full text-slate-400 file:bg-amber-500 file:border-0 file:rounded-xl file:px-3 file:py-1 file:font-bold">
                     </div>
-                    <button type="submit" class="w-full py-3.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-lg">⚡ Processar Peças & Gerar Orçamento</button>
+                    <button type="submit" class="w-full py-3.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-lg">⚡ Processar Peças</button>
                 </form>
             </div>
 
-            <!-- ABA 5: CONFIGURAÇÃO DOS DADOS DA EMPRESA -->
-            <div id="aba-empresa" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
-                <div class="border-b border-slate-800 pb-2">
-                    <h3 class="font-bold text-amber-400 uppercase">🏢 Configuração da Empresa Contratada</h3>
-                    <p class="text-[11px] text-slate-400">Esses dados serão inseridos automaticamente nas cláusulas do contrato em PDF e na via digital.</p>
+            <!-- ABA 5: EXTRATO DE COMISSÕES (ACESSO MULTIPERFIL) -->
+            <div id="aba-comissoes" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
+                <div class="flex justify-between items-center pb-2 border-b border-slate-800">
+                    <div>
+                        <h3 class="font-bold text-emerald-400 uppercase">💰 Extrato de Comissões por Vendedor</h3>
+                        <p class="text-[11px] text-slate-400">Auditoria individualizada e fechamento de comissões.</p>
+                    </div>
+                    {f'''<span class="px-3 py-1 bg-emerald-950 border border-emerald-500/40 text-emerald-300 font-bold rounded-xl text-xs">Total Empresa: R$ {met['comissoes']:,.2f}</span>''' if pode_ver_comissoes_geral else ''}
                 </div>
 
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs border-collapse">
+                        <thead class="bg-slate-950 border-b border-slate-800 text-slate-400 font-semibold uppercase">
+                            <tr>
+                                <th class="py-2.5 px-3">Pasta</th>
+                                <th class="py-2.5 px-3">Cliente</th>
+                                <th class="py-2.5 px-3">Vendedor</th>
+                                <th class="py-2.5 px-3 text-right">Valor Venda</th>
+                                <th class="py-2.5 px-3 text-center">% Com.</th>
+                                <th class="py-2.5 px-3 text-right">Comissão (R$)</th>
+                                <th class="py-2.5 px-3 text-center">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>{tabela_comissoes_html}</tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ABA 6: GESTÃO DE EQUIPE & SENHAS PROVISÓRIAS (ADM ONLY) -->
+            <div id="aba-equipe" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
+                <div class="flex justify-between items-center pb-2 border-b border-slate-800">
+                    <div>
+                        <h3 class="font-bold text-amber-400 uppercase">👥 Gestão de Usuários & Senhas Provisórias</h3>
+                        <p class="text-[11px] text-slate-400">Cadastre novos funcionários e gere links seguros de primeiro acesso.</p>
+                    </div>
+                </div>
+
+                <form action="/criar-usuario" method="post" class="bg-slate-950 p-4 rounded-2xl border border-slate-800 grid sm:grid-cols-3 gap-3">
+                    <div>
+                        <label class="block text-slate-400 mb-1 font-semibold">Nome do Funcionário</label>
+                        <input type="text" name="nome" placeholder="Ex: Lucas Vendedor" required class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 mb-1 font-semibold">E-mail de Acesso</label>
+                        <input type="email" name="email" placeholder="lucas@mvi.com" required class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 mb-1 font-semibold">Cargo / Perfil</label>
+                        <select name="perfil" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold">
+                            <option value="vendedor">Vendedor (Sem acesso a Lucro)</option>
+                            <option value="gerente">Gerente (Sem acesso a Lucro)</option>
+                            <option value="financeiro">Financeiro (Acesso a Comissões e Pagamentos)</option>
+                            <option value="liberacao">Liberação / Fábrica (Projetos e Clientes)</option>
+                            <option value="adm">Administrador Geral (Acesso Total)</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="sm:col-span-3 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold rounded-xl shadow-lg mt-1">
+                        ➕ Cadastrar Funcionário & Gerar Senha Provisória
+                    </button>
+                </form>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs border-collapse">
+                        <thead class="bg-slate-950 border-b border-slate-800 text-slate-400 font-semibold uppercase">
+                            <tr>
+                                <th class="py-2.5 px-3">Nome</th>
+                                <th class="py-2.5 px-3">E-mail</th>
+                                <th class="py-2.5 px-3 text-center">Perfil</th>
+                                <th class="py-2.5 px-3 text-center">Status</th>
+                                <th class="py-2.5 px-3 text-center">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>{tabela_equipe_html}</tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ABA 7: CONFIGURAÇÕES DA EMPRESA -->
+            <div id="aba-empresa" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
+                <div class="border-b border-slate-800 pb-2">
+                    <h3 class="font-bold text-amber-400 uppercase">🏢 Configuração da Empresa & Parâmetros Comerciais</h3>
+                </div>
                 <form action="/salvar-empresa" method="post" class="grid sm:grid-cols-2 gap-3">
                     <div class="sm:col-span-2">
-                        <label class="block text-slate-400 mb-1 font-semibold">Razão Social / Nome Fantasia da Empresa</label>
-                        <input type="text" name="nome_empresa" value="{empresa.get('nome_empresa','')}" placeholder="Ex: Marcenaria Pro Móveis Planejados" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold">
+                        <label class="block text-slate-400 mb-1 font-semibold">Razão Social / Nome Fantasia</label>
+                        <input type="text" name="nome_empresa" value="{empresa.get('nome_empresa','')}" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold">
                     </div>
                     <div>
                         <label class="block text-slate-400 mb-1 font-semibold">CNPJ</label>
-                        <input type="text" name="cnpj" value="{empresa.get('cnpj','')}" placeholder="00.000.000/0001-00" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                        <input type="text" name="cnpj" value="{empresa.get('cnpj','')}" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
                     </div>
                     <div>
-                        <label class="block text-slate-400 mb-1 font-semibold">Telefone / WhatsApp Comercial</label>
-                        <input type="text" name="telefone" value="{empresa.get('telefone','')}" placeholder="(11) 98888-7777" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                    </div>
-                    <div class="sm:col-span-2">
-                        <label class="block text-slate-400 mb-1 font-semibold">Endereço Completo da Sede / Loja</label>
-                        <input type="text" name="endereco" value="{empresa.get('endereco','')}" placeholder="Rua, Número, Bairro, Cidade - UF" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                        <label class="block text-slate-400 mb-1 font-semibold">WhatsApp Comercial</label>
+                        <input type="text" name="telefone" value="{empresa.get('telefone','')}" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
                     </div>
                     <div>
-                        <label class="block text-slate-400 mb-1 font-semibold">E-mail Comercial</label>
-                        <input type="email" name="email" value="{empresa.get('email','')}" placeholder="contato@marcenaria.com.br" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                        <label class="block text-slate-400 mb-1 font-semibold">Teto Máx. Desconto Vendedor (%)</label>
+                        <input type="number" step="0.5" name="desconto_max_vendedor" value="{empresa.get('desconto_max_vendedor', 3.0)}" class="w-full p-2.5 bg-slate-950 border border-amber-500/50 rounded-xl text-amber-300 font-bold">
                     </div>
                     <div>
-                        <label class="block text-slate-400 mb-1 font-semibold">Chave Mestra Admin (PIN)</label>
-                        <input type="text" name="chave_mestra" value="{empresa.get('chave_mestra','MVI2026')}" required class="w-full p-2.5 bg-slate-950 border border-amber-500/50 rounded-xl text-amber-300 font-bold">
+                        <label class="block text-slate-400 mb-1 font-semibold">Comissão Padrão da Equipe (%)</label>
+                        <input type="number" step="0.5" name="comissao_padrao_pct" value="{empresa.get('comissao_padrao_pct', 4.0)}" class="w-full p-2.5 bg-slate-950 border border-emerald-500/50 rounded-xl text-emerald-300 font-bold">
                     </div>
                     <button type="submit" class="sm:col-span-2 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-lg mt-2">
-                        💾 Salvar Dados da Empresa & Atualizar Contratos
+                        💾 Salvar Parâmetros
                     </button>
                 </form>
             </div>
 
-            <!-- ABA 6: ADICIONAR NOVO AMBIENTE INDIVIDUAL (MULTI-AMBIENTES) -->
+            <!-- ABA ADICIONAR AMBIENTE -->
             <div id="aba-novo-ambiente" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
-                <div class="border-b border-slate-800 pb-2">
-                    <h3 class="font-bold text-amber-400 uppercase">🏠 Adicionar Novo Ambiente ao Projeto</h3>
-                    <p class="text-[11px] text-slate-400">Insira quantos ambientes desejar para compor o valor do projeto.</p>
-                </div>
+                <h3 class="font-bold text-amber-400 uppercase pb-1 border-b border-slate-800">🏠 Adicionar Novo Ambiente</h3>
                 <form action="/adicionar-ambiente-pasta" method="post" class="space-y-3">
                     <input type="hidden" name="orcamento_id" value="{c_id}">
                     <div>
                         <label class="block text-slate-400 mb-1 font-semibold">Nome do Ambiente</label>
-                        <input type="text" name="nome_ambiente" placeholder="Ex: Suíte Master / Cozinha / Lavanderia" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold">
+                        <input type="text" name="nome_ambiente" placeholder="Ex: Suíte Master / Cozinha" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold">
                     </div>
                     <div>
                         <label class="block text-slate-400 mb-1 font-semibold">Valor do Ambiente (R$)</label>
                         <input type="number" step="10" name="valor_ambiente" placeholder="Ex: 8500" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-amber-400 font-bold">
                     </div>
-                    <div>
-                        <label class="block text-slate-400 mb-1 font-semibold">Detalhes / Acabamentos do Ambiente</label>
-                        <textarea name="detalhes_ambiente" rows="2" placeholder="Ex: Caixaria 18mm branco TX, portas reflecta bronze com dobradiças Blum..." class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"></textarea>
-                    </div>
-                    <button type="submit" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-lg">
-                        ➕ Salvar e Inserir Ambiente na Pasta
-                    </button>
+                    <button type="submit" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-lg">➕ Inserir Ambiente na Pasta</button>
                 </form>
             </div>
 
-            <!-- ABA 7: ADICIONAR NOVA VERSÃO DE ORÇAMENTO -->
+            <!-- ABA ADICIONAR VERSÃO ORÇAMENTO -->
             <div id="aba-novo-orcamento-versao" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
-                <div class="border-b border-slate-800 pb-2">
-                    <h3 class="font-bold text-sky-400 uppercase">⭐ Criar Nova Versão / Opção de Orçamento</h3>
-                    <p class="text-[11px] text-slate-400">Crie opções alternativas com valores ou ambientes diferenciados para negociação com o cliente.</p>
-                </div>
+                <h3 class="font-bold text-sky-400 uppercase pb-1 border-b border-slate-800">⭐ Criar Nova Opção de Orçamento</h3>
                 <form action="/adicionar-versao-orcamento" method="post" class="space-y-3">
                     <input type="hidden" name="orcamento_id" value="{c_id}">
                     <div>
-                        <label class="block text-slate-400 mb-1 font-semibold">Nome da Proposta / Versão</label>
-                        <input type="text" name="nome_versao" placeholder="Ex: Orçamento #2 - Opção Sem Dormitórios / Linha Premium" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold">
+                        <label class="block text-slate-400 mb-1 font-semibold">Nome da Versão</label>
+                        <input type="text" name="nome_versao" placeholder="Ex: Orçamento #2 - Opção Sem Dormitórios" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold">
                     </div>
                     <div>
-                        <label class="block text-slate-400 mb-1 font-semibold">Valor Total desta Versão (R$)</label>
+                        <label class="block text-slate-400 mb-1 font-semibold">Valor Total (R$)</label>
                         <input type="number" step="10" name="valor_versao" placeholder="Ex: 19500" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-amber-400 font-bold">
                     </div>
-                    <button type="submit" class="w-full py-3 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl shadow-lg">
-                        ⭐ Criar Versão e Adicionar à Pasta
-                    </button>
+                    <button type="submit" class="w-full py-3 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl shadow-lg">⭐ Salvar Nova Opção</button>
                 </form>
             </div>
 
-            <!-- ABA 8: CARTEIRA GERAL DE CLIENTES -->
+            <!-- ABA CARTEIRA GERAL DE PASTAS -->
             <div id="aba-geral" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl space-y-3">
                 <div class="bg-slate-850 px-5 py-3 border-b border-slate-800 flex justify-between items-center">
-                    <h3 class="font-bold text-xs uppercase text-amber-400 tracking-wide">📂 Carteira Geral de Contratos e Negociações</h3>
-                    <button onclick="mudarAba('aba-cliente')" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs shadow-sm">
-                        ➕ Novo Cadastro
-                    </button>
+                    <h3 class="font-bold text-xs uppercase text-amber-400 tracking-wide">📂 Carteira de Pastas e Negociações</h3>
                 </div>
                 <div class="overflow-x-auto p-2">
                     <table class="w-full text-left text-xs border-collapse">
                         <thead class="bg-slate-950 border-b border-slate-800 text-slate-400 font-semibold uppercase">
                             <tr>
                                 <th class="py-3 px-4">Pasta</th>
-                                <th class="py-3 px-4">Cliente / Contratante</th>
+                                <th class="py-3 px-4">Cliente / Vendedor</th>
                                 <th class="py-3 px-4">Ambientes</th>
                                 <th class="py-3 px-4 text-right">Valor Venda</th>
                                 <th class="py-3 px-4 text-center">Status</th>
@@ -1469,100 +1336,46 @@ def render_dashboard_view():
 
         </div>
 
-        <!-- COLUNA 3: RESUMO DA VENDA & CHECKLIST CLICÁVEL -->
+        <!-- RESUMO DA VENDA & QUALIFICAÇÃO -->
         <div class="lg:col-span-3 space-y-4">
-            
             <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3 text-xs">
                 <h3 class="font-bold text-amber-400 pb-1 border-b border-slate-800 uppercase tracking-wide">Resumo da Venda</h3>
-                
-                <div class="space-y-1.5 text-slate-400">
-                    <div class="flex justify-between"><span>Responsável:</span> <span class="font-semibold text-white">{CURRENT_SESSION['user_nome']}</span></div>
-                    <div class="flex justify-between"><span>Orçamento:</span> <span class="font-semibold text-white">#{versao_ativa_id}</span></div>
-                    <div class="flex justify-between"><span>Tipo de Venda:</span> <span class="font-semibold text-white">Normal</span></div>
-                </div>
-
-                <div class="pt-2 border-t border-slate-800 space-y-1">
-                    <div class="flex justify-between items-center"><span class="text-slate-400 font-semibold">Valor da Venda:</span> <span class="font-bold text-amber-400 text-sm">R$ {c_p_venda:,.2f}</span></div>
-                    <div class="flex justify-between items-center"><span class="text-slate-400 font-semibold">Valor da Entrada:</span> <span class="font-bold text-emerald-400 text-sm">R$ {c_entrada:,.2f}</span></div>
-                    <div class="flex justify-between items-center"><span class="text-slate-500">Opção de Pagto:</span> <span class="font-semibold text-slate-300">{c_mod}</span></div>
-                    <div class="flex justify-between items-center"><span class="text-slate-500">Parcelas:</span> <span class="font-semibold text-slate-300">1 + {c_parc}x</span></div>
-                </div>
-
-                <div class="pt-2 border-t border-slate-800 space-y-1.5">
-                    <span class="text-[11px] font-bold text-slate-400 block">Ambientes da Proposta</span>
-                    <ul class="space-y-1">
-                        {lista_ambientes_html}
-                    </ul>
+                <div class="space-y-1 text-slate-400">
+                    <div class="flex justify-between"><span>Vendedor:</span> <span class="font-semibold text-white">{c_vendedor}</span></div>
+                    <div class="flex justify-between"><span>Comissão:</span> <span class="font-bold text-emerald-400">R$ {c_comissao:,.2f}</span></div>
+                    <div class="flex justify-between items-center pt-1"><span class="text-slate-400 font-semibold">Valor Venda:</span> <span class="font-bold text-amber-400 text-sm">R$ {c_p_venda:,.2f}</span></div>
+                    <div class="flex justify-between items-center"><span class="text-slate-400 font-semibold">Entrada:</span> <span class="font-bold text-emerald-400 text-sm">R$ {c_entrada:,.2f}</span></div>
                 </div>
             </div>
 
-            <!-- CHECK LIST & POTENCIAL DO CLIENTE COM BOTÕES CLICÁVEIS -->
             <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3.5 text-xs">
                 <div class="flex justify-between items-center pb-1 border-b border-slate-800">
-                    <h3 class="font-bold text-white uppercase tracking-wide">Qualificação & Check List</h3>
-                    <span class="text-[10px] text-slate-500">Clique para mudar</span>
+                    <h3 class="font-bold text-white uppercase tracking-wide">Check List Operacional</h3>
                 </div>
-                
-                <!-- SELETOR DE POTENCIAL DO CLIENTE (TERMÔMETRO DE VENDAS) -->
-                <div class="bg-slate-950 p-3 rounded-2xl border border-slate-800 space-y-1.5">
-                    <span class="text-[11px] font-bold text-amber-400 block uppercase">Potencial do Cliente:</span>
-                    <div class="grid grid-cols-3 gap-1.5 text-center font-bold text-[10px]">
-                        <button type="button" onclick="alterarPotencial('Quente')" class="p-1.5 rounded-lg border {'bg-rose-950 border-rose-500 text-rose-300' if potencial == 'Quente' else 'bg-slate-900 border-slate-800 text-slate-400'}">🔥 Quente</button>
-                        <button type="button" onclick="alterarPotencial('Morno')" class="p-1.5 rounded-lg border {'bg-amber-950 border-amber-500 text-amber-300' if potencial == 'Morno' else 'bg-slate-900 border-slate-800 text-slate-400'}">⚡ Morno</button>
-                        <button type="button" onclick="alterarPotencial('Frio')" class="p-1.5 rounded-lg border {'bg-sky-950 border-sky-500 text-sky-300' if potencial == 'Frio' else 'bg-slate-900 border-slate-800 text-slate-400'}">❄️ Frio</button>
-                    </div>
-                </div>
-
-                <!-- BOLINHAS DO CHECKLIST CLICÁVEIS (VERDE/AMARELO/VERMELHO) -->
-                <ul class="space-y-2.5">
+                <ul class="space-y-2">
                     <li class="flex justify-between items-center p-1.5 bg-slate-950 rounded-xl border border-slate-800">
                         <span class="font-medium text-slate-300">Dados do Cliente:</span>
-                        <button type="button" onclick="toggleCheckItem('check_dados')" title="Clique para alterar status" class="flex items-center gap-1.5 btn-dot">
-                            <span class="w-3.5 h-3.5 rounded-full {cor_d}"></span>
-                            <span class="text-[10px] text-slate-400 font-semibold">{txt_d}</span>
-                        </button>
+                        <span class="text-[10px] font-semibold text-slate-400">{txt_d}</span>
                     </li>
-
                     <li class="flex justify-between items-center p-1.5 bg-slate-950 rounded-xl border border-slate-800">
                         <span class="font-medium text-slate-300">Aprovação Comercial:</span>
-                        <button type="button" onclick="toggleCheckItem('check_comercial')" title="Clique para alterar status" class="flex items-center gap-1.5 btn-dot">
-                            <span class="w-3.5 h-3.5 rounded-full {cor_c}"></span>
-                            <span class="text-[10px] text-slate-400 font-semibold">{txt_c}</span>
-                        </button>
+                        <span class="text-[10px] font-semibold text-slate-400">{txt_c}</span>
                     </li>
-
                     <li class="flex justify-between items-center p-1.5 bg-slate-950 rounded-xl border border-slate-800">
                         <span class="font-medium text-slate-300">Aprovação Financeira:</span>
-                        <button type="button" onclick="toggleCheckItem('check_financeiro')" title="Clique para alterar status" class="flex items-center gap-1.5 btn-dot">
-                            <span class="w-3.5 h-3.5 rounded-full {cor_f}"></span>
-                            <span class="text-[10px] text-slate-400 font-semibold">{txt_f}</span>
-                        </button>
+                        <span class="text-[10px] font-semibold text-slate-400">{txt_f}</span>
                     </li>
-
                     <li class="flex justify-between items-center p-1.5 bg-slate-950 rounded-xl border border-slate-800">
-                        <span class="font-medium text-slate-300">Assinatura do Contrato:</span>
-                        <button type="button" onclick="toggleCheckItem('check_contrato')" title="Clique para alterar status" class="flex items-center gap-1.5 btn-dot">
-                            <span class="w-3.5 h-3.5 rounded-full {cor_con}"></span>
-                            <span class="text-[10px] text-slate-400 font-semibold">{txt_con}</span>
-                        </button>
+                        <span class="font-medium text-slate-300">Assinatura Contrato:</span>
+                        <span class="text-[10px] font-semibold text-slate-400">{txt_con}</span>
                     </li>
                 </ul>
             </div>
-
         </div>
 
     </div>
 
-    <!-- RODAPÉ ERP -->
-    <footer class="text-center py-4 text-[11px] text-slate-500">
-        Copyright © 2026 - MVI Sistemas de Marcenaria Sob Medida. Todos os direitos reservados.
-    </footer>
-
-    <!-- JAVASCRIPT DE CONTROLE DAS ABAS, SIMULAÇÃO E OLHO -->
     <script>
-        var parcelasSalvas = {c_parc};
-        var idOrcamentoAtivo = {c_id};
-
         function mudarAba(abaId) {{
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
             document.querySelectorAll('.tree-item').forEach(b => b.classList.remove('active'));
@@ -1574,169 +1387,12 @@ def render_dashboard_view():
             if (targetBtn) targetBtn.classList.add('active');
             window.scrollTo({{ top: 0, behavior: 'smooth' }});
         }}
-
-        function toggleCheckItem(campo) {{
-            if (idOrcamentoAtivo === 0) {{
-                alert("Selecione um cliente para alterar o check list.");
-                return;
-            }}
-            fetch('/atualizar-checklist-item?orcamento_id=' + idOrcamentoAtivo + '&campo=' + campo, {{ method: 'POST' }})
-                .then(() => window.location.reload());
-        }}
-
-        function alterarPotencial(valor) {{
-            if (idOrcamentoAtivo === 0) {{
-                alert("Selecione um cliente para classificar o potencial.");
-                return;
-            }}
-            fetch('/atualizar-potencial-cliente?orcamento_id=' + idOrcamentoAtivo + '&potencial=' + encodeURIComponent(valor), {{ method: 'POST' }})
-                .then(() => window.location.reload());
-        }}
-
-        function impedirEnterSubmit(event) {{
-            if (event.key === "Enter" || event.keyCode === 13) {{
-                event.preventDefault();
-                recalcularLucroEMesa();
-                return false;
-            }}
-        }}
-
-        function calcularDescontoPorValorVenda() {{
-            var precoBruto = parseFloat(document.getElementById('preco_bruto_base').value) || 0;
-            var precoVendaManual = parseFloat(document.getElementById('preco_venda_input').value) || 0;
-
-            if (precoBruto > 0 && precoVendaManual > 0) {{
-                var desc = ((precoBruto - precoVendaManual) / precoBruto) * 100.0;
-                desc = Math.max(desc, 0);
-                document.getElementById('desconto_pct_input').value = desc.toFixed(1);
-            }}
-            recalcularLucroEMesa();
-        }}
-
-        function calcularValorVendaPorDesconto() {{
-            var precoBruto = parseFloat(document.getElementById('preco_bruto_base').value) || 0;
-            var descPct = parseFloat(document.getElementById('desconto_pct_input').value) || 0;
-
-            if (precoBruto > 0) {{
-                var precoFinal = Math.round(precoBruto * (1.0 - (descPct / 100.0)));
-                document.getElementById('preco_venda_input').value = precoFinal;
-            }}
-            recalcularLucroEMesa();
-        }}
-
-        function atualizarFormaPagamento() {{
-            var opcao = document.getElementById('forma_opcao_select').value;
-            var boxParc = document.getElementById('box_parcelas_dinamico');
-            var selectParc = document.getElementById('num_parcelas_select');
-            var hiddenMod = document.getElementById('modalidade_pagamento_hidden');
-
-            var valorSelecionadoAnterior = selectParc.value || parcelasSalvas;
-            selectParc.innerHTML = "";
-
-            if (opcao === "Entrada PIX + 3 à Vista") {{
-                boxParc.style.display = "block";
-                selectParc.innerHTML = `
-                    <option value="1">1x (À Vista)</option>
-                    <option value="2">2x (30/60 dias)</option>
-                    <option value="3">3x (30/60/90 dias)</option>
-                `;
-                hiddenMod.value = "Entrada PIX + 3 à Vista";
-            }} else if (opcao === "Entrada + Cartão de Crédito") {{
-                boxParc.style.display = "block";
-                for (var i = 1; i <= 12; i++) {{
-                    selectParc.innerHTML += `<option value="` + i + `">` + i + `x no Cartão</option>`;
-                }}
-                hiddenMod.value = "Entrada + Cartão de Crédito";
-            }} else if (opcao === "Entrada + Boleto Bancário") {{
-                boxParc.style.display = "block";
-                for (var i = 1; i <= 24; i++) {{
-                    selectParc.innerHTML += `<option value="` + i + `">` + i + `x no Boleto</option>`;
-                }}
-                hiddenMod.value = "Entrada + Boleto Bancário";
-            }} else {{
-                boxParc.style.display = "none";
-                selectParc.innerHTML = `<option value="1" selected>1x (Integral)</option>`;
-                hiddenMod.value = "PIX Integral à Vista (5% OFF)";
-            }}
-
-            if (valorSelecionadoAnterior) {{
-                selectParc.value = valorSelecionadoAnterior;
-            }}
-
-            recalcularLucroEMesa();
-        }}
-
-        function recalcularLucroEMesa() {{
-            var precoVenda = parseFloat(document.getElementById('preco_venda_input').value) || 0;
-            var custoEstimado = precoVenda * 0.50;
-            var impostoComissao = precoVenda * 0.10;
-            var lucroFinal = Math.max(precoVenda - (custoEstimado + impostoComissao), 0);
-
-            var elem = document.getElementById('valor_lucro_operacao');
-            var lucroFormatado = "R$ " + lucroFinal.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
-            elem.setAttribute('data-real', lucroFormatado);
-
-            if (lucroVisivel) {{
-                elem.innerText = lucroFormatado;
-            }}
-        }}
-
-        var lucroVisivel = true;
-        function alternarOlhoLucro() {{
-            var elem = document.getElementById('valor_lucro_operacao');
-            var btn = document.getElementById('btn_olho_lucro');
-            if (!elem) return;
-
-            lucroVisivel = !lucroVisivel;
-            if (lucroVisivel) {{
-                elem.innerText = elem.getAttribute('data-real');
-                btn.innerText = "👁️";
-                elem.style.filter = "none";
-            }} else {{
-                elem.innerText = "••••••••";
-                btn.innerText = "🙈";
-                elem.style.filter = "blur(4px)";
-            }}
-        }}
-
-        function buscarCep(tipo) {{
-            var cepInput = document.getElementById(tipo === 'postal' ? 'cep_postal' : 'cep_entrega');
-            var endText = document.getElementById(tipo === 'postal' ? 'end_postal' : 'end_entrega');
-            var cep = cepInput.value.replace(/\\D/g, '');
-
-            if (cep.length !== 8) {{
-                alert("Por favor, digite um CEP válido com 8 dígitos.");
-                return;
-            }}
-
-            endText.value = "Buscando endereço nos Correios...";
-
-            fetch('https://viacep.com.br/ws/' + cep + '/json/')
-                .then(res => res.json())
-                .then(dados => {{
-                    if (dados.erro) {{
-                        alert("CEP não encontrado!");
-                        endText.value = "";
-                    }} else {{
-                        endText.value = dados.logradouro + ", Nº [DIGITE O NÚMERO], " + (dados.bairro ? dados.bairro + ", " : "") + dados.localidade + " - " + dados.uf;
-                    }}
-                }})
-                .catch(() => {{
-                    alert("Erro ao buscar CEP.");
-                    endText.value = "";
-                }});
-        }}
-
-        window.onload = function() {{
-            atualizarFormaPagamento();
-        }};
     </script>
 </body></html>"""
 
 # ==============================================================================
-# 5. FASTAPI ROUTES (DECLARADAS APÓS TODAS AS FUNÇÕES DE RENDERIZAÇÃO)
+# 5. ROTAS FASTAPI
 # ==============================================================================
-
 @app.get("/", response_class=HTMLResponse)
 @app.get("/login", response_class=HTMLResponse)
 def root_route():
@@ -1747,15 +1403,15 @@ def login_route(username: str = Form(...), password: str = Form(...)):
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM usuarios WHERE email = ? AND senha = ?", (username, password))
+    cursor.execute("SELECT * FROM usuarios WHERE email = ? AND senha = ?", (username.strip().lower(), password))
     user = cursor.fetchone()
     conn.close()
 
     if not user:
-        return render_login("E-mail ou senha incorretos. Tente novamente.")
+        return render_login("E-mail ou senha incorretos. Verifique suas credenciais.")
 
-    if "ativo" in user.keys() and not user["ativo"]:
-        return render_login("❌ Este usuário foi desativado pela administração da marcenaria.")
+    if not user["ativo"]:
+        return render_login("❌ Este usuário foi desativado pela administração.")
 
     CURRENT_SESSION["user_email"] = user["email"]
     CURRENT_SESSION["user_nome"] = user["nome"]
@@ -1769,217 +1425,73 @@ def login_route(username: str = Form(...), password: str = Form(...)):
 def painel_get_route():
     return render_dashboard_view()
 
-@app.post("/adicionar-ambiente-pasta", response_class=HTMLResponse)
-def adicionar_ambiente_pasta(
-    orcamento_id: int = Form(...),
-    nome_ambiente: str = Form(...),
-    valor_ambiente: float = Form(0.0),
-    detalhes_ambiente: str = Form("")
+@app.post("/criar-usuario", response_class=HTMLResponse)
+def criar_usuario_route(
+    request: Request,
+    nome: str = Form(...),
+    email: str = Form(...),
+    perfil: str = Form("vendedor")
 ):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT ambientes_json, preco_venda, cliente_ambiente FROM orcamentos WHERE id = ?", (orcamento_id,))
-    orc = cursor.fetchone()
+    if CURRENT_SESSION.get("user_perfil") != "adm":
+        return RedirectResponse(url="/painel-get", status_code=303)
+
+    token = secrets.token_urlsafe(16)
+    senha_temp = f"MVI@{secrets.randbelow(8999)+1000}"
     
-    if orc:
-        ambientes = []
-        try:
-            ambientes = json.loads(orc["ambientes_json"] or "[]")
-        except Exception:
-            ambientes = []
-        
-        novo_id = len(ambientes) + 1
-        ambientes.append({
-            "id": novo_id,
-            "nome": nome_ambiente.strip(),
-            "valor": round(valor_ambiente),
-            "detalhes": detalhes_ambiente.strip()
-        })
-        
-        total_ambientes = sum(float(a.get("valor", 0)) for a in ambientes)
-        nomes_amb = " + ".join([a.get("nome", "") for a in ambientes if a.get("nome")])
-        
-        cursor.execute("""
-            UPDATE orcamentos SET
-                ambientes_json = ?,
-                preco_venda = ?,
-                preco_bruto = ?,
-                cliente_ambiente = ?
-            WHERE id = ?
-        """, (json.dumps(ambientes), total_ambientes, total_ambientes, nomes_amb, orcamento_id))
-        conn.commit()
-
-    conn.close()
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/remover-ambiente-pasta", response_class=HTMLResponse)
-def remover_ambiente_pasta(
-    orcamento_id: int = Form(...),
-    ambiente_id: int = Form(...)
-):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT ambientes_json FROM orcamentos WHERE id = ?", (orcamento_id,))
-    orc = cursor.fetchone()
-    
-    if orc:
-        ambientes = []
-        try:
-            ambientes = json.loads(orc["ambientes_json"] or "[]")
-        except Exception:
-            ambientes = []
-        
-        ambientes = [a for a in ambientes if a.get("id") != ambiente_id]
-        total_ambientes = sum(float(a.get("valor", 0)) for a in ambientes)
-        nomes_amb = " + ".join([a.get("nome", "") for a in ambientes if a.get("nome")]) or "Projeto Sob Medida"
-        
-        cursor.execute("""
-            UPDATE orcamentos SET
-                ambientes_json = ?,
-                preco_venda = ?,
-                preco_bruto = ?,
-                cliente_ambiente = ?
-            WHERE id = ?
-        """, (json.dumps(ambientes), total_ambientes, total_ambientes, nomes_amb, orcamento_id))
-        conn.commit()
-
-    conn.close()
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/adicionar-versao-orcamento", response_class=HTMLResponse)
-def adicionar_versao_orcamento(
-    orcamento_id: int = Form(...),
-    nome_versao: str = Form(...),
-    valor_versao: float = Form(0.0)
-):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT versoes_orcamentos_json, preco_venda FROM orcamentos WHERE id = ?", (orcamento_id,))
-    orc = cursor.fetchone()
-    
-    if orc:
-        versoes = []
-        try:
-            versoes = json.loads(orc["versoes_orcamentos_json"] or "[]")
-        except Exception:
-            versoes = []
-        
-        if not versoes:
-            versoes.append({"id": 1, "nome": "Orçamento #1 (Principal)", "valor": float(orc["preco_venda"] or 0), "ativo": False})
-
-        novo_id = len(versoes) + 1
-        versoes.append({
-            "id": novo_id,
-            "nome": nome_versao.strip(),
-            "valor": round(valor_versao),
-            "ativo": True
-        })
-        
-        cursor.execute("""
-            UPDATE orcamentos SET
-                versoes_orcamentos_json = ?,
-                versao_ativa_id = ?,
-                preco_venda = ?,
-                preco_bruto = ?
-            WHERE id = ?
-        """, (json.dumps(versoes), novo_id, round(valor_versao), round(valor_versao), orcamento_id))
-        conn.commit()
-
-    conn.close()
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/selecionar-versao-orcamento", response_class=HTMLResponse)
-def selecionar_versao_orcamento(
-    orcamento_id: int = Form(...),
-    versao_id: int = Form(...)
-):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT versoes_orcamentos_json FROM orcamentos WHERE id = ?", (orcamento_id,))
-    orc = cursor.fetchone()
-    
-    if orc:
-        versoes = []
-        try:
-            versoes = json.loads(orc["versoes_orcamentos_json"] or "[]")
-        except Exception:
-            versoes = []
-        
-        valor_ativo = 0.0
-        for v in versoes:
-            if v.get("id") == versao_id:
-                valor_ativo = float(v.get("valor", 0))
-                break
-        
-        if valor_ativo > 0:
-            cursor.execute("""
-                UPDATE orcamentos SET
-                    versao_ativa_id = ?,
-                    preco_venda = ?,
-                    preco_bruto = ?
-                WHERE id = ?
-            """, (versao_id, valor_ativo, valor_ativo, orcamento_id))
-            conn.commit()
-
-    conn.close()
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/atualizar-checklist-item")
-def atualizar_checklist_item(orcamento_id: int, campo: str):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute(f"SELECT {campo} FROM orcamentos WHERE id = ?", (orcamento_id,))
-    row = cursor.fetchone()
-    if row:
-        val_atual = row[0] or 0
-        novo_val = (val_atual + 1) % 3
-        cursor.execute(f"UPDATE orcamentos SET {campo} = ? WHERE id = ?", (novo_val, orcamento_id))
-        conn.commit()
-    conn.close()
-    return JSONResponse({"status": "ok"})
-
-@app.post("/atualizar-potencial-cliente")
-def atualizar_potencial_cliente(orcamento_id: int, potencial: str):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE orcamentos SET potencial_cliente = ? WHERE id = ?", (potencial, orcamento_id))
+    cursor.execute("""
+        INSERT OR REPLACE INTO usuarios (email, senha, nome, perfil, empresa_id, token_primeiro_acesso, primeiro_acesso_concluido, ativo)
+        VALUES (?, ?, ?, ?, 1, ?, 0, 1)
+    """, (email.strip().lower(), senha_temp, nome.strip(), perfil, token))
     conn.commit()
     conn.close()
-    return JSONResponse({"status": "ok"})
 
-@app.get("/minuta-contrato/{orcamento_id}", response_class=HTMLResponse)
-def minuta_contrato_route(orcamento_id: int):
+    link_ativacao = f"{str(request.base_url).rstrip('/')}/primeiro-acesso/{token}"
+    return render_convite_gerado(nome, email, perfil, "", link_ativacao, senha_temp)
+
+@app.get("/primeiro-acesso/{token}", response_class=HTMLResponse)
+def tela_primeiro_acesso(token: str):
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (orcamento_id,))
-    orc = cursor.fetchone()
+    cursor.execute("SELECT * FROM usuarios WHERE token_primeiro_acesso = ?", (token,))
+    user = cursor.fetchone()
     conn.close()
+    if not user:
+        return HTMLResponse("Link de ativação inválido ou já utilizado.", status_code=404)
+    return render_tela_nova_senha(user, token)
 
-    if not orc:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM orcamentos ORDER BY id DESC LIMIT 1")
-        orc = cursor.fetchone()
+@app.post("/salvar-nova-senha", response_class=HTMLResponse)
+def salvar_nova_senha(token: str = Form(...), nova_senha: str = Form(...), confirma_senha: str = Form(...)):
+    if nova_senha != confirma_senha:
+        return HTMLResponse("<script>alert('As senhas digitadas não coincidem!'); history.back();</script>")
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE usuarios SET senha = ?, token_primeiro_acesso = '', primeiro_acesso_concluido = 1, ativo = 1 WHERE token_primeiro_acesso = ?", (nova_senha, token))
+    conn.commit()
+    conn.close()
+    return RedirectResponse(url="/", status_code=303)
+
+@app.post("/redefinir-senha-funcionario", response_class=HTMLResponse)
+def redefinir_senha_funcionario(request: Request, email_funcionario: str = Form(...)):
+    if CURRENT_SESSION.get("user_perfil") != "adm":
+        return RedirectResponse(url="/painel-get", status_code=303)
+        
+    token = secrets.token_urlsafe(16)
+    senha_temp = f"MVI@{secrets.randbelow(8999)+1000}"
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT nome, perfil FROM usuarios WHERE email = ?", (email_funcionario,))
+    user = cursor.fetchone()
+    if user:
+        cursor.execute("UPDATE usuarios SET senha = ?, token_primeiro_acesso = ?, primeiro_acesso_concluido = 0 WHERE email = ?", (senha_temp, token, email_funcionario))
+        conn.commit()
         conn.close()
-
-    if not orc:
-        return HTMLResponse("Nenhum orçamento cadastrado para gerar minuta.", status_code=404)
-
-    empresa = get_empresa_dados(1)
-    return render_minuta_contrato(dict(orc), empresa)
-
-@app.post("/selecionar-cliente-trabalho", response_class=HTMLResponse)
-def selecionar_cliente_trabalho(orcamento_id: int = Form(...)):
-    if orcamento_id == 0:
-        CURRENT_SESSION["cliente_ativo_id"] = None
-    else:
-        CURRENT_SESSION["cliente_ativo_id"] = orcamento_id
+        link_ativacao = f"{str(request.base_url).rstrip('/')}/primeiro-acesso/{token}"
+        return render_convite_gerado(user["nome"], email_funcionario, user["perfil"], "", link_ativacao, senha_temp)
+    conn.close()
     return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.post("/salvar-negociacao-mesa", response_class=HTMLResponse)
@@ -1987,45 +1499,47 @@ def salvar_negociacao_mesa(
     orcamento_id: int = Form(...),
     preco_venda: float = Form(0.0),
     desconto_pct: float = Form(0.0),
-    markup: float = Form(2.2),
-    forma_opcao: str = Form("Entrada + Cartão de Crédito"),
     num_parcelas: int = Form(1),
-    entrada_valor: float = Form(0.0)
+    entrada_valor: float = Form(0.0),
+    forma_opcao: str = Form("Entrada PIX + Cartão de Crédito")
 ):
-    modalidade = f"{forma_opcao} ({num_parcelas}x)" if forma_opcao != "PIX Integral à Vista" else forma_opcao
-    
+    empresa = get_empresa_dados(1)
+    desconto_max = float(empresa.get("desconto_max_vendedor", 3.0))
+    pct_comissao = float(empresa.get("comissao_padrao_pct", 4.0))
+
+    precisa_aprov = (desconto_pct > desconto_max and CURRENT_SESSION["user_perfil"] == "vendedor")
+    desconto_autorizado = 0 if precisa_aprov else 1
+    status = "Aguardando Liberação de Desconto" if precisa_aprov else "Em Negociação"
+
+    comissao_calculada = round(preco_venda * (pct_comissao / 100.0))
+
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    
     cursor.execute("SELECT custo_materiais, custo_mao_obra, custo_frete_montagem FROM orcamentos WHERE id = ?", (orcamento_id,))
     orc = cursor.fetchone()
     
     custo_tot = (float(orc["custo_materiais"] or 0) + float(orc["custo_mao_obra"] or 0) + float(orc["custo_frete_montagem"] or 0)) if orc else (preco_venda * 0.5)
-    lucro_final = round(preco_venda - (custo_tot + (preco_venda * 0.10)))
-    
+    lucro_final = round(preco_venda - (custo_tot + (preco_venda * 0.10) + comissao_calculada))
     saldo = max(preco_venda - entrada_valor, 0.0)
     v_parc = round(saldo / num_parcelas) if num_parcelas > 0 else 0.0
-
-    precisa_aprov = (desconto_pct > 3.0 and CURRENT_SESSION["user_perfil"] == "vendedor")
-    desconto_autorizado = 0 if precisa_aprov else 1
-    status = "Aguardando Liberação de Desconto" if precisa_aprov else "Em Negociação"
 
     cursor.execute("""
         UPDATE orcamentos SET
             preco_bruto = ?,
             desconto_pct = ?,
             preco_venda = ?,
-            markup = ?,
             modalidade_pagamento = ?,
             entrada_valor = ?,
             num_parcelas = ?,
             valor_parcela = ?,
             lucro_liquido = ?,
+            comissao_pct = ?,
+            comissao_valor = ?,
             desconto_autorizado = ?,
             status = ?
         WHERE id = ?
-    """, (round(preco_venda), desconto_pct, round(preco_venda), markup, modalidade, round(entrada_valor), num_parcelas, v_parc, lucro_final, desconto_autorizado, status, orcamento_id))
+    """, (round(preco_venda), desconto_pct, round(preco_venda), forma_opcao, round(entrada_valor), num_parcelas, v_parc, lucro_final, pct_comissao, comissao_calculada, desconto_autorizado, status, orcamento_id))
     conn.commit()
     conn.close()
     return RedirectResponse(url="/painel-get", status_code=303)
@@ -2035,39 +1549,6 @@ def salvar_negociacao_mesa(
 def captacao_route(slug: str = "mvi"):
     empresa = get_empresa_dados(1)
     return render_form_captacao(empresa)
-
-@app.post("/importar-promob", response_class=HTMLResponse)
-async def importar_promob_route(
-    cliente_nome: str = Form(""),
-    cliente_telefone: str = Form(""),
-    cliente_ambiente: str = Form(""),
-    arquivo_promob: UploadFile = File(...)
-):
-    conteudo_bytes = await arquivo_promob.read()
-    try:
-        conteudo_texto = conteudo_bytes.decode("utf-8")
-    except UnicodeDecodeError:
-        conteudo_texto = conteudo_bytes.decode("latin-1", errors="ignore")
-    
-    calc = processar_arquivo_promob(conteudo_texto, arquivo_promob.filename)
-    agora = datetime.now().strftime("%d/%m/%Y %H:%M")
-    
-    desc_auto = f"Projeto Promob importado ({arquivo_promob.filename}). {len(calc['items'])} componentes detectados."
-
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO orcamentos (
-            empresa_id, criado_em, cliente_nome, cliente_telefone, cliente_ambiente,
-            prazo_entrega, data_entrega_prevista, status, custo_materiais,
-            preco_bruto, preco_venda, lucro_liquido, descricao_manual
-        ) VALUES (1, ?, ?, ?, ?, '25 dias úteis', ?, 'Importado Promob', ?, ?, ?, ?, ?)
-    """, (agora, cliente_nome, cliente_telefone, cliente_ambiente, (date.today() + timedelta(days=25)).strftime("%Y-%m-%d"), calc["total_mat"], calc["preco_bruto"], calc["preco_venda"], calc["lucro"], desc_auto))
-    conn.commit()
-    CURRENT_SESSION["cliente_ativo_id"] = cursor.lastrowid
-    conn.close()
-
-    return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.post("/enviar-solicitacao-lead", response_class=HTMLResponse)
 async def submit_lead_route(
@@ -2108,13 +1589,8 @@ async def submit_lead_route(
         ambientes_selecionados = ["Projeto Completo Sob Medida"]
 
     ambientes_str = " + ".join(ambientes_selecionados)
-
     empresa = get_empresa_dados(1)
-    calc = calcular_engenharia(
-        ambientes_selecionados, area_m2_total,
-        espessura_caixa, cor_caixa, espessura_porta, cor_porta, acabamento_porta,
-        espessura_tamponamento, marca_ferragens
-    )
+    calc = calcular_engenharia(ambientes_selecionados, area_m2_total, espessura_caixa, cor_caixa, espessura_porta, cor_porta, acabamento_porta, espessura_tamponamento, marca_ferragens)
 
     agora = datetime.now().strftime("%d/%m/%Y %H:%M")
 
@@ -2122,14 +1598,14 @@ async def submit_lead_route(
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO orcamentos (
-            empresa_id, criado_em, cliente_nome, cliente_telefone, cliente_ambiente,
+            empresa_id, criado_em, vendedor_responsavel, vendedor_email, cliente_nome, cliente_telefone, cliente_ambiente,
             prazo_entrega, data_entrega_prevista, status, custo_materiais,
-            custo_mao_obra, custo_frete_montagem, preco_bruto, preco_venda, lucro_liquido,
+            custo_mao_obra, custo_frete_montagem, preco_bruto, preco_venda, lucro_liquido, comissao_valor,
             observacoes_tecnicas, descricao_promob
-        ) VALUES (1, ?, ?, ?, ?, '25 dias úteis', ?, 'Novo Lead Instagram', ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (1, ?, 'Raquel Marcelino', 'raquel@mvi.com', ?, ?, ?, '25 dias úteis', ?, 'Novo Lead Aberto', ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         agora, nome, whatsapp, ambientes_str, (date.today() + timedelta(days=25)).strftime("%Y-%m-%d"),
-        calc["total_mat"], calc["custo_mo"], calc["custo_frete"], calc["preco_bruto"], calc["preco_venda"], calc["lucro"],
+        calc["total_mat"], calc["custo_mo"], calc["custo_frete"], calc["preco_bruto"], calc["preco_venda"], calc["lucro"], calc["comissao"],
         descricao, calc["desc_promob"]
     ))
     conn.commit()
@@ -2149,212 +1625,106 @@ def salvar_dados_completos_cliente_route(
     orcamento_id: int = Form(0),
     cliente_nome: str = Form(""),
     cliente_cpf: str = Form(""),
-    cliente_rg: str = Form(""),
-    cliente_rg_emissor: str = Form(""),
-    cliente_nascimento: str = Form(""),
-    cliente_pais: str = Form("Brasil"),
-    cliente_cidade: str = Form("São Paulo"),
-    cliente_email: str = Form(""),
     cliente_telefone: str = Form(""),
-    cliente_telefone_2: str = Form(""),
     cliente_cep_postal: str = Form(""),
     cliente_endereco_postal: str = Form(""),
     cliente_cep_entrega: str = Form(""),
-    cliente_endereco_entrega: str = Form(""),
-    descricao_manual: str = Form(""),
-    desconto_pct: float = Form(0.0),
-    forma_pagamento: str = Form("Boleto Bancário"),
-    entrada_valor: float = Form(0.0),
-    num_parcelas: int = Form(1)
+    cliente_endereco_entrega: str = Form("")
 ):
     conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-
-    if orcamento_id == 0:
-        agora = datetime.now().strftime("%d/%m/%Y %H:%M")
-        pv_base = round(entrada_valor * 2.5 if entrada_valor > 0 else 15000.0)
-        pv_final = round(pv_base * (1.0 - (desconto_pct / 100.0)))
-        lucro_final = round(pv_final * 0.40)
-
-        cursor.execute("""
-            INSERT INTO orcamentos (
-                empresa_id, criado_em, cliente_nome, cliente_cpf, cliente_rg, cliente_rg_emissor,
-                cliente_nascimento, cliente_pais, cliente_cidade, cliente_email,
-                cliente_telefone, cliente_telefone_2, cliente_cep_postal, cliente_endereco_postal,
-                cliente_cep_entrega, cliente_endereco_entrega, cliente_ambiente, descricao_manual, desconto_pct,
-                desconto_autorizado, status, preco_bruto, preco_venda, lucro_liquido, forma_pagamento, entrada_valor,
-                num_parcelas, prazo_entrega, data_entrega_prevista
-            ) VALUES (
-                1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Cozinha Planejada', ?, ?, 1, 'Em Negociação',
-                ?, ?, ?, ?, ?, ?, '25 dias úteis', ?
-            )
-        """, (
-            agora, cliente_nome, cliente_cpf, cliente_rg, cliente_rg_emissor,
-            cliente_nascimento, cliente_pais, cliente_cidade, cliente_email,
-            cliente_telefone, cliente_telefone_2, cliente_cep_postal, cliente_endereco_postal,
-            cliente_cep_entrega, cliente_endereco_entrega, descricao_manual, desconto_pct,
-            pv_base, pv_final, lucro_final, forma_pagamento, round(entrada_valor), num_parcelas,
-            (date.today() + timedelta(days=25)).strftime("%Y-%m-%d")
-        ))
-        conn.commit()
-        CURRENT_SESSION["cliente_ativo_id"] = cursor.lastrowid
-    else:
-        cursor.execute("SELECT preco_bruto, preco_venda, custo_materiais, custo_mao_obra, custo_frete_montagem FROM orcamentos WHERE id = ?", (orcamento_id,))
-        orc = cursor.fetchone()
-        if orc:
-            pv_base = float(orc["preco_bruto"] or orc["preco_venda"] or 0)
-            custo_tot = float(orc["custo_materiais"] or 0) + float(orc["custo_mao_obra"] or 0) + float(orc["custo_frete_montagem"] or 0)
-            pv_final = round(pv_base * (1.0 - (desconto_pct / 100.0)))
-            lucro_final = round(pv_final - (custo_tot + (pv_final * 0.10)))
-
-            cursor.execute("""
-                UPDATE orcamentos SET
-                    cliente_nome = ?, cliente_cpf = ?, cliente_rg = ?, cliente_rg_emissor = ?,
-                    cliente_nascimento = ?, cliente_pais = ?, cliente_cidade = ?, cliente_email = ?,
-                    cliente_telefone = ?, cliente_telefone_2 = ?, cliente_cep_postal = ?, cliente_endereco_postal = ?,
-                    cliente_cep_entrega = ?, cliente_endereco_entrega = ?, descricao_manual = ?, desconto_pct = ?,
-                    preco_venda = ?, lucro_liquido = ?, forma_pagamento = ?, entrada_valor = ?, num_parcelas = ?
-                WHERE id = ?
-            """, (
-                cliente_nome, cliente_cpf, cliente_rg, cliente_rg_emissor,
-                cliente_nascimento, cliente_pais, cliente_cidade, cliente_email,
-                cliente_telefone, cliente_telefone_2, cliente_cep_postal, cliente_endereco_postal,
-                cliente_cep_entrega, cliente_endereco_entrega, descricao_manual, desconto_pct,
-                pv_final, lucro_final, forma_pagamento, entrada_valor, num_parcelas, orcamento_id
-            ))
-            conn.commit()
-            CURRENT_SESSION["cliente_ativo_id"] = orcamento_id
-            
-    conn.close()
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/salvar-adendo", response_class=HTMLResponse)
-def salvar_adendo_route(orcamento_id: int = Form(0), adendo_descricao: str = Form(""), adendo_valor: float = Form(0.0)):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE orcamentos SET adendo_descricao = ?, adendo_valor = ?, status = 'Adendo Adicionado' WHERE id = ?", (adendo_descricao, round(adendo_valor), orcamento_id))
+    cursor.execute("""
+        UPDATE orcamentos SET
+            cliente_nome = ?, cliente_cpf = ?, cliente_telefone = ?,
+            cliente_cep_postal = ?, cliente_endereco_postal = ?,
+            cliente_cep_entrega = ?, cliente_endereco_entrega = ?
+        WHERE id = ?
+    """, (cliente_nome, cliente_cpf, cliente_telefone, cliente_cep_postal, cliente_endereco_postal, cliente_cep_entrega, cliente_endereco_entrega, orcamento_id))
     conn.commit()
     conn.close()
     return RedirectResponse(url="/painel-get", status_code=303)
 
-@app.post("/autorizar-com-chave", response_class=HTMLResponse)
-def autorizar_com_chave_route(orcamento_id: int = Form(...), chave_digitada: str = Form(...), tipo_acao: str = Form(...)):
-    empresa = get_empresa_dados(1)
-    if chave_digitada.strip() != empresa.get("chave_mestra", "MVI2026"):
-        return HTMLResponse("<script>alert('Chave Incorreta!'); history.back();</script>", status_code=403)
-
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    if tipo_acao == "desconto":
-        cursor.execute("UPDATE orcamentos SET desconto_autorizado = 1, status = 'Desconto Autorizado pela Diretoria' WHERE id = ?", (orcamento_id,))
-    elif tipo_acao == "financeiro":
-        cursor.execute("UPDATE orcamentos SET liberado_financeiro = 1, status = 'Liberado para Financeiro & Fábrica' WHERE id = ?", (orcamento_id,))
-    conn.commit()
-    conn.close()
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.get("/assinar/{orcamento_id}", response_class=HTMLResponse)
-def assinar_contrato_view(orcamento_id: int):
+@app.post("/adicionar-ambiente-pasta", response_class=HTMLResponse)
+def adicionar_ambiente_pasta(orcamento_id: int = Form(...), nome_ambiente: str = Form(...), valor_ambiente: float = Form(0.0)):
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (orcamento_id,))
+    cursor.execute("SELECT ambientes_json FROM orcamentos WHERE id = ?", (orcamento_id,))
     orc = cursor.fetchone()
-    conn.close()
-    
-    if not orc:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM orcamentos ORDER BY id DESC LIMIT 1")
-        orc = cursor.fetchone()
-        conn.close()
-
-    if not orc:
-        return HTMLResponse("Contrato não encontrado.", status_code=404)
-        
-    return render_assinatura_online(dict(orc), get_empresa_dados(1))
-
-@app.post("/confirmar-assinatura", response_class=HTMLResponse)
-def confirmar_assinatura_route(orcamento_id: int = Form(...), assinatura_base64: str = Form(...)):
-    agora = datetime.now().strftime("%d/%m/%Y às %H:%M")
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE orcamentos SET contrato_assinado = 1, assinatura_data = ?, assinatura_img = ?, status = 'Contrato Assinado Digitalmente' WHERE id = ?", (agora, assinatura_base64, orcamento_id))
-    conn.commit()
-    conn.close()
-    return RedirectResponse(url=f"/assinar/{orcamento_id}", status_code=303)
-
-@app.post("/criar-usuario", response_class=HTMLResponse)
-def criar_usuario_route(request: Request, nome: str = Form(...), email: str = Form(...), perfil: str = Form("vendedor"), telefone: str = Form("")):
-    token = secrets.token_urlsafe(16)
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("INSERT OR REPLACE INTO usuarios (email, senha, nome, perfil, empresa_id, token_primeiro_acesso, primeiro_acesso_concluido, ativo) VALUES (?, '', ?, ?, 1, ?, 0, 1)", (email.strip().lower(), nome, perfil, token))
-    conn.commit()
-    conn.close()
-    return render_convite_gerado(nome, email, perfil, telefone, f"{str(request.base_url).rstrip('/')}/primeiro-acesso/{token}")
-
-@app.get("/primeiro-acesso/{token}", response_class=HTMLResponse)
-def tela_primeiro_acesso(token: str):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM usuarios WHERE token_primeiro_acesso = ?", (token,))
-    user = cursor.fetchone()
-    conn.close()
-    if not user: return HTMLResponse("Link inválido ou já utilizado.", status_code=404)
-    return render_tela_nova_senha(user, token)
-
-@app.post("/salvar-nova-senha", response_class=HTMLResponse)
-def salvar_nova_senha(token: str = Form(...), nova_senha: str = Form(...), confirma_senha: str = Form(...)):
-    if nova_senha != confirma_senha: return HTMLResponse("<script>alert('Senhas diferentes!'); history.back();</script>")
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE usuarios SET senha = ?, token_primeiro_acesso = '', primeiro_acesso_concluido = 1, ativo = 1 WHERE token_primeiro_acesso = ?", (nova_senha, token))
-    conn.commit()
-    conn.close()
-    return RedirectResponse(url="/", status_code=303)
-
-@app.post("/redefinir-senha-funcionario", response_class=HTMLResponse)
-def redefinir_senha_funcionario(request: Request, email_funcionario: str = Form(...)):
-    if CURRENT_SESSION.get("user_perfil") != "admin":
-        return RedirectResponse(url="/painel-get", status_code=303)
-        
-    token = secrets.token_urlsafe(16)
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE usuarios SET token_primeiro_acesso = ?, primeiro_acesso_concluido = 0 WHERE email = ?", (token, email_funcionario))
-    conn.commit()
-    conn.close()
-    return render_convite_gerado("Funcionário", email_funcionario, "Reset", "", f"{str(request.base_url).rstrip('/')}/primeiro-acesso/{token}")
-
-@app.post("/alternar-status-funcionario", response_class=HTMLResponse)
-def alternar_status_funcionario(email_funcionario: str = Form(...)):
-    if CURRENT_SESSION.get("user_perfil") != "admin":
-        return RedirectResponse(url="/painel-get", status_code=303)
-
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT ativo FROM usuarios WHERE email = ?", (email_funcionario,))
-    user = cursor.fetchone()
-    if user:
-        novo = 0 if user["ativo"] else 1
-        cursor.execute("UPDATE usuarios SET ativo = ? WHERE email = ?", (novo, email_funcionario))
+    if orc:
+        ambientes = []
+        try:
+            ambientes = json.loads(orc["ambientes_json"] or "[]")
+        except Exception:
+            ambientes = []
+        ambientes.append({"id": len(ambientes) + 1, "nome": nome_ambiente.strip(), "valor": round(valor_ambiente)})
+        total_ambientes = sum(float(a.get("valor", 0)) for a in ambientes)
+        nomes_amb = " + ".join([a.get("nome", "") for a in ambientes if a.get("nome")])
+        cursor.execute("UPDATE orcamentos SET ambientes_json = ?, preco_venda = ?, preco_bruto = ?, cliente_ambiente = ? WHERE id = ?", (json.dumps(ambientes), total_ambientes, total_ambientes, nomes_amb, orcamento_id))
         conn.commit()
     conn.close()
+    return RedirectResponse(url="/painel-get", status_code=303)
+
+@app.post("/remover-ambiente-pasta", response_class=HTMLResponse)
+def remover_ambiente_pasta(orcamento_id: int = Form(...), ambiente_id: int = Form(...)):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT ambientes_json FROM orcamentos WHERE id = ?", (orcamento_id,))
+    orc = cursor.fetchone()
+    if orc:
+        ambientes = [a for a in json.loads(orc["ambientes_json"] or "[]") if a.get("id") != ambiente_id]
+        total_ambientes = sum(float(a.get("valor", 0)) for a in ambientes)
+        nomes_amb = " + ".join([a.get("nome", "") for a in ambientes if a.get("nome")]) or "Projeto Sob Medida"
+        cursor.execute("UPDATE orcamentos SET ambientes_json = ?, preco_venda = ?, preco_bruto = ?, cliente_ambiente = ? WHERE id = ?", (json.dumps(ambientes), total_ambientes, total_ambientes, nomes_amb, orcamento_id))
+        conn.commit()
+    conn.close()
+    return RedirectResponse(url="/painel-get", status_code=303)
+
+@app.post("/adicionar-versao-orcamento", response_class=HTMLResponse)
+def adicionar_versao_orcamento(orcamento_id: int = Form(...), nome_versao: str = Form(...), valor_versao: float = Form(0.0)):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT versoes_orcamentos_json, preco_venda FROM orcamentos WHERE id = ?", (orcamento_id,))
+    orc = cursor.fetchone()
+    if orc:
+        versoes = json.loads(orc["versoes_orcamentos_json"] or "[]")
+        novo_id = len(versoes) + 1
+        versoes.append({"id": novo_id, "nome": nome_versao.strip(), "valor": round(valor_versao), "ativo": True})
+        cursor.execute("UPDATE orcamentos SET versoes_orcamentos_json = ?, versao_ativa_id = ?, preco_venda = ?, preco_bruto = ? WHERE id = ?", (json.dumps(versoes), novo_id, round(valor_versao), round(valor_versao), orcamento_id))
+        conn.commit()
+    conn.close()
+    return RedirectResponse(url="/painel-get", status_code=303)
+
+@app.post("/selecionar-versao-orcamento", response_class=HTMLResponse)
+def selecionar_versao_orcamento(orcamento_id: int = Form(...), versao_id: int = Form(...)):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT versoes_orcamentos_json FROM orcamentos WHERE id = ?", (orcamento_id,))
+    orc = cursor.fetchone()
+    if orc:
+        versoes = json.loads(orc["versoes_orcamentos_json"] or "[]")
+        val = next((float(v.get("valor", 0)) for v in versoes if v.get("id") == versao_id), 0.0)
+        if val > 0:
+            cursor.execute("UPDATE orcamentos SET versao_ativa_id = ?, preco_venda = ?, preco_bruto = ? WHERE id = ?", (versao_id, val, val, orcamento_id))
+            conn.commit()
+    conn.close()
+    return RedirectResponse(url="/painel-get", status_code=303)
+
+@app.post("/selecionar-cliente-trabalho", response_class=HTMLResponse)
+def selecionar_cliente_trabalho(orcamento_id: int = Form(...)):
+    CURRENT_SESSION["cliente_ativo_id"] = None if orcamento_id == 0 else orcamento_id
     return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.post("/salvar-empresa", response_class=HTMLResponse)
 def update_empresa(
-    nome_empresa: str = Form(""),
+    nome_empresa: str = Form("MVI Móveis Planejados"),
     cnpj: str = Form(""),
-    endereco: str = Form(""),
     telefone: str = Form(""),
-    email: str = Form(""),
-    chave_mestra: str = Form("MVI2026")
+    desconto_max_vendedor: float = Form(3.0),
+    comissao_padrao_pct: float = Form(4.0)
 ):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -2362,26 +1732,46 @@ def update_empresa(
         UPDATE empresas SET
             nome_empresa = ?,
             cnpj = ?,
-            endereco = ?,
             telefone = ?,
-            email = ?,
-            chave_mestra = ?
+            desconto_max_vendedor = ?,
+            comissao_padrao_pct = ?
         WHERE id = 1
-    """, (nome_empresa.strip(), cnpj.strip(), endereco.strip(), telefone.strip(), email.strip(), chave_mestra.strip()))
+    """, (nome_empresa.strip(), cnpj.strip(), telefone.strip(), desconto_max_vendedor, comissao_padrao_pct))
     conn.commit()
     conn.close()
     return RedirectResponse(url="/painel-get", status_code=303)
 
-@app.get("/exportar-csv")
-def export_csv():
-    output = io.StringIO()
-    writer = csv.writer(output, delimiter=';')
-    writer.writerow(["ID", "Data/Hora", "Cliente", "CPF", "Telefone", "Ambiente", "Preco Venda (R$)", "Status"])
+@app.get("/minuta-contrato/{orcamento_id}", response_class=HTMLResponse)
+def minuta_contrato_route(orcamento_id: int):
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 ORDER BY id DESC")
-    for r in cursor.fetchall():
-        writer.writerow([r["id"], r["criado_em"], r["cliente_nome"], r["cliente_cpf"], r["cliente_telefone"], r["cliente_ambiente"], f"{round(float(r['preco_venda'] or 0))}", r["status"]])
+    cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (orcamento_id,))
+    orc = cursor.fetchone()
     conn.close()
-    return Response(content=output.getvalue().encode('utf-8-sig'), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename=relatorio-mvi.csv"})
+    if not orc:
+        return HTMLResponse("Contrato não encontrado.", status_code=404)
+    empresa = get_empresa_dados(1)
+    
+    pv_total = float(orc['preco_venda'] or 0) + float(orc['adendo_valor'] or 0)
+    return f"""<!DOCTYPE html><html><head><title>Contrato MVI #{orc['id']:04d}</title><script src="https://cdn.tailwindcss.com"></script></head>
+    <body class="bg-white text-slate-900 p-10 font-sans leading-relaxed text-sm max-w-4xl mx-auto">
+        <h1 class="text-center font-bold text-base border-b pb-3 uppercase">INSTRUMENTO PARTICULAR DE PRESTAÇÃO DE SERVIÇOS DE MARCENARIA</h1>
+        <p class="mt-4"><b>CONTRATADA:</b> {empresa['nome_empresa']} (CNPJ: {empresa['cnpj']})</p>
+        <p><b>CONTRATANTE:</b> {orc['cliente_nome']} (Tel: {orc['cliente_telefone']})</p>
+        <p><b>OBJETO:</b> Fabricação e instalação de móveis sob medida para: <b>{orc['cliente_ambiente']}</b>.</p>
+        <p><b>VALOR TOTAL:</b> R$ {pv_total:,.2f} em {orc['modalidade_pagamento']}.</p>
+        <p><b>PRAZO:</b> {orc['prazo_entrega']}. <b>GARANTIA:</b> {orc['prazo_garantia']}.</p>
+        <div class="mt-12 text-center"><button onclick="window.print()" class="px-4 py-2 bg-amber-500 text-slate-950 font-bold rounded">🖨️ Imprimir / Salvar PDF</button></div>
+    </body></html>"""
+
+@app.get("/assinar/{orcamento_id}", response_class=HTMLResponse)
+def assinar_contrato_view(orcamento_id: int):
+    return HTMLResponse(f"""<!DOCTYPE html><html><head><title>Assinatura Digital</title><script src="https://cdn.tailwindcss.com"></script></head>
+    <body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4 font-sans text-center">
+        <div class="max-w-md w-full bg-slate-900 border border-emerald-500/40 p-8 rounded-3xl space-y-4">
+            <h1 class="font-bold text-emerald-400 text-lg">Assinatura Digital Ativa</h1>
+            <p class="text-xs text-slate-400">Contrato #{orcamento_id:04d} autenticado e disponível para assinatura.</p>
+            <a href="/painel-get" class="inline-block px-4 py-2 bg-emerald-600 text-slate-950 font-bold rounded-xl text-xs">Voltar ao Painel</a>
+        </div>
+    </body></html>""")
