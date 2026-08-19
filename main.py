@@ -14,7 +14,7 @@ from datetime import datetime, date, timedelta
 from typing import List
 
 app = FastAPI(title="MVI Móveis Planejados - Master SaaS")
-DB_PATH = "mvi_production_v37.db"
+DB_PATH = "mvi_production_v38.db"
 
 # ==============================================================================
 # 1. TRATAMENTO DE ERROS GLOBAL
@@ -113,7 +113,7 @@ def init_db():
             lucro_liquido REAL DEFAULT 0,
             entrada_valor REAL DEFAULT 0,
             num_parcelas INTEGER DEFAULT 1,
-            modalidade_pagamento TEXT DEFAULT 'Boleto Bancário',
+            modalidade_pagamento TEXT DEFAULT 'Entrada + Cartão de Crédito',
             forma_pagamento TEXT DEFAULT 'Entrada + Saldo Parcelado',
             valor_parcela REAL DEFAULT 0,
             valor_recebido REAL DEFAULT 0,
@@ -821,8 +821,29 @@ def render_pre_orcamento_agendamento(
 </body>
 </html>"""
 
+def render_convite_gerado(nome, email, p, tel, link):
+    return f"""<html><body style='background:#0f172a; color:#fff; text-align:center; padding:50px; font-family:sans-serif;'>
+        <h1 style='color:#f59e0b;'>Convite de Acesso Gerado</h1>
+        <p style='margin:20px 0;'>Link Seguro: <br><b style='color:#38bdf8;'>{link}</b></p>
+        <a href='/painel-get' style='color:#f59e0b;'>Voltar ao Painel</a>
+    </body></html>"""
+
+def render_tela_nova_senha(user, token):
+    return f"""<!DOCTYPE html>
+<html lang="pt-br">
+<head><title>Nova Senha</title><script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4">
+    <form action="/salvar-nova-senha" method="post" class="bg-slate-900 p-8 rounded-3xl space-y-4 max-w-sm w-full shadow-2xl">
+        <h1 class="text-xl font-bold">Definir Nova Senha</h1>
+        <input type="hidden" name="token" value="{token}">
+        <input type="password" name="nova_senha" required placeholder="Nova Senha" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white">
+        <input type="password" name="confirma_senha" required placeholder="Confirme Senha" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white">
+        <button type="submit" class="w-full py-3 bg-amber-500 font-bold text-slate-950 rounded-xl">Ativar Conta</button>
+    </form>
+</body></html>"""
+
 # ==============================================================================
-# NOVO LAYOUT DO COCKPIT BASEADO NO MODELO ERP / USICODE COM ABAS DINÂMICAS
+# NOVO LAYOUT DO COCKPIT BASEADO NO MODELO ERP COM MESA ATUALIZADA
 # ==============================================================================
 def render_dashboard_view():
     empresa = get_empresa_dados(1)
@@ -852,21 +873,12 @@ def render_dashboard_view():
     c_nome = cliente_ativo.get("cliente_nome") or "Nenhum cliente cadastrado"
     c_cpf = cliente_ativo.get("cliente_cpf") or "Não informado"
     c_rg = cliente_ativo.get("cliente_rg") or "—"
-    c_rg_emissor = cliente_ativo.get("cliente_rg_emissor") or ""
-    c_nasc = cliente_ativo.get("cliente_nascimento") or ""
-    c_cid = cliente_ativo.get("cliente_cidade") or ""
-    c_email = cliente_ativo.get("cliente_email") or ""
     c_tel = cliente_ativo.get("cliente_telefone") or "—"
-    c_tel2 = cliente_ativo.get("cliente_telefone_2") or ""
     c_cep_post = cliente_ativo.get("cliente_cep_postal") or ""
     c_end_post = cliente_ativo.get("cliente_endereco_postal") or ""
     c_cep_ent = cliente_ativo.get("cliente_cep_entrega") or ""
     c_end_ent = cliente_ativo.get("cliente_endereco_entrega") or ""
-    c_banco = cliente_ativo.get("cliente_banco") or ""
-    c_ag = cliente_ativo.get("cliente_agencia") or ""
-    c_conta = cliente_ativo.get("cliente_conta") or ""
-    c_renda = cliente_ativo.get("cliente_renda") or ""
-    c_desc_man = cliente_ativo.get("descricao_manual") or ""
+    c_email = cliente_ativo.get("cliente_email") or ""
 
     c_prazo = cliente_ativo.get("prazo_entrega") or "45 dias úteis"
     c_amb = cliente_ativo.get("cliente_ambiente") or "Geral"
@@ -876,10 +888,9 @@ def render_dashboard_view():
     c_p_venda = round(float(cliente_ativo.get("preco_venda") or 0))
     c_lucro = round(float(cliente_ativo.get("lucro_liquido") or 0))
     c_desc_pct = float(cliente_ativo.get("desconto_pct") or 0)
-    c_markup = float(cliente_ativo.get("markup") or 2.2)
     c_entrada = round(float(cliente_ativo.get("entrada_valor") or 0))
     c_parc = int(cliente_ativo.get("num_parcelas") or 1)
-    c_mod = cliente_ativo.get("modalidade_pagamento") or "Boleto Bancário"
+    c_mod = cliente_ativo.get("modalidade_pagamento") or "Entrada + Cartão de Crédito"
     c_aut_desc = int(cliente_ativo.get("desconto_autorizado") or 1)
     c_lib_fin = int(cliente_ativo.get("liberado_financeiro") or 0)
     c_assinado = int(cliente_ativo.get("contrato_assinado") or 0)
@@ -973,7 +984,7 @@ def render_dashboard_view():
     <!-- 4. CORPO PRINCIPAL COM ARQUITETURA DE 3 COLUNAS -->
     <div class="max-w-7xl mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-5">
         
-        <!-- COLUNA 1: MENU ARBORESCENTE / PASTAS (3 colunas) COM ABAS DINÂMICAS -->
+        <!-- COLUNA 1: MENU LATERAL -->
         <div class="lg:col-span-3 bg-white border border-slate-300 rounded-xl p-4 shadow-sm space-y-4 text-xs">
             <div>
                 <h3 class="font-bold text-slate-800 flex items-center gap-1.5 pb-2 border-b border-slate-200">
@@ -1011,7 +1022,7 @@ def render_dashboard_view():
             </div>
         </div>
 
-        <!-- COLUNA 2: CONTEÚDO DINÂMICO QUE ALTERNA CONFORME A ABA CLICADA (6 colunas) -->
+        <!-- COLUNA 2: PAINEL CENTRAL DINÂMICO -->
         <div class="lg:col-span-6 space-y-4">
             
             <!-- ABA 1: RESUMO FINANCEIRO E CONTRATO (DEFAULT) -->
@@ -1039,7 +1050,7 @@ def render_dashboard_view():
 
                 <!-- TABELA DE ENTRADA -->
                 <div class="bg-white border border-slate-300 rounded-xl overflow-hidden shadow-sm">
-                    <div class="bg-slate-100 px-4 py-2 border-b border-slate-300 text-xs font-bold text-sky-800 text-center uppercase tracking-wide">ENTRADA (20% MÍNIMO)</div>
+                    <div class="bg-slate-100 px-4 py-2 border-b border-slate-300 text-xs font-bold text-sky-800 text-center uppercase tracking-wide">ENTRADA</div>
                     <table class="w-full text-left text-xs border-collapse">
                         <thead class="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold">
                             <tr>
@@ -1058,9 +1069,9 @@ def render_dashboard_view():
                                 <td class="py-2.5 px-3 text-slate-700">{hoje.strftime('%d/%m/%Y')}</td>
                                 <td class="py-2.5 px-3 font-bold text-emerald-700 text-right">R$ {c_entrada:,.2f}</td>
                                 <td class="py-2.5 px-3 text-sky-700 font-semibold">{c_mod}</td>
-                                <td class="py-2.5 px-3 text-center text-slate-400">{c_banco if c_banco else '—'}</td>
-                                <td class="py-2.5 px-3 text-center text-slate-400">{c_ag if c_ag else '—'}</td>
-                                <td class="py-2.5 px-3 text-center text-slate-400">{c_conta if c_conta else '—'}</td>
+                                <td class="py-2.5 px-3 text-center text-slate-400">—</td>
+                                <td class="py-2.5 px-3 text-center text-slate-400">—</td>
+                                <td class="py-2.5 px-3 text-center text-slate-400">—</td>
                             </tr>
                         </tbody>
                     </table>
@@ -1141,46 +1152,76 @@ def render_dashboard_view():
                 </form>
             </div>
 
-            <!-- ABA 3: MESA DE NEGOCIAÇÃO E FECHAMENTO -->
+            <!-- ABA 3: MESA DE NEGOCIAÇÃO E FECHAMENTO COM TODAS AS OPÇÕES E OLHO -->
             <div id="aba-mesa" class="tab-content bg-white border border-slate-300 rounded-xl p-5 shadow-sm space-y-4 text-xs">
-                <h3 class="font-bold text-slate-800 uppercase pb-1 border-b border-slate-200">💼 Mesa de Negociação & Fechamento Financeiro</h3>
+                <div class="flex justify-between items-center pb-1 border-b border-slate-200">
+                    <h3 class="font-bold text-slate-800 uppercase">💼 Mesa de Negociação & Fechamento Financeiro</h3>
+                    <input type="hidden" id="preco_bruto_base" value="{c_p_bruto if c_p_bruto > 0 else c_p_venda}">
+                </div>
+
                 <form action="/salvar-negociacao-mesa" method="post" class="space-y-4">
                     <input type="hidden" name="orcamento_id" value="{c_id}">
 
-                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <!-- VALOR DE VENDA MANUAL -->
                         <div>
-                            <label class="block text-slate-500 mb-1">Valor Venda (R$)</label>
-                            <input type="number" step="1" name="preco_venda" id="preco_venda" value="{c_p_venda}" required class="w-full p-2 bg-slate-50 border border-slate-300 rounded font-bold text-sky-800">
+                            <label class="block text-slate-500 mb-1 font-semibold">Valor Venda (R$)</label>
+                            <input type="number" step="1" name="preco_venda" id="preco_venda_input" value="{c_p_venda}" required class="w-full p-2 bg-slate-50 border border-slate-300 rounded font-bold text-sky-800 text-sm focus:border-sky-500">
                         </div>
+
+                        <!-- DESCONTO (%) + BOTÃO DE SIMULAÇÃO -->
                         <div>
-                            <label class="block text-slate-500 mb-1">Desconto (%)</label>
-                            <input type="number" step="0.1" name="desconto_pct" id="desconto_pct" value="{c_desc_pct}" class="w-full p-2 bg-slate-50 border border-slate-300 rounded">
+                            <label class="block text-slate-500 mb-1 font-semibold">Desconto (%)</label>
+                            <div class="flex gap-1.5">
+                                <input type="number" step="0.1" name="desconto_pct" id="desconto_pct_input" value="{c_desc_pct}" class="w-2/3 p-2 bg-slate-50 border border-slate-300 rounded font-bold">
+                                <button type="button" onclick="simularDesconto()" class="w-1/3 px-2 py-1 bg-amber-500 hover:bg-amber-400 text-slate-900 font-bold rounded text-[11px]" title="Atualizar valor com desconto">
+                                    ⚡ Simular
+                                </button>
+                            </div>
                         </div>
+
+                        <!-- VALOR DE ENTRADA -->
                         <div>
-                            <label class="block text-slate-500 mb-1">Entrada (R$)</label>
-                            <input type="number" step="100" name="entrada_valor" id="entrada_valor" value="{c_entrada}" required class="w-full p-2 bg-slate-50 border border-slate-300 rounded font-bold text-emerald-700">
-                        </div>
-                        <div>
-                            <label class="block text-slate-500 mb-1">Nº Parcelas</label>
-                            <input type="number" min="1" max="24" name="num_parcelas" id="num_parcelas" value="{c_parc}" required class="w-full p-2 bg-slate-50 border border-slate-300 rounded">
+                            <label class="block text-slate-500 mb-1 font-semibold">Entrada (R$)</label>
+                            <input type="number" step="100" name="entrada_valor" id="entrada_valor_input" value="{c_entrada}" required class="w-full p-2 bg-slate-50 border border-slate-300 rounded font-bold text-emerald-700 text-sm">
                         </div>
                     </div>
 
-                    <div>
-                        <label class="block text-slate-500 mb-1">Modalidade de Pagamento</label>
-                        <select name="modalidade_pagamento" class="w-full p-2 bg-slate-50 border border-slate-300 rounded font-semibold">
-                            <option value="Boleto Bancário" {"selected" if "Boleto" in c_mod else ""}>📄 Boleto Bancário (em até 24x)</option>
-                            <option value="Cartão de Crédito" {"selected" if "Cartão" in c_mod else ""}>💳 Cartão de Crédito (em até 12x)</option>
-                            <option value="PIX à Vista" {"selected" if "PIX" in c_mod else ""}>⚡ PIX à Vista (5% de Desconto)</option>
-                        </select>
+                    <!-- FORMA DE PAGAMENTO COM SELEÇÃO DE PARCELAS EMBUTIDA (1X A 12X E 1X A 24X) -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-slate-500 mb-1 font-semibold">Forma de Pagamento</label>
+                            <select name="forma_opcao" id="forma_opcao_select" onchange="atualizarFormaPagamento()" class="w-full p-2 bg-slate-50 border border-slate-300 rounded font-semibold text-slate-800">
+                                <option value="Entrada PIX + 3 à Vista" {"selected" if "3 à Vista" in c_mod or "PIX + 3" in c_mod else ""}>Entrada PIX + 3 à Vista (PIX/TED)</option>
+                                <option value="Entrada + Cartão de Crédito" {"selected" if "Cartão" in c_mod and "3 à Vista" not in c_mod else ""}>Entrada + Cartão de Crédito</option>
+                                <option value="Entrada + Boleto Bancário" {"selected" if "Boleto" in c_mod else ""}>Entrada + Boleto Bancário</option>
+                                <option value="PIX Integral à Vista" {"selected" if "PIX Integral" in c_mod else ""}>PIX Integral à Vista (5% OFF)</option>
+                            </select>
+                            <input type="hidden" name="modalidade_pagamento" id="modalidade_pagamento_hidden" value="{c_mod}">
+                        </div>
+
+                        <div id="box_parcelas_dinamico">
+                            <label class="block text-slate-500 mb-1 font-semibold" id="label_vezes">Quantidade de Parcelas</label>
+                            <select name="num_parcelas" id="num_parcelas_select" onchange="atualizarFormaPagamento()" class="w-full p-2 bg-slate-50 border border-slate-300 rounded font-bold text-slate-800">
+                                <!-- Preenchido via JavaScript -->
+                            </select>
+                        </div>
                     </div>
 
-                    <div class="p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex justify-between items-center">
-                        <span class="font-bold text-emerald-800">Lucro Líquido da Operação:</span>
-                        <span id="valor_lucro_operacao" data-real="R$ {c_lucro:,.2f}" class="font-black text-emerald-700 text-base">R$ {c_lucro:,.2f}</span>
+                    <!-- LUCRO LÍQUIDO COM OLHO DE VISUALIZAÇÃO -->
+                    <div class="p-3.5 bg-emerald-50 border border-emerald-200 rounded-lg flex justify-between items-center">
+                        <div>
+                            <span class="font-bold text-emerald-900 block text-xs">Lucro Líquido da Operação:</span>
+                            <span id="valor_lucro_operacao" data-real="R$ {c_lucro:,.2f}" class="font-black text-emerald-700 text-lg">R$ {c_lucro:,.2f}</span>
+                        </div>
+                        <button type="button" onclick="alternarOlhoLucro()" id="btn_olho_lucro" title="Ocultar / Revelar Lucro" class="p-2 bg-white hover:bg-emerald-100 border border-emerald-300 rounded-lg text-slate-700 text-sm font-bold shadow-sm">
+                            👁️
+                        </button>
                     </div>
 
-                    <button type="submit" class="w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded shadow">💾 Atualizar Negociação</button>
+                    <button type="submit" class="w-full py-3 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-lg text-xs shadow-md">
+                        💾 Atualizar Negociação & Salvar
+                    </button>
                 </form>
             </div>
 
@@ -1268,8 +1309,10 @@ def render_dashboard_view():
 
     </div>
 
-    <!-- JAVASCRIPT DE CONTROLE DAS ABAS E CEP -->
+    <!-- JAVASCRIPT DE CONTROLE DAS ABAS, SIMULAÇÃO E OLHO -->
     <script>
+        var parcelasSalvas = {c_parc};
+
         function mudarAba(abaId) {{
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
             document.querySelectorAll('.tree-item').forEach(b => b.classList.remove('active'));
@@ -1279,6 +1322,73 @@ def render_dashboard_view():
             
             if (targetAba) targetAba.classList.add('active');
             if (targetBtn) targetBtn.classList.add('active');
+        }}
+
+        // ATUALIZA AS OPÇÕES DE PARCELAS CONFORME A MODALIDADE ESCOLHIDA
+        function atualizarFormaPagamento() {{
+            var opcao = document.getElementById('forma_opcao_select').value;
+            var boxParc = document.getElementById('box_parcelas_dinamico');
+            var selectParc = document.getElementById('num_parcelas_select');
+            var hiddenMod = document.getElementById('modalidade_pagamento_hidden');
+
+            selectParc.innerHTML = "";
+
+            if (opcao === "Entrada PIX + 3 à Vista") {{
+                boxParc.style.display = "block";
+                selectParc.innerHTML = `
+                    <option value="1" ` + (parcelasSalvas == 1 ? 'selected' : '') + `>1x (À Vista)</option>
+                    <option value="2" ` + (parcelasSalvas == 2 ? 'selected' : '') + `>2x (30/60 dias)</option>
+                    <option value="3" ` + (parcelasSalvas == 3 ? 'selected' : '') + `>3x (30/60/90 dias)</option>
+                `;
+                hiddenMod.value = "Entrada PIX + 3 à Vista";
+            }} else if (opcao === "Entrada + Cartão de Crédito") {{
+                boxParc.style.display = "block";
+                for (var i = 1; i <= 12; i++) {{
+                    selectParc.innerHTML += `<option value="` + i + `" ` + (parcelasSalvas == i ? 'selected' : '') + `>` + i + `x no Cartão</option>`;
+                }}
+                hiddenMod.value = "Entrada + " + selectParc.value + "x no Cartão";
+            }} else if (opcao === "Entrada + Boleto Bancário") {{
+                boxParc.style.display = "block";
+                for (var i = 1; i <= 24; i++) {{
+                    selectParc.innerHTML += `<option value="` + i + `" ` + (parcelasSalvas == i ? 'selected' : '') + `>` + i + `x no Boleto</option>`;
+                }}
+                hiddenMod.value = "Entrada + " + selectParc.value + "x no Boleto";
+            }} else {{
+                // PIX Integral
+                boxParc.style.display = "none";
+                selectParc.innerHTML = `<option value="1" selected>1x (Integral)</option>`;
+                hiddenMod.value = "PIX Integral à Vista (5% OFF)";
+            }}
+        }}
+
+        // BOTÃO DE SIMULAR DESCONTO
+        function simularDesconto() {{
+            var precoBruto = parseFloat(document.getElementById('preco_bruto_base').value) || 0;
+            var descPct = parseFloat(document.getElementById('desconto_pct_input').value) || 0;
+            
+            if (precoBruto > 0) {{
+                var precoFinal = Math.round(precoBruto * (1.0 - (descPct / 100.0)));
+                document.getElementById('preco_venda_input').value = precoFinal;
+            }}
+        }}
+
+        // OLHO PARA OCULTAR / REVELAR LUCRO
+        var lucroVisivel = true;
+        function alternarOlhoLucro() {{
+            var elem = document.getElementById('valor_lucro_operacao');
+            var btn = document.getElementById('btn_olho_lucro');
+            if (!elem) return;
+
+            lucroVisivel = !lucroVisivel;
+            if (lucroVisivel) {{
+                elem.innerText = elem.getAttribute('data-real');
+                btn.innerText = "👁️";
+                elem.style.filter = "none";
+            }} else {{
+                elem.innerText = "••••••••";
+                btn.innerText = "🙈";
+                elem.style.filter = "blur(4px)";
+            }}
         }}
 
         function buscarCep(tipo) {{
@@ -1308,6 +1418,10 @@ def render_dashboard_view():
                     endText.value = "";
                 }});
         }}
+
+        window.onload = function() {{
+            atualizarFormaPagamento();
+        }};
     </script>
 </body></html>"""
 
@@ -1381,10 +1495,12 @@ def salvar_negociacao_mesa(
     preco_venda: float = Form(0.0),
     desconto_pct: float = Form(0.0),
     markup: float = Form(2.2),
-    modalidade_pagamento: str = Form("Boleto Bancário"),
-    entrada_valor: float = Form(0.0),
-    num_parcelas: int = Form(1)
+    forma_opcao: str = Form("Entrada + Cartão de Crédito"),
+    num_parcelas: int = Form(1),
+    entrada_valor: float = Form(0.0)
 ):
+    modalidade = f"{forma_opcao} ({num_parcelas}x)" if forma_opcao != "PIX Integral à Vista" else forma_opcao
+    
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
@@ -1416,7 +1532,7 @@ def salvar_negociacao_mesa(
             desconto_autorizado = ?,
             status = ?
         WHERE id = ?
-    """, (round(preco_venda), desconto_pct, round(preco_venda), markup, modalidade_pagamento, round(entrada_valor), num_parcelas, v_parc, lucro_final, desconto_autorizado, status, orcamento_id))
+    """, (round(preco_venda), desconto_pct, round(preco_venda), markup, modalidade, round(entrada_valor), num_parcelas, v_parc, lucro_final, desconto_autorizado, status, orcamento_id))
     conn.commit()
     conn.close()
     return RedirectResponse(url="/painel-get", status_code=303)
