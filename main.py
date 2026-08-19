@@ -14,7 +14,7 @@ from datetime import datetime, date, timedelta
 from typing import List
 
 app = FastAPI(title="MVI Móveis Planejados - Master SaaS")
-DB_PATH = "mvi_production_v25.db"
+DB_PATH = "mvi_production_v26.db"
 
 # ==============================================================================
 # 1. TRATAMENTO DE ERROS GLOBAL
@@ -279,9 +279,9 @@ def calcular_engenharia(
     custo_frete = max(qtd_amb * 400.0, 800.0)
     markup = 2.2
 
-    preco_bruto = (total_materiais + custo_mo + custo_frete) * markup
+    preco_bruto = round((total_materiais + custo_mo + custo_frete) * markup)
     preco_venda = preco_bruto
-    lucro = preco_venda - (total_materiais + custo_mo + custo_frete + (preco_venda * 0.10))
+    lucro = round(preco_venda - (total_materiais + custo_mo + custo_frete + (preco_venda * 0.10)))
 
     return {
         "items": items, "total_mat": total_materiais,
@@ -345,9 +345,9 @@ def processar_arquivo_promob(conteudo_texto: str, nome_arquivo: str):
     dias = max(int(math.ceil(len(items) * 0.3)), 4)
     custo_mo = dias * 180.0
     custo_frete = max(len(items) * 35.0, 600.0)
-    preco_bruto = (total_mat + custo_mo + custo_frete) * 2.2
+    preco_bruto = round((total_mat + custo_mo + custo_frete) * 2.2)
     preco_venda = preco_bruto
-    lucro = preco_venda - (total_mat + custo_mo + custo_frete + (preco_venda * 0.10))
+    lucro = round(preco_venda - (total_mat + custo_mo + custo_frete + (preco_venda * 0.10)))
 
     return {"items": items, "total_mat": total_mat, "custo_mo": custo_mo, "custo_frete": custo_frete, "preco_bruto": preco_bruto, "preco_venda": preco_venda, "lucro": lucro}
 
@@ -411,25 +411,25 @@ def render_dashboard_view():
     c_id = cliente_ativo["id"] if cliente_ativo else 0
     c_nome = cliente_ativo["cliente_nome"] if cliente_ativo else "Selecione um Cliente"
     c_amb = cliente_ativo["cliente_ambiente"] if cliente_ativo else "Geral"
-    c_p_bruto = float(cliente_ativo["preco_bruto"] or cliente_ativo["preco_venda"] or 0) if cliente_ativo else 0.0
-    c_p_venda = float(cliente_ativo["preco_venda"] or 0) if cliente_ativo else 0.0
-    c_lucro = float(cliente_ativo["lucro_liquido"] or 0) if cliente_ativo else 0.0
+    c_p_bruto = round(float(cliente_ativo["preco_bruto"] or cliente_ativo["preco_venda"] or 0)) if cliente_ativo else 0
+    c_p_venda = round(float(cliente_ativo["preco_venda"] or 0)) if cliente_ativo else 0
+    c_lucro = round(float(cliente_ativo["lucro_liquido"] or 0)) if cliente_ativo else 0
     c_desc_pct = float(cliente_ativo["desconto_pct"] or 0) if cliente_ativo else 0.0
     c_markup = float(cliente_ativo["markup"] or 2.2) if cliente_ativo else 2.2
-    c_entrada = float(cliente_ativo["entrada_valor"] or 0) if cliente_ativo else 0.0
+    c_entrada = round(float(cliente_ativo["entrada_valor"] or 0)) if cliente_ativo else 0
     c_parc = int(cliente_ativo["num_parcelas"] or 1) if cliente_ativo else 1
     c_mod = cliente_ativo["modalidade_pagamento"] if cliente_ativo and cliente_ativo["modalidade_pagamento"] else "Cartão de Crédito em até 12x"
     c_aut_desc = int(cliente_ativo["desconto_autorizado"] or 1) if cliente_ativo else 1
     
-    saldo_financiar = max(c_p_venda - c_entrada, 0.0)
-    valor_por_parcela = saldo_financiar / c_parc if c_parc > 0 else 0.0
+    saldo_financiar = max(c_p_venda - c_entrada, 0)
+    valor_por_parcela = round(saldo_financiar / c_parc) if c_parc > 0 else 0
 
     leads_html = ""
     for h in leads:
-        pv = float(h["preco_venda"] or 0)
-        adendo = float(h["adendo_valor"] or 0)
+        pv = round(float(h["preco_venda"] or 0))
+        adendo = round(float(h["adendo_valor"] or 0))
         pv_total = pv + adendo
-        lucro = float(h["lucro_liquido"] or 0)
+        lucro = round(float(h["lucro_liquido"] or 0))
         st = h["status"] or "Em Negociação"
         desc = float(h["desconto_pct"] or 0)
         aut_desc = int(h["desconto_autorizado"] or 1)
@@ -600,7 +600,7 @@ def render_dashboard_view():
                         <h2 class="text-lg font-bold text-white flex items-center gap-2">
                             <span>💼 Mesa de Negociação & Fechamento Manual</span>
                         </h2>
-                        <p class="text-xs text-slate-400">Você pode digitar o valor de fechamento livremente. Se o desconto for excessivo, o sistema travará a venda até liberação do Administrador.</p>
+                        <p class="text-xs text-slate-400">Valores arredondados e bloqueio de segurança na margem de venda.</p>
                     </div>
                     <div class="flex items-center gap-2">
                         <a href="/minuta-contrato/{c_id}" target="_blank" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold">
@@ -619,7 +619,7 @@ def render_dashboard_view():
                         <!-- VALOR BRUTO -->
                         <div class="bg-slate-950 p-4 border border-slate-800 rounded-2xl space-y-1">
                             <label class="text-[11px] text-slate-400 font-bold uppercase block">1. Valor Bruto (Tabela / Projeto)</label>
-                            <input type="number" step="0.01" name="preco_bruto" id="preco_bruto" value="{c_p_bruto:.2f}" oninput="recalcularPorBrutoOuDesc()" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold text-base focus:border-amber-500">
+                            <input type="number" step="1" name="preco_bruto" id="preco_bruto" value="{c_p_bruto}" oninput="recalcularPorBrutoOuDesc()" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold text-base focus:border-amber-500">
                         </div>
 
                         <!-- DESCONTO COMERCIAL -->
@@ -634,7 +634,7 @@ def render_dashboard_view():
                         <!-- VALOR LÍQUIDO FINAL -->
                         <div class="bg-slate-950 p-4 border border-amber-500/50 rounded-2xl space-y-1">
                             <label class="text-[11px] text-amber-400 font-bold uppercase block">3. Valor Fechamento Manual (R$)</label>
-                            <input type="number" step="0.01" name="preco_venda" id="preco_venda" value="{c_p_venda:.2f}" oninput="recalcularPorValorManual()" class="w-full px-3 py-2 bg-slate-900 border border-amber-500 rounded-xl text-amber-300 font-black text-xl focus:outline-none">
+                            <input type="number" step="1" name="preco_venda" id="preco_venda" value="{c_p_venda}" oninput="recalcularPorValorManual()" class="w-full px-3 py-2 bg-slate-900 border border-amber-500 rounded-xl text-amber-300 font-black text-xl focus:outline-none">
                             <span class="text-[10px] text-slate-500 block">Pode digitar o valor final direto</span>
                         </div>
 
@@ -664,7 +664,7 @@ def render_dashboard_view():
                             </div>
                             <div>
                                 <label class="block text-slate-400 mb-1">Valor de Entrada (R$)</label>
-                                <input type="number" step="100" name="entrada_valor" id="entrada_valor" value="{c_entrada:.2f}" oninput="recalcularParcelas()" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold">
+                                <input type="number" step="100" name="entrada_valor" id="entrada_valor" value="{c_entrada}" oninput="recalcularParcelas()" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold">
                             </div>
                             <div>
                                 <label class="block text-slate-400 mb-1">Nº de Parcelas</label>
@@ -674,9 +674,9 @@ def render_dashboard_view():
 
                         <div class="p-3 bg-slate-900 rounded-xl border border-slate-800 flex flex-wrap justify-between items-center text-xs">
                             <span class="text-slate-300">
-                                Simulação: Entrada de <b>R$ {c_entrada:,.2f}</b> + <b>{c_parc}x de <span id="txt_parcela" class="text-amber-400 font-bold">R$ {valor_por_parcela:,.2f}</span></b>
+                                Simulação: Entrada de <b>R$ {c_entrada:,.0f}</b> + <b>{c_parc}x de <span id="txt_parcela" class="text-amber-400 font-bold">R$ {valor_por_parcela:,.0f}</span></b>
                             </span>
-                            <span class="text-[11px] text-slate-400">Saldo Financiado: R$ <span id="txt_saldo">{saldo_financiar:,.2f}</span></span>
+                            <span class="text-[11px] text-slate-400">Saldo Financiado: R$ <span id="txt_saldo">{saldo_financiar:,.0f}</span></span>
                         </div>
                     </div>
 
@@ -854,8 +854,8 @@ def render_dashboard_view():
         function recalcularPorBrutoOuDesc() {{
             var bruto = parseFloat(document.getElementById('preco_bruto').value) || 0;
             var desc = parseFloat(document.getElementById('desconto_pct').value) || 0;
-            var valorFinal = bruto * (1.0 - (desc / 100.0));
-            document.getElementById('preco_venda').value = valorFinal.toFixed(2);
+            var valorFinal = Math.round(bruto * (1.0 - (desc / 100.0)));
+            document.getElementById('preco_venda').value = valorFinal;
             verificarMargemEAlerta(desc);
             recalcularParcelas();
         }}
@@ -915,14 +915,14 @@ def render_dashboard_view():
         }}
 
         function recalcularParcelas() {{
-            var valorFinal = parseFloat(document.getElementById('preco_venda').value) || 0;
-            var entrada = parseFloat(document.getElementById('entrada_valor').value) || 0;
+            var valorFinal = Math.round(parseFloat(document.getElementById('preco_venda').value) || 0);
+            var entrada = Math.round(parseFloat(document.getElementById('entrada_valor').value) || 0);
             var nParc = parseInt(document.getElementById('num_parcelas').value) || 1;
 
             var saldo = Math.max(valorFinal - entrada, 0);
-            var vParc = nParc > 0 ? (saldo / nParc) : 0;
-            document.getElementById('txt_parcela').innerText = "R$ " + vParc.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
-            document.getElementById('txt_saldo').innerText = saldo.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
+            var vParc = nParc > 0 ? Math.round(saldo / nParc) : 0;
+            document.getElementById('txt_parcela').innerText = "R$ " + vParc.toLocaleString('pt-BR');
+            document.getElementById('txt_saldo').innerText = saldo.toLocaleString('pt-BR');
         }}
 
         var lucroVisivel = true;
@@ -981,7 +981,7 @@ def render_dashboard_view():
 </body></html>"""
 
 # ==============================================================================
-# 5. SIMULADOR PÚBLICO COM OS RÓTULOS (LABELS) CORRIGIDOS E CLAROS
+# 5. SIMULADOR PÚBLICO COM A NOVA SEÇÃO DE AMBIENTES E QUANTIDADES
 # ==============================================================================
 def render_form_captacao(empresa):
     return f"""<!DOCTYPE html>
@@ -997,8 +997,9 @@ def render_form_captacao(empresa):
     <main class="max-w-3xl w-full mx-auto p-4 sm:p-6 my-auto">
         <form action="/enviar-solicitacao-lead" method="post" enctype="multipart/form-data" class="bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl space-y-4">
             <h2 class="text-lg font-bold text-white mb-1">Simulador de Projeto Sob Medida</h2>
-            <p class="text-xs text-slate-400 mb-3">Defina as especificações de caixaria, portas, acabamentos e ferragens do seu projeto.</p>
+            <p class="text-xs text-slate-400 mb-3">Defina seus ambientes, caixaria, portas, acabamentos e ferragens.</p>
             
+            <!-- IDENTIFICAÇÃO BÁSICA -->
             <div class="grid sm:grid-cols-2 gap-3 text-xs">
                 <div>
                     <label class="block text-slate-300 font-semibold mb-1">👤 Seu Nome Completo</label>
@@ -1015,6 +1016,71 @@ def render_form_captacao(empresa):
                 <div>
                     <label class="block text-slate-300 font-semibold mb-1">📍 Cidade / Bairro da Obra</label>
                     <input type="text" name="cidade" required placeholder="Ex: São Paulo / Moema" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                </div>
+            </div>
+            
+            <!-- NOVA SEÇÃO DE ESCOLHA DE AMBIENTES E QUANTIDADES -->
+            <div class="bg-slate-950 p-4 sm:p-5 rounded-2xl border border-slate-800 space-y-3 text-xs">
+                <h3 class="font-bold text-amber-400 uppercase tracking-wide">🏠 Escolha os Ambientes do seu Projeto</h3>
+                
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    <label class="flex items-center space-x-2 bg-slate-900 p-2.5 rounded-xl border border-slate-800 cursor-pointer hover:border-amber-500">
+                        <input type="checkbox" name="amb_cozinha" value="1" checked class="rounded text-amber-500">
+                        <span>🍳 Cozinha</span>
+                    </label>
+
+                    <label class="flex items-center space-x-2 bg-slate-900 p-2.5 rounded-xl border border-slate-800 cursor-pointer hover:border-amber-500">
+                        <input type="checkbox" name="amb_lavanderia" value="1" checked class="rounded text-amber-500">
+                        <span>🧺 Lavanderia</span>
+                    </label>
+
+                    <label class="flex items-center space-x-2 bg-slate-900 p-2.5 rounded-xl border border-slate-800 cursor-pointer hover:border-amber-500">
+                        <input type="checkbox" name="amb_sala" value="1" checked class="rounded text-amber-500">
+                        <span>🛋️ Sala</span>
+                    </label>
+
+                    <label class="flex items-center space-x-2 bg-slate-900 p-2.5 rounded-xl border border-slate-800 cursor-pointer hover:border-amber-500">
+                        <input type="checkbox" name="amb_sacada" value="1" class="rounded text-amber-500">
+                        <span>🌿 Sacada</span>
+                    </label>
+
+                    <label class="flex items-center space-x-2 bg-slate-900 p-2.5 rounded-xl border border-slate-800 cursor-pointer hover:border-amber-500">
+                        <input type="checkbox" name="amb_gourmet" value="1" class="rounded text-amber-500">
+                        <span>🥩 Área Gourmet</span>
+                    </label>
+                </div>
+
+                <!-- AMBIENTES COM SELETOR DE QUANTIDADES -->
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-800/80">
+                    <div class="bg-slate-900 p-2.5 rounded-xl border border-slate-800 flex justify-between items-center">
+                        <label class="font-semibold text-slate-300">🛏️ Dorm. Solteiro</label>
+                        <select name="qtd_dorm_solteiro" class="px-2 py-1 bg-slate-950 border border-slate-700 rounded-lg text-white font-bold">
+                            <option value="0">0</option>
+                            <option value="1" selected>1</option>
+                            <option value="2">2</option>
+                            <option value="3">3</option>
+                        </select>
+                    </div>
+
+                    <div class="bg-slate-900 p-2.5 rounded-xl border border-slate-800 flex justify-between items-center">
+                        <label class="font-semibold text-slate-300">👑 Dorm. Casal / Suíte</label>
+                        <select name="qtd_dorm_casal" class="px-2 py-1 bg-slate-950 border border-slate-700 rounded-lg text-white font-bold">
+                            <option value="0">0</option>
+                            <option value="1" selected>1</option>
+                            <option value="2">2</option>
+                        </select>
+                    </div>
+
+                    <div class="bg-slate-900 p-2.5 rounded-xl border border-slate-800 flex justify-between items-center">
+                        <label class="font-semibold text-slate-300">🚿 Banheiro</label>
+                        <select name="qtd_banheiro" class="px-2 py-1 bg-slate-950 border border-slate-700 rounded-lg text-white font-bold">
+                            <option value="0">0</option>
+                            <option value="1">1</option>
+                            <option value="2" selected>2</option>
+                            <option value="3">3</option>
+                            <option value="4">4</option>
+                        </select>
+                    </div>
                 </div>
             </div>
             
@@ -1092,7 +1158,7 @@ def render_form_captacao(empresa):
                     </div>
                 </div>
 
-                <!-- 4. CAIXA DE OBSERVAÇÃO DENTRO DA SEÇÃO DE ACABAMENTOS -->
+                <!-- 4. CAIXA DE OBSERVAÇÃO -->
                 <div>
                     <label class="block text-slate-300 font-semibold mb-1">Observações & Detalhes Especiais do seu Projeto</label>
                     <textarea name="descricao" rows="3" placeholder="Ex: Gostaria de iluminação em LED embutida nos aéreos, puxador cava usinada nos gaveteiros da cozinha, amortecedor em todas as portas e portas de vidro reflecta bronze na suíte..." class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-amber-500 text-xs"></textarea>
@@ -1106,7 +1172,7 @@ def render_form_captacao(empresa):
                 </div>
                 <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1">
                     <label class="font-bold text-slate-300 block">🖼️ Foto de Inspiração / Referência</label>
-                    <input type="file" name="inspiracao" class="w-full text-slate-400 file:bg-slate-700 file:border-0 file:rounded-xl file:px-3 file:py-1 file:font-bold text-white text-xs">
+                    <input type="file" name="inspiracao" class="w-full text-slate-400 file:bg-slate-700 file:border-0 file:rounded-xl file:px-3 file:py-1 file:font-bold file:text-white text-xs">
                 </div>
             </div>
             
@@ -1118,17 +1184,18 @@ def render_form_captacao(empresa):
 </body></html>"""
 
 # ==============================================================================
-# TELA DE PRÉ-ORÇAMENTO COM DESCONTO DE 5% À VISTA E FORMAS DE PAGAMENTO
+# TELA DE PRÉ-ORÇAMENTO COM ENTRADA MÍNIMA DE 20% E NÚMEROS REDONDOS
 # ==============================================================================
 def render_pre_orcamento_agendamento(
     empresa, orcamento_id, nome, whatsapp, cidade, area_m2, preco_venda,
-    esp_caixa, cor_caixa, esp_porta, cor_porta, acab_porta, marca_ferr, esp_tamp
+    esp_caixa, cor_caixa, esp_porta, cor_porta, acab_porta, marca_ferr, esp_tamp, ambientes_str
 ):
-    entrada_minima = preco_venda * 0.30
-    saldo_restante = preco_venda - entrada_minima
-    parcela_12x = saldo_restante / 12.0
-    desconto_vista_5 = preco_venda * 0.95
-    economia_5 = preco_venda * 0.05
+    pv_redondo = round(preco_venda)
+    entrada_minima = round(pv_redondo * 0.20)
+    saldo_restante = pv_redondo - entrada_minima
+    parcela_12x = round(saldo_restante / 12.0)
+    desconto_vista_5 = round(pv_redondo * 0.95)
+    economia_5 = pv_redondo - desconto_vista_5
 
     tel_limpo = empresa["telefone"].replace("-","").replace(" ","").replace("(","").replace(")","")
 
@@ -1146,19 +1213,20 @@ def render_pre_orcamento_agendamento(
         <div class="text-center space-y-2 border-b border-slate-800 pb-4">
             <span class="text-4xl block animate-bounce">✨</span>
             <h1 class="text-xl sm:text-2xl font-bold text-white">Seu Pré-Orçamento Sob Medida foi Calculado!</h1>
-            <p class="text-xs text-slate-400">Olá, <b>{nome}</b>! Confira abaixo a estimativa do seu projeto para <b>{cidade} ({area_m2} m²)</b>.</p>
+            <p class="text-xs text-slate-400">Olá, <b>{nome}</b>! Estimativa para <b>{cidade} ({area_m2} m²)</b>.</p>
+            <p class="text-[11px] text-amber-300 font-semibold">{ambientes_str}</p>
         </div>
 
-        <!-- ESTIMATIVA TOTAL COM DESCONTO À VISTA DE 5% -->
+        <!-- ESTIMATIVA TOTAL COM NÚMEROS REDONDOS -->
         <div class="bg-slate-950 p-6 rounded-2xl border border-amber-500/40 text-center space-y-2">
             <span class="text-xs text-slate-400 font-bold uppercase tracking-wider block">Valor de Tabela do Projeto</span>
-            <span id="txt_valor_principal" class="text-3xl sm:text-4xl font-black text-amber-400">R$ {preco_venda:,.2f}</span>
+            <span id="txt_valor_principal" class="text-3xl sm:text-4xl font-black text-amber-400">R$ {pv_redondo:,.0f}</span>
             
             <!-- CAIXA DO DESCONTO DE 5% À VISTA -->
             <div class="p-3 bg-emerald-950/60 border border-emerald-500/40 rounded-xl inline-block mt-1">
                 <span class="text-xs text-emerald-300 font-bold block">⚡ Valor à Vista no PIX (com 5% de desconto):</span>
-                <span class="text-xl sm:text-2xl font-black text-emerald-400">R$ {desconto_vista_5:,.2f}</span>
-                <span class="text-[11px] text-emerald-200 block">Economia de R$ {economia_5:,.2f}</span>
+                <span class="text-xl sm:text-2xl font-black text-emerald-400">R$ {desconto_vista_5:,.0f}</span>
+                <span class="text-[11px] text-emerald-200 block">Economia de R$ {economia_5:,.0f}</span>
             </div>
 
             <p class="text-[11px] text-slate-500 pt-1">Caixas {esp_caixa} ({cor_caixa}) • Portas {acab_porta} • Ferragens {marca_ferr}</p>
@@ -1189,13 +1257,11 @@ def render_pre_orcamento_agendamento(
             </div>
         </div>
 
-        <!-- SIMULAÇÃO FINANCEIRA DE PARCELAS (ENTRADA MÍN. 30%) -->
+        <!-- SIMULAÇÃO FINANCEIRA DE PARCELAS (ENTRADA MÍN. 20% COM NÚMEROS REDONDOS) -->
         <div class="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4 text-xs">
-            <div class="flex justify-between items-center">
-                <h3 class="text-xs font-bold text-amber-400 uppercase tracking-wide flex items-center gap-1">
-                    <span>💳 2. Como você pretende realizar o pagamento?</span>
-                </h3>
-            </div>
+            <h3 class="text-xs font-bold text-amber-400 uppercase tracking-wide flex items-center gap-1">
+                <span>💳 2. Como você pretende realizar o pagamento?</span>
+            </h3>
 
             <div class="grid sm:grid-cols-3 gap-3">
                 <div>
@@ -1209,10 +1275,10 @@ def render_pre_orcamento_agendamento(
 
                 <div id="box_entrada_cli">
                     <label class="block text-slate-300 font-semibold mb-1">
-                        Entrada (Mínimo de 30%)
+                        Entrada (Mínimo de 20%)
                     </label>
-                    <input type="number" id="entrada_cli" min="{entrada_minima:.2f}" step="100" value="{entrada_minima:.2f}" oninput="calcularParcelasCliente()" class="w-full px-3 py-2 bg-slate-900 border border-amber-500/50 rounded-xl text-amber-300 font-bold">
-                    <span class="text-[10px] text-slate-500 block mt-0.5">Mínimo: R$ {entrada_minima:,.2f}</span>
+                    <input type="number" id="entrada_cli" min="{entrada_minima}" step="100" value="{entrada_minima}" oninput="calcularParcelasCliente()" class="w-full px-3 py-2 bg-slate-900 border border-amber-500/50 rounded-xl text-amber-300 font-bold">
+                    <span class="text-[10px] text-slate-500 block mt-0.5">Mínimo: R$ {entrada_minima:,.0f}</span>
                 </div>
 
                 <div id="box_parcelas_cli">
@@ -1229,18 +1295,18 @@ def render_pre_orcamento_agendamento(
                 </div>
             </div>
 
-            <!-- RESULTADO DO PARCELAMENTO SIMULADO PELO CLIENTE -->
+            <!-- RESULTADO DO PLANO REDONDO -->
             <div id="box_resultado_parcelas" class="p-4 bg-slate-900 rounded-xl border border-slate-800 text-center space-y-1">
                 <span class="text-slate-400 text-[11px] uppercase tracking-wider block">Seu Plano Simulado:</span>
                 <p class="text-sm font-bold text-white">
-                    Entrada de <span id="res_entrada" class="text-amber-400">R$ {entrada_minima:,.2f}</span> + 
-                    <span id="res_num_parc">12</span>x de <span id="res_valor_parc" class="text-emerald-400 font-black text-base">R$ {parcela_12x:,.2f}</span>
+                    Entrada de <span id="res_entrada" class="text-amber-400">R$ {entrada_minima:,.0f}</span> + 
+                    <span id="res_num_parc">12</span>x de <span id="res_valor_parc" class="text-emerald-400 font-black text-base">R$ {parcela_12x:,.0f}</span>
                 </p>
-                <p class="text-[10px] text-slate-500">Saldo a parcelar: R$ <span id="res_saldo">{saldo_restante:,.2f}</span></p>
+                <p class="text-[10px] text-slate-500">Saldo a parcelar: R$ <span id="res_saldo">{saldo_restante:,.0f}</span></p>
             </div>
         </div>
 
-        <!-- BOTÃO PARA SER DIRECIONADO AO WHATSAPP -->
+        <!-- BOTÃO WHATSAPP -->
         <div class="pt-2">
             <a id="btn_whatsapp_agendar" href="#" target="_blank" class="flex items-center justify-center gap-2 w-full py-4 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 font-black rounded-xl text-sm transition-all shadow-xl">
                 <span id="txt_btn_zap">📲 Quero ser direcionado ao WhatsApp para agendar atendimento</span>
@@ -1251,13 +1317,14 @@ def render_pre_orcamento_agendamento(
     </div>
 
     <script>
-        var valorTotalOriginal = {preco_venda};
+        var valorTotalOriginal = {pv_redondo};
         var valorComDesconto5 = {desconto_vista_5};
         var entradaMinimaPermitida = {entrada_minima};
         var telEmpresa = "{tel_limpo}";
         var nomeCliente = "{nome}";
         var cidadeCliente = "{cidade}";
         var areaCliente = "{area_m2}";
+        var ambientesTexto = "{ambientes_str}";
         var idOrc = "{orcamento_id:04d}";
 
         function verificarInteresseAgendamento() {{
@@ -1283,36 +1350,35 @@ def render_pre_orcamento_agendamento(
             var entradaInput = document.getElementById('entrada_cli');
 
             if (forma.indexOf("PIX") !== -1) {{
-                // Se for PIX à Vista com 5% de desconto
                 boxEntrada.style.display = "none";
                 boxParcelas.style.display = "none";
                 boxResultado.innerHTML = `
                     <span class="text-slate-400 text-[11px] uppercase tracking-wider block">Condição Especial Selecionada:</span>
-                    <p class="text-sm font-bold text-white">Pagamento Integral no PIX: <span class="text-emerald-400 font-black text-lg">R$ ` + valorComDesconto5.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }}) + `</span></p>
+                    <p class="text-sm font-bold text-white">Pagamento Integral no PIX: <span class="text-emerald-400 font-black text-lg">R$ ` + valorComDesconto5.toLocaleString('pt-BR') + `</span></p>
                     <p class="text-[10px] text-emerald-300">Desconto de 5% aplicado com sucesso!</p>
                 `;
             }} else {{
                 boxEntrada.style.display = "block";
                 boxParcelas.style.display = "block";
                 
-                var entrada = parseFloat(entradaInput.value) || 0;
+                var entrada = Math.round(parseFloat(entradaInput.value) || 0);
                 var nParc = parseInt(document.getElementById('parcelas_cli').value) || 1;
 
                 if (entrada < entradaMinimaPermitida) {{
                     entrada = entradaMinimaPermitida;
-                    entradaInput.value = entradaMinimaPermitida.toFixed(2);
+                    entradaInput.value = entradaMinimaPermitida;
                 }}
 
                 var saldo = Math.max(valorTotalOriginal - entrada, 0);
-                var valorParc = nParc > 0 ? (saldo / nParc) : 0;
+                var valorParc = nParc > 0 ? Math.round(saldo / nParc) : 0;
 
                 boxResultado.innerHTML = `
                     <span class="text-slate-400 text-[11px] uppercase tracking-wider block">Seu Plano Simulado:</span>
                     <p class="text-sm font-bold text-white">
-                        Entrada de <span id="res_entrada" class="text-amber-400">R$ ` + entrada.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }}) + `</span> + 
-                        <span id="res_num_parc">` + nParc + `</span>x de <span id="res_valor_parc" class="text-emerald-400 font-black text-base">R$ ` + valorParc.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }}) + `</span>
+                        Entrada de <span id="res_entrada" class="text-amber-400">R$ ` + entrada.toLocaleString('pt-BR') + `</span> + 
+                        <span id="res_num_parc">` + nParc + `</span>x de <span id="res_valor_parc" class="text-emerald-400 font-black text-base">R$ ` + valorParc.toLocaleString('pt-BR') + `</span>
                     </p>
-                    <p class="text-[10px] text-slate-500">Saldo a parcelar: R$ ` + saldo.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }}) + `</p>
+                    <p class="text-[10px] text-slate-500">Saldo a parcelar: R$ ` + saldo.toLocaleString('pt-BR') + `</p>
                 `;
             }}
 
@@ -1323,7 +1389,7 @@ def render_pre_orcamento_agendamento(
             var tipoAgend = document.getElementById('tipo_agendamento').value;
             var prefHorario = document.getElementById('preferencia_horario').value;
             var forma = document.getElementById('forma_pagamento_cli').value;
-            var entrada = parseFloat(document.getElementById('entrada_cli').value) || entradaMinimaPermitida;
+            var entrada = Math.round(parseFloat(document.getElementById('entrada_cli').value) || entradaMinimaPermitida);
             var nParc = document.getElementById('parcelas_cli').value;
 
             var agendamentoTexto = "";
@@ -1335,11 +1401,11 @@ def render_pre_orcamento_agendamento(
 
             var financeiroTexto = "";
             if (forma.indexOf("PIX") !== -1) {{
-                financeiroTexto = "💳 *FORMA DE PAGAMENTO:* PIX à Vista com 5% de Desconto\n• Valor Final c/ Desconto: *R$ " + valorComDesconto5.toLocaleString('pt-BR', {{ minimumFractionDigits: 2 }}) + "*";
+                financeiroTexto = "💳 *FORMA DE PAGAMENTO:* PIX à Vista com 5% de Desconto\n• Valor Final c/ Desconto: *R$ " + valorComDesconto5.toLocaleString('pt-BR') + "*";
             }} else {{
                 var saldo = Math.max(valorTotalOriginal - entrada, 0);
-                var valorParc = (saldo / nParc).toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
-                financeiroTexto = "💳 *SIMULAÇÃO DE PAGAMENTO:*\n• Forma: " + forma + "\n• Entrada (mín. 30%): R$ " + entrada.toLocaleString('pt-BR', {{ minimumFractionDigits: 2 }}) + "\n• Parcelamento: *" + nParc + "x de R$ " + valorParc + "*";
+                var valorParc = Math.round(saldo / nParc).toLocaleString('pt-BR');
+                financeiroTexto = "💳 *SIMULAÇÃO DE PAGAMENTO:*\n• Forma: " + forma + "\n• Entrada (mín. 20%): R$ " + entrada.toLocaleString('pt-BR') + "\n• Parcelamento: *" + nParc + "x de R$ " + valorParc + "*";
             }}
 
             var msg = "Olá! Meu nome é *" + nomeCliente + "*.\n" +
@@ -1347,7 +1413,8 @@ def render_pre_orcamento_agendamento(
                       "📋 *DADOS DO PROJETO:*\n" +
                       "• Cidade: " + cidadeCliente + "\n" +
                       "• Metragem: " + areaCliente + " m²\n" +
-                      "• Valor de Tabela: *R$ " + valorTotalOriginal.toLocaleString('pt-BR', {{ minimumFractionDigits: 2 }}) + "*\n\n" +
+                      "• Ambientes: " + ambientesTexto + "\n" +
+                      "• Valor de Tabela: *R$ " + valorTotalOriginal.toLocaleString('pt-BR') + "*\n\n" +
                       financeiroTexto + "\n\n" +
                       agendamentoTexto + "\n\n" +
                       "Gostaria de dar andamento no meu atendimento!";
@@ -1678,10 +1745,10 @@ def salvar_negociacao_mesa(
     orc = cursor.fetchone()
     
     custo_tot = (float(orc["custo_materiais"] or 0) + float(orc["custo_mao_obra"] or 0) + float(orc["custo_frete_montagem"] or 0)) if orc else (preco_bruto / markup if markup > 0 else preco_bruto * 0.5)
-    lucro_final = preco_venda - (custo_tot + (preco_venda * 0.10))
+    lucro_final = round(preco_venda - (custo_tot + (preco_venda * 0.10)))
     
     saldo = max(preco_venda - entrada_valor, 0.0)
-    v_parc = saldo / num_parcelas if num_parcelas > 0 else 0.0
+    v_parc = round(saldo / num_parcelas) if num_parcelas > 0 else 0.0
 
     precisa_aprov = (desconto_pct > 3.0 and CURRENT_SESSION["user_perfil"] == "vendedor")
     desconto_autorizado = 0 if precisa_aprov else 1
@@ -1701,7 +1768,7 @@ def salvar_negociacao_mesa(
             desconto_autorizado = ?,
             status = ?
         WHERE id = ?
-    """, (preco_bruto, desconto_pct, preco_venda, markup, modalidade_pagamento, entrada_valor, num_parcelas, v_parc, lucro_final, desconto_autorizado, status, orcamento_id))
+    """, (round(preco_bruto), desconto_pct, round(preco_venda), markup, modalidade_pagamento, round(entrada_valor), num_parcelas, v_parc, lucro_final, desconto_autorizado, status, orcamento_id))
     conn.commit()
     conn.close()
     return RedirectResponse(url="/painel-get", status_code=303)
@@ -1745,11 +1812,21 @@ async def importar_promob_route(
 
     return RedirectResponse(url="/painel-get", status_code=303)
 
+# ROTA DO SIMULADOR PÚBLICO COM OS AMBIENTES ESCOLHIDOS
 @app.post("/enviar-solicitacao-lead", response_class=HTMLResponse)
 async def submit_lead_route(
     nome: str = Form(...),
     whatsapp: str = Form(...),
     area_m2_total: float = Form(180.0),
+    cidade: str = Form(...),
+    amb_cozinha: int = Form(0),
+    amb_lavanderia: int = Form(0),
+    amb_sala: int = Form(0),
+    amb_sacada: int = Form(0),
+    amb_gourmet: int = Form(0),
+    qtd_dorm_solteiro: int = Form(0),
+    qtd_dorm_casal: int = Form(0),
+    qtd_banheiro: int = Form(0),
     espessura_caixa: str = Form("MDF 18mm (Reforçado)"),
     cor_caixa: str = Form("Branco TX"),
     espessura_porta: str = Form("MDF 18mm"),
@@ -1757,14 +1834,29 @@ async def submit_lead_route(
     acabamento_porta: str = Form("Madeira Lisa Tradicional"),
     marca_ferragens: str = Form("Blum (Linha Blumotion Áustria)"),
     espessura_tamponamento: str = Form("Tamponamento 25mm"),
-    cidade: str = Form(...),
     descricao: str = Form(""),
     planta: UploadFile = File(...),
     inspiracao: UploadFile = File(None)
 ):
+    # Monta lista de ambientes detalhada
+    ambientes_selecionados = []
+    if amb_cozinha: ambientes_selecionados.append("Cozinha")
+    if amb_lavanderia: ambientes_selecionados.append("Lavanderia")
+    if amb_sala: ambientes_selecionados.append("Sala")
+    if amb_sacada: ambientes_selecionados.append("Sacada")
+    if amb_gourmet: ambientes_selecionados.append("Área Gourmet")
+    if qtd_dorm_solteiro > 0: ambientes_selecionados.append(f"{qtd_dorm_solteiro}x Dorm. Solteiro")
+    if qtd_dorm_casal > 0: ambientes_selecionados.append(f"{qtd_dorm_casal}x Dorm. Casal/Suíte")
+    if qtd_banheiro > 0: ambientes_selecionados.append(f"{qtd_banheiro}x Banheiro")
+    
+    if not ambientes_selecionados:
+        ambientes_selecionados = ["Projeto Completo Sob Medida"]
+
+    ambientes_str = " + ".join(ambientes_selecionados)
+
     empresa = get_empresa_dados(1)
     calc = calcular_engenharia(
-        ["Cozinha c/ Ilha", "Suíte Master c/ Closet"], area_m2_total,
+        ambientes_selecionados, area_m2_total,
         espessura_caixa, cor_caixa, espessura_porta, cor_porta, acabamento_porta,
         espessura_tamponamento, marca_ferragens
     )
@@ -1779,9 +1871,9 @@ async def submit_lead_route(
             prazo_entrega, data_entrega_prevista, status, custo_materiais,
             custo_mao_obra, custo_frete_montagem, preco_bruto, preco_venda, lucro_liquido,
             observacoes_tecnicas, descricao_promob
-        ) VALUES (1, ?, ?, ?, 'Cozinha + Suíte', '30 dias úteis', ?, 'Novo Lead Instagram', ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (1, ?, ?, ?, ?, '30 dias úteis', ?, 'Novo Lead Instagram', ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
-        agora, nome, whatsapp, (date.today() + timedelta(days=30)).strftime("%Y-%m-%d"),
+        agora, nome, whatsapp, ambientes_str, (date.today() + timedelta(days=30)).strftime("%Y-%m-%d"),
         calc["total_mat"], calc["custo_mo"], calc["custo_frete"], calc["preco_bruto"], calc["preco_venda"], calc["lucro"],
         descricao, calc["desc_promob"]
     ))
@@ -1793,7 +1885,8 @@ async def submit_lead_route(
     return render_pre_orcamento_agendamento(
         empresa, novo_id, nome, whatsapp, cidade, area_m2_total,
         calc["preco_venda"], espessura_caixa, cor_caixa,
-        espessura_porta, cor_porta, acabamento_porta, marca_ferragens, espessura_tamponamento
+        espessura_porta, cor_porta, acabamento_porta, marca_ferragens, espessura_tamponamento,
+        ambientes_str
     )
 
 @app.post("/salvar-dados-completos-cliente", response_class=HTMLResponse)
@@ -1825,9 +1918,9 @@ def salvar_dados_completos_cliente_route(
 
     if orcamento_id == 0:
         agora = datetime.now().strftime("%d/%m/%Y %H:%M")
-        pv_base = entrada_valor * 2.5 if entrada_valor > 0 else 15000.0
-        pv_final = pv_base * (1.0 - (desconto_pct / 100.0))
-        lucro_final = pv_final * 0.40
+        pv_base = round(entrada_valor * 2.5 if entrada_valor > 0 else 15000.0)
+        pv_final = round(pv_base * (1.0 - (desconto_pct / 100.0)))
+        lucro_final = round(pv_final * 0.40)
 
         cursor.execute("""
             INSERT INTO orcamentos (
@@ -1846,7 +1939,7 @@ def salvar_dados_completos_cliente_route(
             cliente_nascimento, cliente_pais, cliente_cidade, cliente_email,
             cliente_telefone, cliente_telefone_2, cliente_cep_postal, cliente_endereco_postal,
             cliente_cep_entrega, cliente_endereco_entrega, descricao_manual, desconto_pct,
-            pv_base, pv_final, lucro_final, forma_pagamento, entrada_valor, num_parcelas,
+            pv_base, pv_final, lucro_final, forma_pagamento, round(entrada_valor), num_parcelas,
             (date.today() + timedelta(days=30)).strftime("%Y-%m-%d")
         ))
         conn.commit()
@@ -1855,10 +1948,10 @@ def salvar_dados_completos_cliente_route(
         cursor.execute("SELECT preco_bruto, preco_venda, custo_materiais, custo_mao_obra, custo_frete_montagem FROM orcamentos WHERE id = ?", (orcamento_id,))
         orc = cursor.fetchone()
         if orc:
-            pv_base = float(orc["preco_bruto"] or orc["preco_venda"] or 0)
+            pv_base = round(float(orc["preco_bruto"] or orc["preco_venda"] or 0))
             custo_tot = float(orc["custo_materiais"] or 0) + float(orc["custo_mao_obra"] or 0) + float(orc["custo_frete_montagem"] or 0)
-            pv_final = pv_base * (1.0 - (desconto_pct / 100.0))
-            lucro_final = pv_final - (custo_tot + (pv_final * 0.10))
+            pv_final = round(pv_base * (1.0 - (desconto_pct / 100.0)))
+            lucro_final = round(pv_final - (custo_tot + (pv_final * 0.10)))
 
             cursor.execute("""
                 UPDATE orcamentos SET
@@ -1874,7 +1967,7 @@ def salvar_dados_completos_cliente_route(
                 cliente_nascimento, cliente_pais, cliente_cidade, cliente_email,
                 cliente_telefone, cliente_telefone_2, cliente_cep_postal, cliente_endereco_postal,
                 cliente_cep_entrega, cliente_endereco_entrega, descricao_manual, desconto_pct,
-                pv_final, lucro_final, forma_pagamento, entrada_valor, num_parcelas, orcamento_id
+                pv_final, lucro_final, forma_pagamento, round(entrada_valor), num_parcelas, orcamento_id
             ))
             conn.commit()
             CURRENT_SESSION["cliente_ativo_id"] = orcamento_id
@@ -1886,7 +1979,7 @@ def salvar_dados_completos_cliente_route(
 def salvar_adendo_route(orcamento_id: int = Form(0), adendo_descricao: str = Form(""), adendo_valor: float = Form(0.0)):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("UPDATE orcamentos SET adendo_descricao = ?, adendo_valor = ?, status = 'Adendo Adicionado' WHERE id = ?", (adendo_descricao, adendo_valor, orcamento_id))
+    cursor.execute("UPDATE orcamentos SET adendo_descricao = ?, adendo_valor = ?, status = 'Adendo Adicionado' WHERE id = ?", (adendo_descricao, round(adendo_valor), orcamento_id))
     conn.commit()
     conn.close()
     return RedirectResponse(url="/painel-get", status_code=303)
@@ -2019,6 +2112,6 @@ def export_csv():
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 ORDER BY id DESC")
     for r in cursor.fetchall():
-        writer.writerow([r["id"], r["criado_em"], r["cliente_nome"], r["cliente_cpf"], r["cliente_telefone"], r["cliente_ambiente"], f"{float(r['preco_venda'] or 0):.2f}", r["status"]])
+        writer.writerow([r["id"], r["criado_em"], r["cliente_nome"], r["cliente_cpf"], r["cliente_telefone"], r["cliente_ambiente"], f"{round(float(r['preco_venda'] or 0))}", r["status"]])
     conn.close()
     return Response(content=output.getvalue().encode('utf-8-sig'), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename=relatorio-mvi.csv"})
