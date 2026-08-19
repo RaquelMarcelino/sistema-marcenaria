@@ -14,7 +14,7 @@ from datetime import datetime, date, timedelta
 from typing import List
 
 app = FastAPI(title="MVI Móveis Planejados - Master SaaS")
-DB_PATH = "mvi_production_v19.db"
+DB_PATH = "mvi_production_v21.db"
 
 # ==============================================================================
 # 1. TRATAMENTO DE ERROS GLOBAL
@@ -199,22 +199,68 @@ def get_metricas():
 # ==============================================================================
 # 3. ENGENHARIA & PROMOB
 # ==============================================================================
-def calcular_engenharia(ambientes: list, area_m2: float, exp_caixa: str, exp_tamp: str, fab_mdf: str, cor_mdf: str, mod_portas: str, marca_ferr: str):
+def calcular_engenharia(
+    ambientes: list,
+    area_m2: float,
+    esp_caixa: str,
+    cor_caixa: str,
+    esp_porta: str,
+    cor_porta: str,
+    acabamento_porta: str,
+    esp_tamp: str,
+    marca_ferr: str
+):
     empresa = get_empresa_dados(CURRENT_SESSION.get("empresa_id", 1))
     precos = json.loads(empresa.get("precos_json") or "{}")
     mdf_preco = float(precos.get("mdf_m2", 65.0))
     dob_preco = float(precos.get("dobradica", 18.50))
     corr_preco = float(precos.get("corredica", 38.00))
 
-    fator_caixa = 1.15 if "18mm" in exp_caixa else 1.0
-    fator_tamp = 1.35 if "36mm" in exp_tamp else (1.20 if "25mm" in exp_tamp else 1.0)
-    fator_mdf = 1.30 if any(c in cor_mdf for c in ["Freijó", "Carvalho", "Nogueira", "Grafite"]) else 1.0
-    fator_portas = 1.50 if "Reflecta" in mod_portas else (1.25 if "Gola" in mod_portas else 1.0)
+    # Fatores Caixaria
+    fator_caixa_esp = 1.15 if "18mm" in esp_caixa else 1.0
+    fator_caixa_cor = 1.15 if "Amadeirado" in cor_caixa else 1.0
 
-    dob_mult = 2.8 if "Blum" in marca_ferr else (2.5 if "Hettich" in marca_ferr else 1.0)
-    corr_mult = 3.2 if "Blum" in marca_ferr else (2.9 if "Hettich" in marca_ferr else 1.0)
+    # Fatores Portas / Frentes
+    fator_porta_esp = 1.15 if "18mm" in esp_porta else 1.0
+    fator_porta_cor = 1.20 if "Amadeirado" in cor_porta else 1.0
 
-    custo_base_mdf = mdf_preco * fator_caixa * fator_tamp * fator_mdf * fator_portas
+    # Fator Acabamento de Portas
+    if "Lacca" in acabamento_porta:
+        fator_acab = 1.60
+    elif "Vidro" in acabamento_porta or "Reflecta" in acabamento_porta:
+        fator_acab = 1.50
+    elif "Provençal" in acabamento_porta:
+        fator_acab = 1.35
+    elif "Americana" in acabamento_porta:
+        fator_acab = 1.30
+    elif "Passantes" in acabamento_porta:
+        fator_acab = 1.25
+    else:
+        fator_acab = 1.00
+
+    # Fator Tamponamento
+    if "36mm" in esp_tamp:
+        fator_tamp = 1.35
+    elif "25mm" in esp_tamp:
+        fator_tamp = 1.20
+    elif "18mm" in esp_tamp:
+        fator_tamp = 1.10
+    else:
+        fator_tamp = 1.00
+
+    # Fator Ferragens
+    if "Blum" in marca_ferr:
+        dob_mult, corr_mult = 2.8, 3.2
+    elif "Hettich" in marca_ferr:
+        dob_mult, corr_mult = 2.5, 2.9
+    elif "Häfele" in marca_ferr:
+        dob_mult, corr_mult = 2.1, 2.4
+    else:
+        dob_mult, corr_mult = 1.0, 1.0
+
+    custo_base_caixa = mdf_preco * fator_caixa_esp * fator_caixa_cor * fator_tamp
+    custo_base_porta = mdf_preco * fator_porta_esp * fator_porta_cor * fator_acab
+
     area = max(area_m2, 5.0)
     qtd_amb = max(len(ambientes), 1)
     area_comodo = area / qtd_amb
@@ -224,11 +270,11 @@ def calcular_engenharia(ambientes: list, area_m2: float, exp_caixa: str, exp_tam
         m_lin = max(area_comodo * 0.32, 3.2 if area >= 160 else 2.2)
         num_mod = max(int(math.ceil(m_lin / 0.8)), 2)
         
-        items.append({"nome": f"Caixaria Estrutural ({exp_caixa}) - {amb}", "valor": num_mod * 1.25 * custo_base_mdf})
-        items.append({"nome": f"Portas/Frentes ({fab_mdf} {cor_mdf})", "valor": num_mod * 2 * 0.58 * custo_base_mdf})
+        items.append({"nome": f"Caixaria ({esp_caixa} - {cor_caixa}) - {amb}", "valor": num_mod * 1.25 * custo_base_caixa})
+        items.append({"nome": f"Portas ({acabamento_porta} - {cor_porta} {esp_porta})", "valor": num_mod * 2 * 0.58 * custo_base_porta})
         items.append({"nome": f"Dobradiças c/ Amortecedor ({marca_ferr})", "valor": num_mod * 4 * dob_preco * dob_mult})
         items.append({"nome": f"Corrediças Telescópicas/Ocultas ({marca_ferr})", "valor": 4 * corr_preco * corr_mult})
-        desc_promob_auto.append(f"{amb}: {num_mod} módulos caixaria {exp_caixa}, portas {fab_mdf} ({cor_mdf}), ferragens {marca_ferr} com amortecimento.")
+        desc_promob_auto.append(f"{amb}: {num_mod} módulos caixaria {esp_caixa} ({cor_caixa}), portas {acabamento_porta} ({cor_porta} {esp_porta}), tamponamento {esp_tamp}, ferragens {marca_ferr}.")
 
     total_materiais = sum(i["valor"] for i in items)
     dias_prod = max(int(math.ceil(qtd_amb * 3.0)), 4)
@@ -548,7 +594,7 @@ def render_dashboard_view():
                 <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow"><p class="text-[11px] font-bold text-slate-400 uppercase">Conversão</p><p class="text-xl font-bold text-amber-400">{met['taxa']:.1f}%</p></div>
             </div>
 
-            <!-- TARJA VERMELHA DE ALERTA DINÂMICA (ACENDE QUANDO ULTRAPASSA MARGEM) -->
+            <!-- TARJA VERMELHA DE ALERTA DINÂMICA -->
             <div id="tarja_alerta_margem" class="hidden p-4 bg-rose-950/90 border-2 border-rose-500 text-rose-200 rounded-2xl text-center space-y-1 shadow-2xl animate-pulse">
                 <span class="text-base font-black tracking-wide block">🚨 ALERTA: DESCONTO ULTRAPASSOU A MARGEM DE VENDA AUTORIZADA!</span>
                 <p class="text-xs text-rose-300">A margem máxima permitida foi excedida. A geração de contrato e a conclusão da venda foram travadas e exigem a liberação do Administrador Geral.</p>
@@ -592,7 +638,7 @@ def render_dashboard_view():
                             </div>
                         </div>
 
-                        <!-- VALOR LÍQUIDO FINAL (EDITÁVEL MANUALMENTE) -->
+                        <!-- VALOR LÍQUIDO FINAL -->
                         <div class="bg-slate-950 p-4 border border-amber-500/50 rounded-2xl space-y-1">
                             <label class="text-[11px] text-amber-400 font-bold uppercase block">3. Valor Fechamento Manual (R$)</label>
                             <input type="number" step="0.01" name="preco_venda" id="preco_venda" value="{c_p_venda:.2f}" oninput="recalcularPorValorManual()" class="w-full px-3 py-2 bg-slate-900 border border-amber-500 rounded-xl text-amber-300 font-black text-xl focus:outline-none">
@@ -807,7 +853,6 @@ def render_dashboard_view():
             window.scrollTo({{ top: 0, behavior: 'smooth' }});
         }}
 
-        // 1. RECALCULA QUANDO O OPERADOR DIGITA O VALOR BRUTO OU A PORCENTAGEM DE DESCONTO
         function recalcularPorBrutoOuDesc() {{
             var bruto = parseFloat(document.getElementById('preco_bruto').value) || 0;
             var desc = parseFloat(document.getElementById('desconto_pct').value) || 0;
@@ -817,7 +862,6 @@ def render_dashboard_view():
             recalcularParcelas();
         }}
 
-        // 2. RECALCULA QUANDO O OPERADOR DIGITA O VALOR LÍQUIDO MANUALMENTE
         function recalcularPorValorManual() {{
             var bruto = parseFloat(document.getElementById('preco_bruto').value) || 0;
             var manual = parseFloat(document.getElementById('preco_venda').value) || 0;
@@ -831,14 +875,12 @@ def render_dashboard_view():
             recalcularParcelas();
         }}
 
-        // 3. VERIFICA SE O DESCONTO ULTRAPASSOU A MARGEM E ATIVA A TARJA VERMELHA
         function verificarMargemEAlerta(desc) {{
             var tarja = document.getElementById('tarja_alerta_margem');
             var btnSalvar = document.getElementById('btn_salvar_mesa');
             var descAutorizado = {c_aut_desc};
             var isUserAdmin = {'true' if is_admin else 'false'};
 
-            // Se o desconto passar de 3.0% (limite seguro do vendedor)
             if (desc > 3.0) {{
                 tarja.classList.remove('hidden');
                 if (!isUserAdmin && !descAutorizado) {{
@@ -865,7 +907,6 @@ def render_dashboard_view():
             document.getElementById('txt_saldo').innerText = saldo.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
         }}
 
-        // CONTROLE DO OLHO PARA OCULTAR/REVELAR LUCRO
         var lucroVisivel = true;
         function alternarOlhoLucro() {{
             var elem = document.getElementById('valor_lucro_operacao');
@@ -892,7 +933,7 @@ def render_dashboard_view():
             var cep = cepInput.value.replace(/\\D/g, '');
 
             if (cep.length !== 8) {{
-                alert("Por favor, digite um CEP válido com 8 dígitos.");
+                alert("Por favor, digite um CEP com 8 dígitos.");
                 return;
             }}
 
@@ -914,7 +955,6 @@ def render_dashboard_view():
                 }});
         }}
 
-        // Inicializa a verificação de margem ao carregar a página
         window.onload = function() {{
             var descInicial = parseFloat(document.getElementById('desconto_pct').value) || 0;
             verificarMargemEAlerta(descInicial);
@@ -922,6 +962,9 @@ def render_dashboard_view():
     </script>
 </body></html>"""
 
+# ==============================================================================
+# 5. SIMULADOR PÚBLICO COM OS NOVOS ACABAMENTOS E SEM FORNECEDORES
+# ==============================================================================
 def render_form_captacao(empresa):
     return f"""<!DOCTYPE html>
 <html lang="pt-br">
@@ -933,287 +976,118 @@ def render_form_captacao(empresa):
         <div class="flex items-center space-x-3"><div class="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-black text-slate-950 text-lg">MVI</div><span class="font-bold text-white">{empresa['nome_empresa']}</span></div>
     </header>
     <main class="max-w-3xl w-full mx-auto p-4 sm:p-6 my-auto">
-        <form action="/enviar-solicitacao-lead" method="post" enctype="multipart/form-data" class="bg-slate-900 border border-slate-800 p-6 rounded-3xl shadow-2xl space-y-4">
-            <h2 class="text-lg font-bold text-white mb-2">Simulador de Projeto Sob Medida</h2>
+        <form action="/enviar-solicitacao-lead" method="post" enctype="multipart/form-data" class="bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl space-y-4">
+            <h2 class="text-lg font-bold text-white mb-1">Simulador de Projeto Sob Medida</h2>
+            <p class="text-xs text-slate-400 mb-3">Defina as especificações de caixaria, portas, acabamentos e ferragens do seu projeto.</p>
+            
             <div class="grid sm:grid-cols-2 gap-3 text-xs">
-                <input type="text" name="nome" required placeholder="Nome Completo" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                <input type="text" name="whatsapp" required placeholder="WhatsApp" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                <input type="number" step="any" name="area_m2_total" value="180.0" placeholder="Metragem Total (m²)" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                <input type="text" name="cidade" required placeholder="Cidade / Bairro" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                <input type="text" name="nome" required placeholder="Seu Nome Completo" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                <input type="text" name="whatsapp" required placeholder="Seu WhatsApp (com DDD)" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                <input type="number" step="any" name="area_m2_total" value="180.0" placeholder="Metragem Total do Imóvel (m²)" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                <input type="text" name="cidade" required placeholder="Cidade / Bairro da Obra" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
             </div>
             
-            <div class="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3 text-xs">
-                <h3 class="font-bold text-amber-400 uppercase">🪵 Escolha de Madeiras & Ferragens</h3>
+            <!-- SEÇÃO DE CAIXAS, PORTAS, ACABAMENTOS, FERRAGENS E TAMPONAMENTO -->
+            <div class="bg-slate-950 p-4 sm:p-5 rounded-2xl border border-slate-800 space-y-4 text-xs">
+                <h3 class="font-bold text-amber-400 uppercase tracking-wide">🪵 Especificações de Caixas, Portas & Ferragens</h3>
+                
+                <!-- 1. Caixaria -->
                 <div class="grid sm:grid-cols-2 gap-3">
-                    <select name="fabricante_mdf" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white"><option>Duratex</option><option>Arauco</option><option>Guararapes</option><option>Eucatex</option></select>
-                    <select name="cor_mdf" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white"><option>Freijó Puro / Natural</option><option>Carvalho Boreal</option><option>Nogueira Cadiz</option><option>Branco TX</option></select>
-                    <select name="marca_ferragens" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white"><option>Blum (Linha Blumotion Áustria)</option><option>Hettich (Alemanha)</option><option>FGVTN</option></select>
-                    <select name="modelo_portas" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white"><option>Perfil Gola Alumínio (Rometal)</option><option>Cava Usinada</option><option>Perfil Slim Vidro Reflecta</option><option>Lisa Tradicional</option></select>
-                    <select name="espessura_caixa" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white"><option>MDF 18mm (Reforçado)</option><option>MDF 15mm (Padrão)</option></select>
-                    <select name="espessura_tamponamento" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white"><option>Tamponamento 25mm</option><option>Tamponamento 36mm</option><option>Tamponamento 18mm</option></select>
+                    <div>
+                        <label class="block text-slate-300 font-semibold mb-1">Espessura da Caixa (Estrutura)</label>
+                        <select name="espessura_caixa" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                            <option value="MDF 18mm (Reforçado)">MDF 18mm (Reforçado)</option>
+                            <option value="MDF 15mm (Padrão)">MDF 15mm (Padrão)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-slate-300 font-semibold mb-1">Padrão / Cor da Caixa</label>
+                        <select name="cor_caixa" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                            <option value="Branco TX">Branco TX</option>
+                            <option value="Amadeirado">Amadeirado</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- 2. Portas e Frentes -->
+                <div class="grid sm:grid-cols-3 gap-3">
+                    <div>
+                        <label class="block text-slate-300 font-semibold mb-1">Espessura das Portas</label>
+                        <select name="espessura_porta" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                            <option value="MDF 18mm">MDF 18mm</option>
+                            <option value="MDF 15mm">MDF 15mm</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-slate-300 font-semibold mb-1">Padrão / Cor das Portas</label>
+                        <select name="cor_porta" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                            <option value="Branco TX">Branco TX</option>
+                            <option value="Amadeirado">Amadeirado</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-slate-300 font-semibold mb-1">Acabamento das Portas</label>
+                        <select name="acabamento_porta" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                            <option value="Madeira Lisa Tradicional">Madeira Lisa Tradicional</option>
+                            <option value="Estilo Provençal">Estilo Provençal</option>
+                            <option value="Estilo Americana (Shaker)">Estilo Americana (Shaker)</option>
+                            <option value="Pintura em Lacca">Pintura em Lacca</option>
+                            <option value="Vidro / Reflecta c/ Alumínio">Vidro / Reflecta c/ Alumínio</option>
+                            <option value="Portas Passantes / Painel">Portas Passantes / Painel</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- 3. Ferragens e Tamponamento -->
+                <div class="grid sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-slate-300 font-semibold mb-1">Marca das Ferragens</label>
+                        <select name="marca_ferragens" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                            <option value="Blum (Linha Blumotion Áustria)">Blum (Linha Blumotion Áustria)</option>
+                            <option value="Hettich (Linha Sensys Alemanha)">Hettich (Linha Sensys Alemanha)</option>
+                            <option value="Häfele (Linha Matrix Box)">Häfele (Linha Matrix Box)</option>
+                            <option value="FGVTN (Linha Slowmotion)">FGVTN (Linha Slowmotion)</option>
+                            <option value="Standard com Amortecedor">Standard com Amortecedor</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-slate-300 font-semibold mb-1">Tamponamento Externo</label>
+                        <select name="espessura_tamponamento" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                            <option value="Tamponamento 25mm">Tamponamento 25mm</option>
+                            <option value="Tamponamento 36mm Engrossado">Tamponamento 36mm Engrossado</option>
+                            <option value="Tamponamento 18mm">Tamponamento 18mm</option>
+                            <option value="Sem Tamponamento">Sem Tamponamento</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- 4. CAIXA DE OBSERVAÇÃO DENTRO DA SEÇÃO DE ACABAMENTOS -->
+                <div>
+                    <label class="block text-slate-300 font-semibold mb-1">Observações & Detalhes Especiais do seu Projeto</label>
+                    <textarea name="descricao" rows="3" placeholder="Ex: Gostaria de iluminação em LED embutida nos aéreos, puxador cava usinada nos gaveteiros da cozinha, amortecedor em todas as portas e portas de vidro reflecta bronze na suíte..." class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-amber-500 text-xs"></textarea>
                 </div>
             </div>
 
             <div class="grid sm:grid-cols-2 gap-3 text-xs">
-                <input type="file" name="planta" required class="file:bg-amber-500 file:border-0 file:rounded-xl file:px-3 file:py-1 file:font-bold text-slate-400">
-                <input type="file" name="inspiracao" class="file:bg-slate-700 file:border-0 file:rounded-xl file:px-3 file:py-1 file:font-bold file:text-white text-slate-400">
+                <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1">
+                    <label class="font-bold text-amber-400 block">📐 Planta Baixa do Imóvel</label>
+                    <input type="file" name="planta" required class="w-full text-slate-400 file:bg-amber-500 file:border-0 file:rounded-xl file:px-3 file:py-1 file:font-bold text-xs">
+                </div>
+                <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1">
+                    <label class="font-bold text-slate-300 block">🖼️ Foto de Inspiração / Referência</label>
+                    <input type="file" name="inspiracao" class="w-full text-slate-400 file:bg-slate-700 file:border-0 file:rounded-xl file:px-3 file:py-1 file:font-bold file:text-white text-xs">
+                </div>
             </div>
             
-            <button type="submit" class="w-full py-4 bg-amber-500 font-bold rounded-xl text-slate-950 text-sm shadow-lg">⚡ Simular Projeto & Receber Proposta MVI</button>
+            <button type="submit" class="w-full py-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-sm shadow-lg">
+                ⚡ Simular Projeto & Receber Proposta MVI
+            </button>
         </form>
     </main>
 </body></html>"""
 
-def render_sucesso(empresa, estimativa, zap_url):
-    return f"""<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Sucesso</title><script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-slate-950 text-slate-100 min-h-screen flex items-center justify-center p-4 font-sans">
-    <div class="max-w-md w-full bg-slate-900 border border-amber-500/50 p-8 rounded-3xl text-center shadow-2xl">
-        <span class="text-5xl block animate-bounce mb-4">✨</span>
-        <h2 class="text-xl font-bold text-white">Orçamento Calculado!</h2>
-        <p class="text-3xl font-black text-amber-400 my-4">R$ {estimativa:,.2f}</p>
-        <a href="{zap_url}" class="inline-block w-full py-3.5 bg-amber-500 font-bold text-slate-950 rounded-xl shadow-lg">👉 Abrir Conversa no WhatsApp</a>
-        <script>setTimeout(function() {{ window.location.href = "{zap_url}"; }}, 2000);</script>
-    </div>
-</body></html>"""
-
-def render_minuta_contrato(orc, empresa):
-    pv_total = float(orc['preco_venda'] or 0) + float(orc['adendo_valor'] or 0)
-    adendo_bloco = f"""
-    <div class="p-4 bg-amber-950/40 border border-amber-500/40 rounded-xl space-y-1 my-3">
-        <span class="text-amber-400 font-bold block">➕ TERMO ADITIVO / COMPLEMENTO INTEGRANTE:</span>
-        <p>{orc['adendo_descricao']}</p>
-        <p class="font-bold text-white">Valor Adicional do Adendo: R$ {float(orc['adendo_valor'] or 0):,.2f}</p>
-    </div>
-    """ if float(orc['adendo_valor'] or 0) > 0 else ""
-
-    link_assinar = f"/assinar/{orc['id']}"
-
-    return f"""<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Minuta de Contrato #{orc['id']:04d} - {empresa['nome_empresa']}</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-slate-950 text-slate-100 min-h-screen p-4 sm:p-8 font-sans">
-    <div class="max-w-4xl mx-auto bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-10 shadow-2xl space-y-6">
-        <div class="flex flex-wrap justify-between items-center border-b border-slate-800 pb-4 gap-2">
-            <div>
-                <h1 class="text-lg sm:text-xl font-bold text-white">INSTRUMENTO PARTICULAR DE PRESTAÇÃO DE SERVIÇOS E FABRICAÇÃO DE MÓVEIS PLANEJADOS</h1>
-                <p class="text-xs text-amber-400">{empresa['nome_empresa']} | CNPJ: {empresa['cnpj']}</p>
-            </div>
-            <div class="flex gap-2">
-                <button onclick="window.print()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold">🖨️ Imprimir / PDF</button>
-                <a href="{link_assinar}" class="px-4 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold rounded-xl text-xs shadow-lg">✍️ Ir para Assinatura</a>
-            </div>
-        </div>
-
-        <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 text-xs space-y-4 leading-relaxed text-slate-300">
-            <p><b>CLÁUSULA 1ª - DAS PARTES CONTRATANTES:</b><br>
-            <b>CONTRATADA:</b> {empresa['nome_empresa']}, pessoa jurídica de direito privado, inscrita no CNPJ sob o nº {empresa['cnpj']}, com atendimento através do telefone {empresa['telefone']}.<br>
-            <b>CONTRATANTE:</b> <b>{orc['cliente_nome']}</b>, portador do CPF nº <b>{orc['cliente_cpf'] or 'Pendente'}</b>, RG nº <b>{orc['cliente_rg']} ({orc['cliente_rg_emissor'] or 'SSP'})</b>, nascido em <b>{orc['cliente_nascimento'] or '—'}</b>, residente no endereço postal: <b>{orc['cliente_endereco_postal'] or 'Não informado'} (CEP: {orc['cliente_cep_postal'] or '—'})</b>, com telefone <b>{orc['cliente_telefone']}</b> e e-mail <b>{orc['cliente_email'] or 'Não informado'}</b>.</p>
-
-            <p><b>CLÁUSULA 2ª - DO OBJETO:</b><br>
-            O presente instrumento tem por objeto a prestação de serviços de marcenaria técnica sob medida para fabricação, transporte e montagem dos móveis planejados destinados aos ambientes: <b>{orc['cliente_ambiente']}</b>, no endereço de entrega da obra: <b>{orc['cliente_endereco_entrega'] or orc['cliente_endereco_postal']} (CEP: {orc['cliente_cep_entrega'] or orc['cliente_cep_postal']})</b>.</p>
-
-            <p><b>CLÁUSULA 3ª - DO MEMORIAL DESCRITIVO E ESPECIFICAÇÕES TÉCNICAS:</b><br>
-            <b>3.1. Descritivo Promob / Projeto Técnico:</b><br>
-            {orc['descricao_promob'] or 'Conforme projeto executivo 3D aprovado pelo cliente.'}<br><br>
-            <b>3.2. Detalhamento e Acabamentos Manuais:</b><br>
-            {orc['descricao_manual'] or 'Caixaria reforçada, portas com alinhamento milimétrico, ferragens com amortecimento slowmotion e tamponamentos inclusos.'}</p>
-
-            {adendo_bloco}
-
-            <p><b>CLÁUSULA 4ª - DO PREÇO E DAS CONDIÇÕES DE PAGAMENTO:</b><br>
-            Pelos serviços contratados, o CONTRATANTE pagará à CONTRATADA o valor líquido total de <b>R$ {pv_total:,.2f}</b>, nas seguintes condições:<br>
-            • <b>Modalidade:</b> {orc['modalidade_pagamento'] or orc['forma_pagamento']}<br>
-            • <b>Valor de Entrada:</b> R$ {float(orc['entrada_valor'] or 0):,.2f}<br>
-            • <b>Saldo Restante:</b> Parcelado em <b>{orc['num_parcelas']} parcela(s)</b> de <b>R$ {float(orc['valor_parcela'] or (pv_total - float(orc['entrada_valor'] or 0))/max(orc['num_parcelas'], 1)):,.2f}</b>.</p>
-
-            <p><b>CLÁUSULA 5ª - DOS PRAZOS DE FABRICAÇÃO E INSTALAÇÃO:</b><br>
-            O prazo estimado para entrega e finalização da montagem é de <b>{orc['prazo_entrega']}</b>, contados a partir da aprovação final das medidas no local (medição fina desimpedida) e confirmação do pagamento da entrada.</p>
-
-            <p><b>CLÁUSULA 6ª - DAS OBRIGAÇÕES DO CONTRATANTE:</b><br>
-            O CONTRATANTE compromete-se a entregar o imóvel em condições adequadas de alvenaria, pisos, revestimentos, pontos de elétrica, gás e hidráulica finalizados antes do início da montagem dos móveis.</p>
-
-            <p><b>CLÁUSULA 7ª - DAS OBRIGAÇÕES DA CONTRATADA:</b><br>
-            A CONTRATADA compromete-se a utilizar mão de obra especializada, materiais de alta qualidade certificados e entregar os ambientes limpos e regulados após a conclusão da montagem.</p>
-
-            <p><b>CLÁUSULA 8ª - DA GARANTIA LEGAL E CONTRATUAL:</b><br>
-            A CONTRATADA oferece a garantia de <b>5 (cinco) anos</b> para todas as ferragens estruturais, corrediças e dobradiças com amortecedor, e <b>12 (doze) meses</b> para os painéis de MDF contra defeitos de fabricação.</p>
-
-            <p><b>CLÁUSULA 9ª - DO FORO:</b><br>
-            Para dirimir quaisquer controvérsias oriundas deste contrato, as partes elegem o foro da Comarca da sede da CONTRATADA com renúncia expressa a qualquer outro.</p>
-        </div>
-
-        <div class="flex justify-between items-center pt-2">
-            <a href="/painel-get" class="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs font-bold">Voltar ao Painel</a>
-            <a href="{link_assinar}" class="px-6 py-3 bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold rounded-xl text-xs shadow-lg">
-                ✍️ Prosseguir para Assinatura Digital do Cliente
-            </a>
-        </div>
-    </div>
-</body></html>"""
-
-def render_assinatura_online(orc, empresa):
-    pv_total = float(orc['preco_venda'] or 0) + float(orc['adendo_valor'] or 0)
-    
-    adendo_bloco = f"""
-    <div class="p-4 bg-amber-950/40 border border-amber-500/40 rounded-xl space-y-1 my-2">
-        <span class="text-amber-400 font-bold block">➕ TERMO ADITIVO CONTRATUAL:</span>
-        <p>{orc['adendo_descricao']}</p>
-        <p class="font-bold text-white">Valor do Adendo: R$ {float(orc['adendo_valor'] or 0):,.2f}</p>
-    </div>
-    """ if float(orc['adendo_valor'] or 0) > 0 else ""
-
-    if orc["contrato_assinado"]:
-        return f"""<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Via Oficial Assinada - Contrato #{orc['id']:04d}</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-slate-950 text-slate-100 min-h-screen p-4 sm:p-8 font-sans">
-    <div class="max-w-4xl mx-auto bg-slate-900 border border-emerald-500/40 rounded-3xl p-6 sm:p-10 shadow-2xl space-y-6">
-        <div class="flex flex-wrap justify-between items-center border-b border-slate-800 pb-4 gap-2">
-            <div>
-                <span class="px-3 py-1 bg-emerald-950 text-emerald-300 border border-emerald-500/40 rounded-xl text-xs font-bold">✓ Contrato Assinado Digitalmente</span>
-                <h1 class="text-lg sm:text-xl font-bold text-white mt-1">VIA OFICIAL DO CONTRATO DE PRESTAÇÃO DE SERVIÇOS #{orc['id']:04d}</h1>
-                <p class="text-xs text-slate-400">{empresa['nome_empresa']} | CNPJ: {empresa['cnpj']}</p>
-            </div>
-            <button onclick="window.print()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold rounded-xl text-xs shadow-lg">
-                📥 Imprimir / Salvar PDF
-            </button>
-        </div>
-
-        <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 text-xs space-y-4 leading-relaxed text-slate-300">
-            <p><b>CONTRATADA:</b> {empresa['nome_empresa']} (CNPJ: {empresa['cnpj']})<br>
-            <b>CONTRATANTE:</b> <b>{orc['cliente_nome']}</b> (CPF: {orc['cliente_cpf'] or 'Pendente'})<br>
-            <b>AMBIENTES:</b> {orc['cliente_ambiente']}<br>
-            <b>ENDEREÇO DA INSTALAÇÃO:</b> {orc['cliente_endereco_entrega'] or orc['cliente_endereco_postal']}<br>
-            <b>VALOR TOTAL:</b> R$ {pv_total:,.2f} ({orc['forma_pagamento']})<br>
-            <b>PRAZO DE MONTAGEM:</b> {orc['prazo_entrega']}<br>
-            <b>GARANTIA:</b> 5 anos em ferragens estruturais e 12 meses em painéis de MDF.</p>
-            
-            {adendo_bloco}
-        </div>
-
-        <div class="bg-slate-950 p-6 rounded-2xl border border-emerald-500/30 space-y-3">
-            <h3 class="text-xs font-bold text-emerald-400 uppercase">🛡️ Autenticação & Assinatura Digital do Contratante</h3>
-            <p class="text-[11px] text-slate-400">Assinado digitalmente por <b>{orc['cliente_nome']}</b> em <b>{orc['assinatura_data']}</b>.</p>
-            
-            <div class="p-3 bg-white rounded-xl flex justify-center max-w-sm">
-                <img src="{orc['assinatura_img']}" alt="Assinatura do Cliente" class="max-h-24 object-contain">
-            </div>
-            <p class="text-[10px] text-slate-500">Protocolo de Registro MVI: SHA256-MVI-{orc['id']:04d}-{orc['assinatura_data']}</p>
-        </div>
-
-        <div class="flex justify-between items-center pt-2">
-            <a href="/painel-get" class="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs font-bold">Voltar ao Painel</a>
-            <span class="text-xs text-emerald-400 font-bold">✓ 1 Via Arquivada no Sistema & 1 Via Disponível ao Cliente</span>
-        </div>
-    </div>
-</body></html>"""
-
-    return f"""<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Assinatura Digital de Contrato - {empresa['nome_empresa']}</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
-</head>
-<body class="bg-slate-950 text-slate-100 min-h-screen p-4 sm:p-8 font-sans">
-    <div class="max-w-4xl mx-auto bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-10 shadow-2xl space-y-6">
-        <div class="flex justify-between items-center border-b border-slate-800 pb-4">
-            <div>
-                <h1 class="text-lg sm:text-xl font-bold text-white">INSTRUMENTO DE PRESTAÇÃO DE SERVIÇOS DE MARCENARIA</h1>
-                <p class="text-xs text-amber-400">{empresa['nome_empresa']} | CNPJ: {empresa['cnpj']}</p>
-            </div>
-            <span class="px-3 py-1 bg-amber-950 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-bold">Contrato #{orc['id']:04d}</span>
-        </div>
-
-        <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 text-xs space-y-4 leading-relaxed text-slate-300 max-h-80 overflow-y-auto">
-            <p><b>1. DAS PARTES CONTRATANTES:</b><br>
-            <b>CONTRATADA:</b> {empresa['nome_empresa']}, CNPJ: {empresa['cnpj']}, Telefone: {empresa['telefone']}.<br>
-            <b>CONTRATANTE:</b> <b>{orc['cliente_nome']}</b>, CPF: <b>{orc['cliente_cpf'] or 'Pendente'}</b>, Endereço: <b>{orc['cliente_endereco_postal'] or 'Não informado'}</b>.</p>
-
-            <p><b>2. DO OBJETO E AMBIENTES:</b><br>
-            Fabricação e instalação de móveis sob medida para: <b>{orc['cliente_ambiente']}</b>, na obra: <b>{orc['cliente_endereco_entrega'] or orc['cliente_endereco_postal']}</b>.</p>
-
-            <p><b>3. DO VALOR E CONDIÇÕES:</b><br>
-            Valor total de <b>R$ {pv_total:,.2f}</b>, sob as condições: <b>{orc['forma_pagamento']}</b>.</p>
-
-            <p><b>4. DO PRAZO E GARANTIA:</b><br>
-            Prazo de entrega de <b>{orc['prazo_entrega']}</b>. Garantia de 5 anos em ferragens com amortecedores e 12 meses em painéis de MDF.</p>
-            
-            {adendo_bloco}
-        </div>
-
-        <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 space-y-3">
-            <h3 class="text-xs font-bold text-white uppercase">✍️ Assinatura Digital do Contratante</h3>
-            <p class="text-[11px] text-slate-400">Desenhe sua assinatura com o dedo ou caneta touch no celular:</p>
-            
-            <div class="border-2 border-dashed border-slate-700 rounded-xl bg-white flex justify-center">
-                <canvas id="signature-pad" width="600" height="200" class="touch-none cursor-crosshair w-full max-w-[600px] h-[200px]"></canvas>
-            </div>
-            
-            <div class="flex justify-between items-center pt-2">
-                <button type="button" id="clear-btn" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold">Limpar</button>
-                <form id="sign-form" action="/confirmar-assinatura" method="post">
-                    <input type="hidden" name="orcamento_id" value="{orc['id']}">
-                    <input type="hidden" name="assinatura_base64" id="assinatura_base64">
-                    <button type="button" id="save-btn" class="px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 font-bold rounded-xl text-xs shadow-lg">
-                        Confirmar e Assinar Contrato Digitalmente
-                    </button>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        var canvas = document.getElementById('signature-pad');
-        var signaturePad = new SignaturePad(canvas, {{ backgroundColor: 'rgb(255, 255, 255)' }});
-        document.getElementById('clear-btn').addEventListener('click', () => signaturePad.clear());
-        document.getElementById('save-btn').addEventListener('click', () => {{
-            if (signaturePad.isEmpty()) {{
-                alert("Por favor, faça sua assinatura antes de confirmar.");
-            }} else {{
-                document.getElementById('assinatura_base64').value = signaturePad.toDataURL();
-                document.getElementById('sign-form').submit();
-            }}
-        }});
-    </script>
-</body></html>"""
-
-def render_convite_gerado(nome, email, p, tel, link):
-    return f"""<html><body style='background:#0f172a; color:#fff; text-align:center; padding:50px; font-family:sans-serif;'>
-        <h1 style='color:#f59e0b;'>Convite de Acesso Gerado</h1>
-        <p style='margin:20px 0;'>Link Seguro: <br><b style='color:#38bdf8;'>{link}</b></p>
-        <a href='/painel' style='color:#f59e0b;'>Voltar ao Painel</a>
-    </body></html>"""
-
-def render_tela_nova_senha(user, token):
-    return f"""<!DOCTYPE html>
-<html lang="pt-br">
-<head><title>Nova Senha</title><script src="https://cdn.tailwindcss.com"></script></head>
-<body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4">
-    <form action="/salvar-nova-senha" method="post" class="bg-slate-900 p-8 rounded-3xl space-y-4 max-w-sm w-full shadow-2xl">
-        <h1 class="text-xl font-bold">Definir Nova Senha</h1>
-        <input type="hidden" name="token" value="{token}">
-        <input type="password" name="nova_senha" required placeholder="Nova Senha" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white">
-        <input type="password" name="confirma_senha" required placeholder="Confirme Senha" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white">
-        <button type="submit" class="w-full py-3 bg-amber-500 font-bold text-slate-950 rounded-xl">Ativar Conta</button>
-    </form>
-</body></html>"""
-
 # ==============================================================================
-# 5. FASTAPI ROUTES
+# 6. FASTAPI ROUTES
 # ==============================================================================
 
 @app.get("/", response_class=HTMLResponse)
@@ -1300,7 +1174,6 @@ def salvar_negociacao_mesa(
     saldo = max(preco_venda - entrada_valor, 0.0)
     v_parc = saldo / num_parcelas if num_parcelas > 0 else 0.0
 
-    # Se o desconto for maior que 3.0% e o usuário for vendedor, trava o contrato até aprovação do admin
     precisa_aprov = (desconto_pct > 3.0 and CURRENT_SESSION["user_perfil"] == "vendedor")
     desconto_autorizado = 0 if precisa_aprov else 1
     status = "Aguardando Liberação de Desconto" if precisa_aprov else "Negociação Salva / Aguardando Fechamento"
@@ -1368,12 +1241,13 @@ async def submit_lead_route(
     nome: str = Form(...),
     whatsapp: str = Form(...),
     area_m2_total: float = Form(180.0),
-    espessura_caixa: str = Form("MDF 18mm"),
-    espessura_tamponamento: str = Form("Tamponamento 25mm"),
-    fabricante_mdf: str = Form("Duratex"),
-    cor_mdf: str = Form("Freijó Puro / Natural"),
-    modelo_portas: str = Form("Perfil Gola em Alumínio (Rometal)"),
+    espessura_caixa: str = Form("MDF 18mm (Reforçado)"),
+    cor_caixa: str = Form("Branco TX"),
+    espessura_porta: str = Form("MDF 18mm"),
+    cor_porta: str = Form("Amadeirado"),
+    acabamento_porta: str = Form("Madeira Lisa Tradicional"),
     marca_ferragens: str = Form("Blum (Linha Blumotion Áustria)"),
+    espessura_tamponamento: str = Form("Tamponamento 25mm"),
     cidade: str = Form(...),
     descricao: str = Form(""),
     planta: UploadFile = File(...),
@@ -1381,8 +1255,9 @@ async def submit_lead_route(
 ):
     empresa = get_empresa_dados(1)
     calc = calcular_engenharia(
-        ["Cozinha c/ Ilha", "Suíte Master c/ Closet"], area_m2_total, espessura_caixa, espessura_tamponamento,
-        fabricante_mdf, cor_mdf, modelo_portas, marca_ferragens
+        ["Cozinha c/ Ilha", "Suíte Master c/ Closet"], area_m2_total,
+        espessura_caixa, cor_caixa, espessura_porta, cor_porta, acabamento_porta,
+        espessura_tamponamento, marca_ferragens
     )
 
     agora = datetime.now().strftime("%d/%m/%Y %H:%M")
@@ -1405,7 +1280,7 @@ async def submit_lead_route(
     CURRENT_SESSION["cliente_ativo_id"] = cursor.lastrowid
     conn.close()
 
-    zap_url = f"https://api.whatsapp.com/send?phone=55{empresa['telefone'].replace('-','').replace(' ','').replace('(','').replace(')','')}&text=Olá! Calculei meu projeto de {area_m2_total}m² no site da MVI!"
+    zap_url = f"https://api.whatsapp.com/send?phone=55{empresa['telefone'].replace('-','').replace(' ','').replace('(','').replace(')','')}&text=Olá! Calculei meu projeto de {area_m2_total}m² no site da MVI com caixas {espessura_caixa} ({cor_caixa}) e portas {acabamento_porta} ({cor_porta})!"
     return render_sucesso(empresa, calc["preco_venda"], zap_url)
 
 @app.post("/salvar-dados-completos-cliente", response_class=HTMLResponse)
@@ -1425,14 +1300,6 @@ def salvar_dados_completos_cliente_route(
     cliente_endereco_postal: str = Form(""),
     cliente_cep_entrega: str = Form(""),
     cliente_endereco_entrega: str = Form(""),
-    cliente_banco: str = Form(""),
-    cliente_agencia: str = Form(""),
-    cliente_conta: str = Form(""),
-    cliente_renda: str = Form(""),
-    ref_nome_1: str = Form(""),
-    ref_tel_1: str = Form(""),
-    ref_nome_2: str = Form(""),
-    ref_tel_2: str = Form(""),
     descricao_manual: str = Form(""),
     desconto_pct: float = Form(0.0),
     forma_pagamento: str = Form("Cartão de Crédito até 12x"),
@@ -1454,22 +1321,20 @@ def salvar_dados_completos_cliente_route(
                 empresa_id, criado_em, cliente_nome, cliente_cpf, cliente_rg, cliente_rg_emissor,
                 cliente_nascimento, cliente_pais, cliente_cidade, cliente_email,
                 cliente_telefone, cliente_telefone_2, cliente_cep_postal, cliente_endereco_postal,
-                cliente_cep_entrega, cliente_endereco_entrega, cliente_banco, cliente_agencia,
-                cliente_conta, cliente_renda, ref_nome_1, ref_tel_1, ref_nome_2, ref_tel_2,
-                cliente_ambiente, descricao_manual, desconto_pct, desconto_autorizado, status, preco_bruto,
-                preco_venda, lucro_liquido, forma_pagamento, entrada_valor, num_parcelas, prazo_entrega, data_entrega_prevista
+                cliente_cep_entrega, cliente_endereco_entrega, cliente_ambiente, descricao_manual, desconto_pct,
+                desconto_autorizado, status, preco_bruto, preco_venda, lucro_liquido, forma_pagamento, entrada_valor,
+                num_parcelas, prazo_entrega, data_entrega_prevista
             ) VALUES (
-                1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                'Projeto Sob Medida', ?, ?, 1, 'Contrato Pronto para Assinatura', ?, ?, ?, ?, ?, ?, '30 dias úteis', ?
+                1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Projeto Sob Medida', ?, ?, 1, 'Contrato Pronto para Assinatura',
+                ?, ?, ?, ?, ?, ?, '30 dias úteis', ?
             )
         """, (
             agora, cliente_nome, cliente_cpf, cliente_rg, cliente_rg_emissor,
             cliente_nascimento, cliente_pais, cliente_cidade, cliente_email,
             cliente_telefone, cliente_telefone_2, cliente_cep_postal, cliente_endereco_postal,
-            cliente_cep_entrega, cliente_endereco_entrega, cliente_banco, cliente_agencia,
-            cliente_conta, cliente_renda, ref_nome_1, ref_tel_1, ref_nome_2, ref_tel_2,
-            descricao_manual, desconto_pct, pv_base, pv_final, lucro_final, forma_pagamento,
-            entrada_valor, num_parcelas, (date.today() + timedelta(days=30)).strftime("%Y-%m-%d")
+            cliente_cep_entrega, cliente_endereco_entrega, descricao_manual, desconto_pct,
+            pv_base, pv_final, lucro_final, forma_pagamento, entrada_valor, num_parcelas,
+            (date.today() + timedelta(days=30)).strftime("%Y-%m-%d")
         ))
         conn.commit()
         CURRENT_SESSION["cliente_ativo_id"] = cursor.lastrowid
@@ -1487,19 +1352,16 @@ def salvar_dados_completos_cliente_route(
                     cliente_nome = ?, cliente_cpf = ?, cliente_rg = ?, cliente_rg_emissor = ?,
                     cliente_nascimento = ?, cliente_pais = ?, cliente_cidade = ?, cliente_email = ?,
                     cliente_telefone = ?, cliente_telefone_2 = ?, cliente_cep_postal = ?, cliente_endereco_postal = ?,
-                    cliente_cep_entrega = ?, cliente_endereco_entrega = ?, cliente_banco = ?, cliente_agencia = ?,
-                    cliente_conta = ?, cliente_renda = ?, ref_nome_1 = ?, ref_tel_1 = ?, ref_nome_2 = ?, ref_tel_2 = ?,
-                    descricao_manual = ?, desconto_pct = ?, status = 'Contrato Pronto para Assinatura',
-                    preco_venda = ?, lucro_liquido = ?, forma_pagamento = ?, entrada_valor = ?, num_parcelas = ?
+                    cliente_cep_entrega = ?, cliente_endereco_entrega = ?, descricao_manual = ?, desconto_pct = ?,
+                    status = 'Contrato Pronto para Assinatura', preco_venda = ?, lucro_liquido = ?,
+                    forma_pagamento = ?, entrada_valor = ?, num_parcelas = ?
                 WHERE id = ?
             """, (
                 cliente_nome, cliente_cpf, cliente_rg, cliente_rg_emissor,
                 cliente_nascimento, cliente_pais, cliente_cidade, cliente_email,
                 cliente_telefone, cliente_telefone_2, cliente_cep_postal, cliente_endereco_postal,
-                cliente_cep_entrega, cliente_endereco_entrega, cliente_banco, cliente_agencia,
-                cliente_conta, cliente_renda, ref_nome_1, ref_tel_1, ref_nome_2, ref_tel_2,
-                descricao_manual, desconto_pct, pv_final, lucro_final, forma_pagamento,
-                entrada_valor, num_parcelas, orcamento_id
+                cliente_cep_entrega, cliente_endereco_entrega, descricao_manual, desconto_pct,
+                pv_final, lucro_final, forma_pagamento, entrada_valor, num_parcelas, orcamento_id
             ))
             conn.commit()
             CURRENT_SESSION["cliente_ativo_id"] = orcamento_id
