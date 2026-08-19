@@ -14,7 +14,8 @@ from datetime import datetime, date, timedelta
 from typing import List
 
 app = FastAPI(title="MVI Móveis Planejados - Master SaaS")
-DB_PATH = "mvi_production_v48.db"
+DB_PATH = "mvi_production_v49.db"
+META_PIXEL_ID = "641231925101582"
 
 # ==============================================================================
 # 1. TRATAMENTO DE ERROS GLOBAL
@@ -411,7 +412,27 @@ def render_form_captacao(empresa):
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{empresa['nome_empresa']} - Simulador</title><script src="https://cdn.tailwindcss.com"></script>
+    <title>{empresa['nome_empresa']} - Simulador</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Meta Pixel Code Oficial -->
+    <script>
+    !function(f,b,e,v,n,t,s)
+    {{if(f.fbq)return;n=f.fbq=function(){{n.callMethod?
+    n.callMethod.apply(n,arguments):n.queue.push(arguments)}};
+    if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+    n.queue=[];t=b.createElement(e);t.async=!0;
+    t.src=v;s=b.getElementsByTagName(e)[0];
+    s.parentNode.insertBefore(t,s)}}(window, document,'script',
+    'https://connect.facebook.net/en_US/fbevents.js');
+    fbq('init', '{META_PIXEL_ID}');
+    fbq('track', 'PageView');
+    fbq('track', 'InitiateCheckout');
+    </script>
+    <noscript><img height="1" width="1" style="display:none"
+    src="https://www.facebook.com/tr?id={META_PIXEL_ID}&ev=PageView&noscript=1"
+    /></noscript>
+    <!-- End Meta Pixel Code -->
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-between font-sans">
     <header class="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center justify-between">
@@ -609,6 +630,25 @@ def render_pre_orcamento_agendamento(
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{empresa['nome_empresa']} - Pré-Orçamento</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Meta Pixel - Disparo de Conversão Lead com Valor da Venda -->
+    <script>
+    !function(f,b,e,v,n,t,s)
+    {{if(f.fbq)return;n=f.fbq=function(){{n.callMethod?
+    n.callMethod.apply(n,arguments):n.queue.push(arguments)}};
+    if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+    n.queue=[];t=b.createElement(e);t.async=!0;
+    t.src=v;s=b.getElementsByTagName(e)[0];
+    s.parentNode.insertBefore(t,s)}}(window, document,'script',
+    'https://connect.facebook.net/en_US/fbevents.js');
+    fbq('init', '{META_PIXEL_ID}');
+    fbq('track', 'PageView');
+    fbq('track', 'Lead', {{
+        content_name: '{ambientes_str}',
+        value: {pv_redondo},
+        currency: 'BRL'
+    }});
+    </script>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen p-4 sm:p-8 font-sans flex items-center justify-center">
     <div class="max-w-2xl w-full bg-slate-900 border border-amber-500/40 rounded-3xl p-6 sm:p-10 shadow-2xl space-y-6">
@@ -1066,8 +1106,7 @@ def render_dashboard_view():
                         </div>
                         <div class="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-2">
                             <label class="font-bold text-slate-300 block">🚚 Endereço da Instalação / Obra</label>
-                            <input type="text" name="cliente_cep_entrega" value="{c_cep_ent}" placeholder="CEP Obra" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
-                            <textarea name="cliente_endereco_entrega" rows="2" placeholder="Endereço da Montagem..." class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">{c_end_ent}</textarea>
+                            <input type="text" name="cliente_cep_entrega" value="{c_cep_ent}" placeholder="CEP Obra" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">{c_end_ent}</textarea>
                         </div>
                     </div>
 
