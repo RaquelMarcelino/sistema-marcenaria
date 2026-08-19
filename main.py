@@ -14,7 +14,7 @@ from datetime import datetime, date, timedelta
 from typing import List
 
 app = FastAPI(title="MVI Móveis Planejados - Master SaaS")
-DB_PATH = "mvi_production_v22.db"
+DB_PATH = "mvi_production_v23.db"
 
 # ==============================================================================
 # 1. TRATAMENTO DE ERROS GLOBAL
@@ -117,6 +117,8 @@ def init_db():
             forma_pagamento TEXT DEFAULT 'Entrada + Saldo Parcelado',
             valor_parcela REAL DEFAULT 0,
             valor_recebido REAL DEFAULT 0,
+            tipo_agendamento TEXT DEFAULT 'Showroom na Loja',
+            preferencia_horario TEXT DEFAULT 'Tarde (14h às 18h)',
             imagens_json TEXT DEFAULT '[]',
             ambientes_json TEXT DEFAULT '[]',
             observacoes_tecnicas TEXT DEFAULT '',
@@ -557,7 +559,11 @@ def render_dashboard_view():
 <head>
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>MVI - Master Cockpit</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <style>.tab-btn.active {{ background: linear-gradient(135deg, #f59e0b, #d97706); color: #0f172a; font-weight: 800; }} .tab-content {{ display: none; }} .tab-content.active {{ display: block; }}</style>
+    <style>
+        .tab-btn.active {{ background: linear-gradient(135deg, #f59e0b, #d97706); color: #0f172a; font-weight: 800; }}
+        .tab-content {{ display: none; }}
+        .tab-content.active {{ display: block; }}
+    </style>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen font-sans">
     <header class="bg-slate-900 border-b border-slate-800 px-6 py-4 flex flex-wrap items-center justify-between gap-3">
@@ -614,11 +620,13 @@ def render_dashboard_view():
                     <input type="hidden" name="orcamento_id" value="{c_id}">
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <!-- VALOR BRUTO -->
                         <div class="bg-slate-950 p-4 border border-slate-800 rounded-2xl space-y-1">
                             <label class="text-[11px] text-slate-400 font-bold uppercase block">1. Valor Bruto (Tabela / Projeto)</label>
                             <input type="number" step="0.01" name="preco_bruto" id="preco_bruto" value="{c_p_bruto:.2f}" oninput="recalcularPorBrutoOuDesc()" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold text-base focus:border-amber-500">
                         </div>
 
+                        <!-- DESCONTO COMERCIAL -->
                         <div class="bg-slate-950 p-4 border border-slate-800 rounded-2xl space-y-1">
                             <label class="text-[11px] text-slate-400 font-bold uppercase block">2. Desconto Aplicado (%)</label>
                             <div class="flex gap-2">
@@ -627,12 +635,14 @@ def render_dashboard_view():
                             </div>
                         </div>
 
+                        <!-- VALOR LÍQUIDO FINAL -->
                         <div class="bg-slate-950 p-4 border border-amber-500/50 rounded-2xl space-y-1">
                             <label class="text-[11px] text-amber-400 font-bold uppercase block">3. Valor Fechamento Manual (R$)</label>
                             <input type="number" step="0.01" name="preco_venda" id="preco_venda" value="{c_p_venda:.2f}" oninput="recalcularPorValorManual()" class="w-full px-3 py-2 bg-slate-900 border border-amber-500 rounded-xl text-amber-300 font-black text-xl focus:outline-none">
                             <span class="text-[10px] text-slate-500 block">Pode digitar o valor final direto</span>
                         </div>
 
+                        <!-- MARGEM / MARKUP -->
                         <div class="bg-slate-950 p-4 border border-slate-800 rounded-2xl space-y-1">
                             <label class="text-[11px] text-slate-400 font-bold uppercase block">4. Margem / Markup Venda</label>
                             <input type="number" step="0.1" min="1.0" max="5.0" name="markup" id="markup" value="{c_markup:.1f}" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold text-base">
@@ -950,391 +960,6 @@ def render_dashboard_view():
 </body></html>"""
 
 # ==============================================================================
-# 5. SIMULADOR PÚBLICO COM OS RÓTULOS (LABELS) CORRIGIDOS E CLAROS
-# ==============================================================================
-def render_form_captacao(empresa):
-    return f"""<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{empresa['nome_empresa']} - Simulador</title><script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-between font-sans">
-    <header class="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center justify-between">
-        <div class="flex items-center space-x-3"><div class="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-black text-slate-950 text-lg">MVI</div><span class="font-bold text-white">{empresa['nome_empresa']}</span></div>
-    </header>
-    <main class="max-w-3xl w-full mx-auto p-4 sm:p-6 my-auto">
-        <form action="/enviar-solicitacao-lead" method="post" enctype="multipart/form-data" class="bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl space-y-4">
-            <h2 class="text-lg font-bold text-white mb-1">Simulador de Projeto Sob Medida</h2>
-            <p class="text-xs text-slate-400 mb-3">Defina as especificações de caixaria, portas, acabamentos e ferragens do seu projeto.</p>
-            
-            <div class="grid sm:grid-cols-2 gap-3 text-xs">
-                <div>
-                    <label class="block text-slate-300 font-semibold mb-1">👤 Seu Nome Completo</label>
-                    <input type="text" name="nome" required placeholder="Ex: Mariana Silva" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                </div>
-                <div>
-                    <label class="block text-slate-300 font-semibold mb-1">📱 Seu WhatsApp (com DDD)</label>
-                    <input type="text" name="whatsapp" required placeholder="Ex: (11) 99999-8888" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                </div>
-                <div>
-                    <label class="block text-amber-400 font-bold mb-1">📐 Metragem Total do Imóvel (m²)</label>
-                    <input type="number" step="any" min="5" name="area_m2_total" value="180.0" required placeholder="Ex: 180" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold">
-                </div>
-                <div>
-                    <label class="block text-slate-300 font-semibold mb-1">📍 Cidade / Bairro da Obra</label>
-                    <input type="text" name="cidade" required placeholder="Ex: São Paulo / Moema" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                </div>
-            </div>
-            
-            <!-- SEÇÃO DE CAIXAS, PORTAS, ACABAMENTOS, FERRAGENS E TAMPONAMENTO -->
-            <div class="bg-slate-950 p-4 sm:p-5 rounded-2xl border border-slate-800 space-y-4 text-xs">
-                <h3 class="font-bold text-amber-400 uppercase tracking-wide">🪵 Especificações de Caixas, Portas & Ferragens</h3>
-                
-                <!-- 1. Caixaria -->
-                <div class="grid sm:grid-cols-2 gap-3">
-                    <div>
-                        <label class="block text-slate-300 font-semibold mb-1">Espessura da Caixa (Estrutura)</label>
-                        <select name="espessura_caixa" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
-                            <option value="MDF 18mm (Reforçado)">MDF 18mm (Reforçado)</option>
-                            <option value="MDF 15mm (Padrão)">MDF 15mm (Padrão)</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-slate-300 font-semibold mb-1">Padrão / Cor da Caixa</label>
-                        <select name="cor_caixa" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
-                            <option value="Branco TX">Branco TX</option>
-                            <option value="Amadeirado">Amadeirado</option>
-                        </select>
-                    </div>
-                </div>
-
-                <!-- 2. Portas e Frentes -->
-                <div class="grid sm:grid-cols-3 gap-3">
-                    <div>
-                        <label class="block text-slate-300 font-semibold mb-1">Espessura das Portas</label>
-                        <select name="espessura_porta" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
-                            <option value="MDF 18mm">MDF 18mm</option>
-                            <option value="MDF 15mm">MDF 15mm</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-slate-300 font-semibold mb-1">Padrão / Cor das Portas</label>
-                        <select name="cor_porta" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
-                            <option value="Branco TX">Branco TX</option>
-                            <option value="Amadeirado">Amadeirado</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-slate-300 font-semibold mb-1">Acabamento das Portas</label>
-                        <select name="acabamento_porta" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
-                            <option value="Madeira Lisa Tradicional">Madeira Lisa Tradicional</option>
-                            <option value="Estilo Provençal">Estilo Provençal</option>
-                            <option value="Estilo Americana (Shaker)">Estilo Americana (Shaker)</option>
-                            <option value="Pintura em Lacca">Pintura em Lacca</option>
-                            <option value="Vidro / Reflecta c/ Alumínio">Vidro / Reflecta c/ Alumínio</option>
-                            <option value="Portas Passantes / Painel">Portas Passantes / Painel</option>
-                        </select>
-                    </div>
-                </div>
-
-                <!-- 3. Ferragens e Tamponamento -->
-                <div class="grid sm:grid-cols-2 gap-3">
-                    <div>
-                        <label class="block text-slate-300 font-semibold mb-1">Marca das Ferragens</label>
-                        <select name="marca_ferragens" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
-                            <option value="Blum (Linha Blumotion Áustria)">Blum (Linha Blumotion Áustria)</option>
-                            <option value="Hettich (Linha Sensys Alemanha)">Hettich (Linha Sensys Alemanha)</option>
-                            <option value="Häfele (Linha Matrix Box)">Häfele (Linha Matrix Box)</option>
-                            <option value="FGVTN (Linha Slowmotion)">FGVTN (Linha Slowmotion)</option>
-                            <option value="Standard com Amortecedor">Standard com Amortecedor</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-slate-300 font-semibold mb-1">Tamponamento Externo</label>
-                        <select name="espessura_tamponamento" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
-                            <option value="Tamponamento 25mm">Tamponamento 25mm</option>
-                            <option value="Tamponamento 36mm Engrossado">Tamponamento 36mm Engrossado</option>
-                            <option value="Tamponamento 18mm">Tamponamento 18mm</option>
-                            <option value="Sem Tamponamento">Sem Tamponamento</option>
-                        </select>
-                    </div>
-                </div>
-
-                <!-- 4. CAIXA DE OBSERVAÇÃO DENTRO DA SEÇÃO DE ACABAMENTOS -->
-                <div>
-                    <label class="block text-slate-300 font-semibold mb-1">Observações & Detalhes Especiais do seu Projeto</label>
-                    <textarea name="descricao" rows="3" placeholder="Ex: Gostaria de iluminação em LED embutida nos aéreos, puxador cava usinada nos gaveteiros da cozinha, amortecedor em todas as portas e portas de vidro reflecta bronze na suíte..." class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-amber-500 text-xs"></textarea>
-                </div>
-            </div>
-
-            <div class="grid sm:grid-cols-2 gap-3 text-xs">
-                <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1">
-                    <label class="font-bold text-amber-400 block">📐 Planta Baixa do Imóvel</label>
-                    <input type="file" name="planta" required class="w-full text-slate-400 file:bg-amber-500 file:border-0 file:rounded-xl file:px-3 file:py-1 file:font-bold text-xs">
-                </div>
-                <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1">
-                    <label class="font-bold text-slate-300 block">🖼️ Foto de Inspiração / Referência</label>
-                    <input type="file" name="inspiracao" class="w-full text-slate-400 file:bg-slate-700 file:border-0 file:rounded-xl file:px-3 file:py-1 file:font-bold file:text-white text-xs">
-                </div>
-            </div>
-            
-            <button type="submit" class="w-full py-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-sm shadow-lg">
-                ⚡ Simular Projeto & Receber Proposta MVI
-            </button>
-        </form>
-    </main>
-</body></html>"""
-
-def render_sucesso(empresa, estimativa, zap_url):
-    return f"""<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Sucesso</title><script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-slate-950 text-slate-100 min-h-screen flex items-center justify-center p-4 font-sans">
-    <div class="max-w-md w-full bg-slate-900 border border-amber-500/50 p-8 rounded-3xl text-center shadow-2xl">
-        <span class="text-5xl block animate-bounce mb-4">✨</span>
-        <h2 class="text-xl font-bold text-white">Orçamento Calculado!</h2>
-        <p class="text-3xl font-black text-amber-400 my-4">R$ {estimativa:,.2f}</p>
-        <a href="{zap_url}" class="inline-block w-full py-3.5 bg-amber-500 font-bold text-slate-950 rounded-xl shadow-lg">👉 Abrir Conversa no WhatsApp</a>
-        <script>setTimeout(function() {{ window.location.href = "{zap_url}"; }}, 2000);</script>
-    </div>
-</body></html>"""
-
-def render_minuta_contrato(orc, empresa):
-    pv_total = float(orc['preco_venda'] or 0) + float(orc['adendo_valor'] or 0)
-    adendo_bloco = f"""
-    <div class="p-4 bg-amber-950/40 border border-amber-500/40 rounded-xl space-y-1 my-3">
-        <span class="text-amber-400 font-bold block">➕ TERMO ADITIVO / COMPLEMENTO INTEGRANTE:</span>
-        <p>{orc['adendo_descricao']}</p>
-        <p class="font-bold text-white">Valor Adicional do Adendo: R$ {float(orc['adendo_valor'] or 0):,.2f}</p>
-    </div>
-    """ if float(orc['adendo_valor'] or 0) > 0 else ""
-
-    link_assinar = f"/assinar/{orc['id']}"
-
-    return f"""<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Minuta de Contrato #{orc['id']:04d} - {empresa['nome_empresa']}</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-slate-950 text-slate-100 min-h-screen p-4 sm:p-8 font-sans">
-    <div class="max-w-4xl mx-auto bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-10 shadow-2xl space-y-6">
-        <div class="flex flex-wrap justify-between items-center border-b border-slate-800 pb-4 gap-2">
-            <div>
-                <h1 class="text-lg sm:text-xl font-bold text-white">INSTRUMENTO PARTICULAR DE PRESTAÇÃO DE SERVIÇOS E FABRICAÇÃO DE MÓVEIS PLANEJADOS</h1>
-                <p class="text-xs text-amber-400">{empresa['nome_empresa']} | CNPJ: {empresa['cnpj']}</p>
-            </div>
-            <div class="flex gap-2">
-                <button onclick="window.print()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold">🖨️ Imprimir / PDF</button>
-                <a href="{link_assinar}" class="px-4 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold rounded-xl text-xs shadow-lg">✍️ Ir para Assinatura</a>
-            </div>
-        </div>
-
-        <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 text-xs space-y-4 leading-relaxed text-slate-300">
-            <p><b>CLÁUSULA 1ª - DAS PARTES CONTRATANTES:</b><br>
-            <b>CONTRATADA:</b> {empresa['nome_empresa']}, pessoa jurídica de direito privado, inscrita no CNPJ sob o nº {empresa['cnpj']}, com atendimento através do telefone {empresa['telefone']}.<br>
-            <b>CONTRATANTE:</b> <b>{orc['cliente_nome']}</b>, portador do CPF nº <b>{orc['cliente_cpf'] or 'Pendente'}</b>, RG nº <b>{orc['cliente_rg']} ({orc['cliente_rg_emissor'] or 'SSP'})</b>, nascido em <b>{orc['cliente_nascimento'] or '—'}</b>, residente no endereço postal: <b>{orc['cliente_endereco_postal'] or 'Não informado'} (CEP: {orc['cliente_cep_postal'] or '—'})</b>, com telefone <b>{orc['cliente_telefone']}</b> e e-mail <b>{orc['cliente_email'] or 'Não informado'}</b>.</p>
-
-            <p><b>CLÁUSULA 2ª - DO OBJETO:</b><br>
-            O presente instrumento tem por objeto a prestação de serviços de marcenaria técnica sob medida para fabricação, transporte e montagem dos móveis planejados destinados aos ambientes: <b>{orc['cliente_ambiente']}</b>, no endereço de entrega da obra: <b>{orc['cliente_endereco_entrega'] or orc['cliente_endereco_postal']} (CEP: {orc['cliente_cep_entrega'] or orc['cliente_cep_postal']})</b>.</p>
-
-            <p><b>CLÁUSULA 3ª - DO MEMORIAL DESCRITIVO E ESPECIFICAÇÕES TÉCNICAS:</b><br>
-            <b>3.1. Descritivo Promob / Projeto Técnico:</b><br>
-            {orc['descricao_promob'] or 'Conforme projeto executivo 3D aprovado pelo cliente.'}<br><br>
-            <b>3.2. Detalhamento e Acabamentos Manuais:</b><br>
-            {orc['descricao_manual'] or 'Caixaria reforçada, portas com alinhamento milimétrico, ferragens com amortecimento slowmotion e tamponamentos inclusos.'}</p>
-
-            {adendo_bloco}
-
-            <p><b>CLÁUSULA 4ª - DO PREÇO E DAS CONDIÇÕES DE PAGAMENTO:</b><br>
-            Pelos serviços contratados, o CONTRATANTE pagará à CONTRATADA o valor líquido total de <b>R$ {pv_total:,.2f}</b>, nas seguintes condições:<br>
-            • <b>Modalidade:</b> {orc['modalidade_pagamento'] or orc['forma_pagamento']}<br>
-            • <b>Valor de Entrada:</b> R$ {float(orc['entrada_valor'] or 0):,.2f}<br>
-            • <b>Saldo Restante:</b> Parcelado em <b>{orc['num_parcelas']} parcela(s)</b> de <b>R$ {float(orc['valor_parcela'] or (pv_total - float(orc['entrada_valor'] or 0))/max(orc['num_parcelas'], 1)):,.2f}</b>.</p>
-
-            <p><b>CLÁUSULA 5ª - DOS PRAZOS DE FABRICAÇÃO E INSTALAÇÃO:</b><br>
-            O prazo estimado para entrega e finalização da montagem é de <b>{orc['prazo_entrega']}</b>, contados a partir da aprovação final das medidas no local (medição fina desimpedida) e confirmação do pagamento da entrada.</p>
-
-            <p><b>CLÁUSULA 6ª - DAS OBRIGAÇÕES DO CONTRATANTE:</b><br>
-            O CONTRATANTE compromete-se a entregar o imóvel em condições adequadas de alvenaria, pisos, revestimentos, pontos de elétrica, gás e hidráulica finalizados antes do início da montagem dos móveis.</p>
-
-            <p><b>CLÁUSULA 7ª - DAS OBRIGAÇÕES DA CONTRATADA:</b><br>
-            A CONTRATADA compromete-se a utilizar mão de obra especializada, materiais de alta qualidade certificados e entregar os ambientes limpos e regulados após a conclusão da montagem.</p>
-
-            <p><b>CLÁUSULA 8ª - DA GARANTIA LEGAL E CONTRATUAL:</b><br>
-            A CONTRATADA oferece a garantia de <b>5 (cinco) anos</b> para todas as ferragens estruturais, corrediças e dobradiças com amortecedor, e <b>12 (doze) meses</b> para os painéis de MDF contra defeitos de fabricação.</p>
-
-            <p><b>CLÁUSULA 9ª - DO FORO:</b><br>
-            Para dirimir quaisquer controvérsias oriundas deste contrato, as partes elegem o foro da Comarca da sede da CONTRATADA com renúncia expressa a qualquer outro.</p>
-        </div>
-
-        <div class="flex justify-between items-center pt-2">
-            <a href="/painel-get" class="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs font-bold">Voltar ao Painel</a>
-            <a href="{link_assinar}" class="px-6 py-3 bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold rounded-xl text-xs shadow-lg">
-                ✍️ Prosseguir para Assinatura Digital do Cliente
-            </a>
-        </div>
-    </div>
-</body></html>"""
-
-def render_assinatura_online(orc, empresa):
-    pv_total = float(orc['preco_venda'] or 0) + float(orc['adendo_valor'] or 0)
-    
-    adendo_bloco = f"""
-    <div class="p-4 bg-amber-950/40 border border-amber-500/40 rounded-xl space-y-1 my-2">
-        <span class="text-amber-400 font-bold block">➕ TERMO ADITIVO CONTRATUAL:</span>
-        <p>{orc['adendo_descricao']}</p>
-        <p class="font-bold text-white">Valor do Adendo: R$ {float(orc['adendo_valor'] or 0):,.2f}</p>
-    </div>
-    """ if float(orc['adendo_valor'] or 0) > 0 else ""
-
-    if orc["contrato_assinado"]:
-        return f"""<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Via Oficial Assinada - Contrato #{orc['id']:04d}</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-slate-950 text-slate-100 min-h-screen p-4 sm:p-8 font-sans">
-    <div class="max-w-4xl mx-auto bg-slate-900 border border-emerald-500/40 rounded-3xl p-6 sm:p-10 shadow-2xl space-y-6">
-        <div class="flex flex-wrap justify-between items-center border-b border-slate-800 pb-4 gap-2">
-            <div>
-                <span class="px-3 py-1 bg-emerald-950 text-emerald-300 border border-emerald-500/40 rounded-xl text-xs font-bold">✓ Contrato Assinado Digitalmente</span>
-                <h1 class="text-lg sm:text-xl font-bold text-white mt-1">VIA OFICIAL DO CONTRATO DE PRESTAÇÃO DE SERVIÇOS #{orc['id']:04d}</h1>
-                <p class="text-xs text-slate-400">{empresa['nome_empresa']} | CNPJ: {empresa['cnpj']}</p>
-            </div>
-            <button onclick="window.print()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold rounded-xl text-xs shadow-lg">
-                📥 Imprimir / Salvar PDF
-            </button>
-        </div>
-
-        <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 text-xs space-y-4 leading-relaxed text-slate-300">
-            <p><b>CONTRATADA:</b> {empresa['nome_empresa']} (CNPJ: {empresa['cnpj']})<br>
-            <b>CONTRATANTE:</b> <b>{orc['cliente_nome']}</b> (CPF: {orc['cliente_cpf'] or 'Pendente'})<br>
-            <b>AMBIENTES:</b> {orc['cliente_ambiente']}<br>
-            <b>ENDEREÇO DA INSTALAÇÃO:</b> {orc['cliente_endereco_entrega'] or orc['cliente_endereco_postal']}<br>
-            <b>VALOR TOTAL:</b> R$ {pv_total:,.2f} ({orc['forma_pagamento']})<br>
-            <b>PRAZO DE MONTAGEM:</b> {orc['prazo_entrega']}<br>
-            <b>GARANTIA:</b> 5 anos em ferragens estruturais e 12 meses em painéis de MDF.</p>
-            
-            {adendo_bloco}
-        </div>
-
-        <div class="bg-slate-950 p-6 rounded-2xl border border-emerald-500/30 space-y-3">
-            <h3 class="text-xs font-bold text-emerald-400 uppercase">🛡️ Autenticação & Assinatura Digital do Contratante</h3>
-            <p class="text-[11px] text-slate-400">Assinado digitalmente por <b>{orc['cliente_nome']}</b> em <b>{orc['assinatura_data']}</b>.</p>
-            
-            <div class="p-3 bg-white rounded-xl flex justify-center max-w-sm">
-                <img src="{orc['assinatura_img']}" alt="Assinatura do Cliente" class="max-h-24 object-contain">
-            </div>
-            <p class="text-[10px] text-slate-500">Protocolo de Registro MVI: SHA256-MVI-{orc['id']:04d}-{orc['assinatura_data']}</p>
-        </div>
-
-        <div class="flex justify-between items-center pt-2">
-            <a href="/painel-get" class="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs font-bold">Voltar ao Painel</a>
-            <span class="text-xs text-emerald-400 font-bold">✓ 1 Via Arquivada no Sistema & 1 Via Disponível ao Cliente</span>
-        </div>
-    </div>
-</body></html>"""
-
-    return f"""<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Assinatura Digital de Contrato - {empresa['nome_empresa']}</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
-</head>
-<body class="bg-slate-950 text-slate-100 min-h-screen p-4 sm:p-8 font-sans">
-    <div class="max-w-4xl mx-auto bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-10 shadow-2xl space-y-6">
-        <div class="flex justify-between items-center border-b border-slate-800 pb-4">
-            <div>
-                <h1 class="text-lg sm:text-xl font-bold text-white">INSTRUMENTO DE PRESTAÇÃO DE SERVIÇOS DE MARCENARIA</h1>
-                <p class="text-xs text-amber-400">{empresa['nome_empresa']} | CNPJ: {empresa['cnpj']}</p>
-            </div>
-            <span class="px-3 py-1 bg-amber-950 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-bold">Contrato #{orc['id']:04d}</span>
-        </div>
-
-        <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 text-xs space-y-4 leading-relaxed text-slate-300 max-h-80 overflow-y-auto">
-            <p><b>1. DAS PARTES CONTRATANTES:</b><br>
-            <b>CONTRATADA:</b> {empresa['nome_empresa']}, CNPJ: {empresa['cnpj']}, Telefone: {empresa['telefone']}.<br>
-            <b>CONTRATANTE:</b> <b>{orc['cliente_nome']}</b>, CPF: <b>{orc['cliente_cpf'] or 'Pendente'}</b>, Endereço: <b>{orc['cliente_endereco_postal'] or 'Não informado'}</b>.</p>
-
-            <p><b>2. DO OBJETO E AMBIENTES:</b><br>
-            Fabricação e instalação de móveis sob medida para: <b>{orc['cliente_ambiente']}</b>, na obra: <b>{orc['cliente_endereco_entrega'] or orc['cliente_endereco_postal']}</b>.</p>
-
-            <p><b>3. DO VALOR E CONDIÇÕES:</b><br>
-            Valor total de <b>R$ {pv_total:,.2f}</b>, sob as condições: <b>{orc['forma_pagamento']}</b>.</p>
-
-            <p><b>4. DO PRAZO E GARANTIA:</b><br>
-            Prazo de entrega de <b>{orc['prazo_entrega']}</b>. Garantia de 5 anos em ferragens com amortecedores e 12 meses em painéis de MDF.</p>
-            
-            {adendo_bloco}
-        </div>
-
-        <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 space-y-3">
-            <h3 class="text-xs font-bold text-white uppercase">✍️ Assinatura Digital do Contratante</h3>
-            <p class="text-[11px] text-slate-400">Desenhe sua assinatura com o dedo ou caneta touch no celular:</p>
-            
-            <div class="border-2 border-dashed border-slate-700 rounded-xl bg-white flex justify-center">
-                <canvas id="signature-pad" width="600" height="200" class="touch-none cursor-crosshair w-full max-w-[600px] h-[200px]"></canvas>
-            </div>
-            
-            <div class="flex justify-between items-center pt-2">
-                <button type="button" id="clear-btn" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold">Limpar</button>
-                <form id="sign-form" action="/confirmar-assinatura" method="post">
-                    <input type="hidden" name="orcamento_id" value="{orc['id']}">
-                    <input type="hidden" name="assinatura_base64" id="assinatura_base64">
-                    <button type="button" id="save-btn" class="px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 font-bold rounded-xl text-xs shadow-lg">
-                        Confirmar e Assinar Contrato Digitalmente
-                    </button>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        var canvas = document.getElementById('signature-pad');
-        var signaturePad = new SignaturePad(canvas, {{ backgroundColor: 'rgb(255, 255, 255)' }});
-        document.getElementById('clear-btn').addEventListener('click', () => signaturePad.clear());
-        document.getElementById('save-btn').addEventListener('click', () => {{
-            if (signaturePad.isEmpty()) {{
-                alert("Por favor, faça sua assinatura antes de confirmar.");
-            }} else {{
-                document.getElementById('assinatura_base64').value = signaturePad.toDataURL();
-                document.getElementById('sign-form').submit();
-            }}
-        }});
-    </script>
-</body></html>"""
-
-def render_convite_gerado(nome, email, p, tel, link):
-    return f"""<html><body style='background:#0f172a; color:#fff; text-align:center; padding:50px; font-family:sans-serif;'>
-        <h1 style='color:#f59e0b;'>Convite de Acesso Gerado</h1>
-        <p style='margin:20px 0;'>Link Seguro: <br><b style='color:#38bdf8;'>{link}</b></p>
-        <a href='/painel' style='color:#f59e0b;'>Voltar ao Painel</a>
-    </body></html>"""
-
-def render_tela_nova_senha(user, token):
-    return f"""<!DOCTYPE html>
-<html lang="pt-br">
-<head><title>Nova Senha</title><script src="https://cdn.tailwindcss.com"></script></head>
-<body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4">
-    <form action="/salvar-nova-senha" method="post" class="bg-slate-900 p-8 rounded-3xl space-y-4 max-w-sm w-full shadow-2xl">
-        <h1 class="text-xl font-bold">Definir Nova Senha</h1>
-        <input type="hidden" name="token" value="{token}">
-        <input type="password" name="nova_senha" required placeholder="Nova Senha" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white">
-        <input type="password" name="confirma_senha" required placeholder="Confirme Senha" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white">
-        <button type="submit" class="w-full py-3 bg-amber-500 font-bold text-slate-950 rounded-xl">Ativar Conta</button>
-    </form>
-</body></html>"""
-
-# ==============================================================================
 # 6. FASTAPI ROUTES
 # ==============================================================================
 
@@ -1484,7 +1109,7 @@ async def importar_promob_route(
 
     return RedirectResponse(url="/painel-get", status_code=303)
 
-# ROTA ATUALIZADA DO SIMULADOR PÚBLICO
+# ROTA DO FORMULÁRIO DO SIMULADOR PÚBLICO
 @app.post("/enviar-solicitacao-lead", response_class=HTMLResponse)
 async def submit_lead_route(
     nome: str = Form(...),
@@ -1526,11 +1151,203 @@ async def submit_lead_route(
         descricao, calc["desc_promob"]
     ))
     conn.commit()
-    CURRENT_SESSION["cliente_ativo_id"] = cursor.lastrowid
+    novo_id = cursor.lastrowid
+    CURRENT_SESSION["cliente_ativo_id"] = novo_id
     conn.close()
 
-    zap_url = f"https://api.whatsapp.com/send?phone=55{empresa['telefone'].replace('-','').replace(' ','').replace('(','').replace(')','')}&text=Olá! Calculei meu projeto de {area_m2_total}m² no site da MVI com caixas {espessura_caixa} ({cor_caixa}) e portas {acabamento_porta} ({cor_porta})!"
-    return render_sucesso(empresa, calc["preco_venda"], zap_url)
+    # Redireciona para a nova tela de simulação financeira e agendamento
+    return render_pre_orcamento_agendamento(
+        empresa, novo_id, nome, whatsapp, cidade, area_m2_total,
+        calc["preco_venda"], espessura_caixa, cor_caixa,
+        espessura_porta, cor_porta, acabamento_porta, marca_ferragens, espessura_tamponamento
+    )
+
+# NOVA TELA DE PRÉ-ORÇAMENTO COM AGENDAMENTO E SIMULAÇÃO DE PARCELAMENTO (ENTRADA MÍN. 30%)
+def render_pre_orcamento_agendamento(
+    empresa, orcamento_id, nome, whatsapp, cidade, area_m2, preco_venda,
+    esp_caixa, cor_caixa, esp_porta, cor_porta, acab_porta, marca_ferr, esp_tamp
+):
+    entrada_minima = preco_venda * 0.30
+    saldo_restante = preco_venda - entrada_minima
+    parcela_12x = saldo_restante / 12.0
+
+    tel_limpo = empresa["telefone"].replace("-","").replace(" ","").replace("(","").replace(")","")
+
+    return f"""<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{empresa['nome_empresa']} - Pré-Orçamento & Agendamento</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen p-4 sm:p-8 font-sans flex items-center justify-center">
+    <div class="max-w-2xl w-full bg-slate-900 border border-amber-500/40 rounded-3xl p-6 sm:p-10 shadow-2xl space-y-6">
+        
+        <!-- CABEÇALHO DO RESULTADO -->
+        <div class="text-center space-y-2 border-b border-slate-800 pb-4">
+            <span class="text-4xl block animate-bounce">✨</span>
+            <h1 class="text-xl sm:text-2xl font-bold text-white">Seu Pré-Orçamento Sob Medida foi Calculado!</h1>
+            <p class="text-xs text-slate-400">Olá, <b>{nome}</b>! Confira abaixo a estimativa do seu projeto para <b>{cidade} ({area_m2} m²)</b>.</p>
+        </div>
+
+        <!-- ESTIMATIVA TOTAL -->
+        <div class="bg-slate-950 p-6 rounded-2xl border border-amber-500/40 text-center space-y-1">
+            <span class="text-xs text-slate-400 font-bold uppercase tracking-wider block">Estimativa Total do Projeto</span>
+            <span class="text-3xl sm:text-4xl font-black text-amber-400">R$ {preco_venda:,.2f}</span>
+            <p class="text-[11px] text-slate-500">Caixas {esp_caixa} ({cor_caixa}) • Portas {acab_porta} • Ferragens {marca_ferr}</p>
+        </div>
+
+        <!-- PERGUNTAS DE INTERESSE NO AGENDAMENTO -->
+        <div class="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4 text-xs">
+            <h3 class="text-xs font-bold text-amber-400 uppercase tracking-wide flex items-center gap-1">
+                <span>📅 1. Interesse e Preferência de Agendamento</span>
+            </h3>
+            
+            <div class="grid sm:grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-slate-300 font-semibold mb-1">Como você prefere seu atendimento?</label>
+                    <select id="tipo_agendamento" onchange="atualizarMensagemZap()" class="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                        <option value="Visita ao Showroom da Loja">🏢 Visita Presencial ao Showroom da Loja</option>
+                        <option value="Visita Técnica com Medição na Obra">📐 Visita Técnica e Medição no Meu Imóvel</option>
+                        <option value="Atendimento Online via Vídeo">💻 Reunião / Atendimento Online por Vídeo</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-slate-300 font-semibold mb-1">Melhor Período para Atendimento</label>
+                    <select id="preferencia_horario" onchange="atualizarMensagemZap()" class="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                        <option value="Manhã (09h às 12h)">🌅 Manhã (09h às 12h)</option>
+                        <option value="Tarde (14h às 18h)" selected>☀️ Tarde (14h às 18h)</option>
+                        <option value="Sábado (09h às 13h)">📅 Sábado (09h às 13h)</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- SIMULAÇÃO FINANCEIRA DE PARCELAS (ENTRADA MÍN. 30%) -->
+        <div class="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4 text-xs">
+            <h3 class="text-xs font-bold text-amber-400 uppercase tracking-wide flex items-center gap-1">
+                <span>💳 2. Como você pretende realizar o pagamento?</span>
+            </h3>
+
+            <div class="grid sm:grid-cols-3 gap-3">
+                <div>
+                    <label class="block text-slate-300 font-semibold mb-1">Forma de Pagamento</label>
+                    <select id="forma_pagamento_cli" onchange="calcularParcelasCliente()" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                        <option value="Cartão de Crédito">Cartão de Crédito (até 12x)</option>
+                        <option value="PIX à Vista">PIX / À Vista (com desconto)</option>
+                        <option value="Boleto Bancário">Boleto Bancário (até 24x)</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-slate-300 font-semibold mb-1">
+                        Entrada (Mínimo de 30%)
+                    </label>
+                    <input type="number" id="entrada_cli" min="{entrada_minima:.2f}" step="100" value="{entrada_minima:.2f}" oninput="calcularParcelasCliente()" class="w-full px-3 py-2 bg-slate-900 border border-amber-500/50 rounded-xl text-amber-300 font-bold">
+                    <span class="text-[10px] text-slate-500 block mt-0.5">Mínimo: R$ {entrada_minima:,.2f}</span>
+                </div>
+
+                <div>
+                    <label class="block text-slate-300 font-semibold mb-1">Nº de Parcelas</label>
+                    <select id="parcelas_cli" onchange="calcularParcelasCliente()" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold">
+                        <option value="1">1x (Sem juros)</option>
+                        <option value="3">3x</option>
+                        <option value="6">6x</option>
+                        <option value="10">10x</option>
+                        <option value="12" selected>12x</option>
+                        <option value="18">18x (Boleto)</option>
+                        <option value="24">24x (Boleto)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- RESULTADO DO PARCELAMENTO SIMULADO PELO CLIENTE -->
+            <div class="p-4 bg-slate-900 rounded-xl border border-slate-800 text-center space-y-1">
+                <span class="text-slate-400 text-[11px] uppercase tracking-wider block">Seu Plano Simulado:</span>
+                <p class="text-sm font-bold text-white">
+                    Entrada de <span id="res_entrada" class="text-amber-400">R$ {entrada_minima:,.2f}</span> + 
+                    <span id="res_num_parc">12</span>x de <span id="res_valor_parc" class="text-emerald-400 font-black text-base">R$ {parcela_12x:,.2f}</span>
+                </p>
+                <p class="text-[10px] text-slate-500">Saldo a parcelar: R$ <span id="res_saldo">{saldo_restante:,.2f}</span></p>
+            </div>
+        </div>
+
+        <!-- BOTÃO PARA SER DIRECIONADO AO WHATSAPP (SÓ APÓS A SIMULAÇÃO) -->
+        <div class="pt-2">
+            <a id="btn_whatsapp_agendar" href="#" target="_blank" class="flex items-center justify-center gap-2 w-full py-4 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 font-black rounded-xl text-sm transition-all shadow-xl">
+                <span>📲 Quero ser direcionado ao WhatsApp para agendar atendimento</span>
+            </a>
+            <p class="text-[11px] text-center text-slate-500 mt-2">Você será atendido pela equipe oficial da <b>{empresa['nome_empresa']}</b> com sua simulação salva.</p>
+        </div>
+
+    </div>
+
+    <script>
+        var valorTotal = {preco_venda};
+        var entradaMinimaPermitida = {entrada_minima};
+        var telEmpresa = "{tel_limpo}";
+        var nomeCliente = "{nome}";
+        var cidadeCliente = "{cidade}";
+        var areaCliente = "{area_m2}";
+        var idOrc = "{orcamento_id:04d}";
+
+        function calcularParcelasCliente() {{
+            var forma = document.getElementById('forma_pagamento_cli').value;
+            var entradaInput = document.getElementById('entrada_cli');
+            var entrada = parseFloat(entradaInput.value) || 0;
+            var nParc = parseInt(document.getElementById('parcelas_cli').value) || 1;
+
+            // Trava de entrada mínima de 30%
+            if (entrada < entradaMinimaPermitida) {{
+                entrada = entradaMinimaPermitida;
+                entradaInput.value = entradaMinimaPermitida.toFixed(2);
+            }}
+
+            var saldo = Math.max(valorTotal - entrada, 0);
+            var valorParc = nParc > 0 ? (saldo / nParc) : 0;
+
+            document.getElementById('res_entrada').innerText = "R$ " + entrada.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
+            document.getElementById('res_num_parc').innerText = nParc;
+            document.getElementById('res_valor_parc').innerText = "R$ " + valorParc.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
+            document.getElementById('res_saldo').innerText = saldo.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
+
+            atualizarMensagemZap();
+        }}
+
+        function atualizarMensagemZap() {{
+            var tipoAgend = document.getElementById('tipo_agendamento').value;
+            var prefHorario = document.getElementById('preferencia_horario').value;
+            var forma = document.getElementById('forma_pagamento_cli').value;
+            var entrada = parseFloat(document.getElementById('entrada_cli').value) || entradaMinimaPermitida;
+            var nParc = document.getElementById('parcelas_cli').value;
+            var saldo = Math.max(valorTotal - entrada, 0);
+            var valorParc = (saldo / nParc).toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
+
+            var msg = "Olá! Meu nome é *" + nomeCliente + "*.\n" +
+                      "Gerei meu pré-orçamento no site da *{empresa['nome_empresa']}* (Projeto #" + idOrc + ").\n\n" +
+                      "📋 *DADOS DO PROJETO:*\n" +
+                      "• Cidade: " + cidadeCliente + "\n" +
+                      "• Metragem: " + areaCliente + " m²\n" +
+                      "• Estimativa Total: *R$ " + valorTotal.toLocaleString('pt-BR', {{ minimumFractionDigits: 2 }}) + "*\n\n" +
+                      "💳 *SIMULAÇÃO DE PAGAMENTO:*\n" +
+                      "• Forma: " + forma + "\n" +
+                      "• Entrada (mín. 30%): R$ " + entrada.toLocaleString('pt-BR', {{ minimumFractionDigits: 2 }}) + "\n" +
+                      "• Parcelamento: *" + nParc + "x de R$ " + valorParc + "*\n\n" +
+                      "📅 *AGENDAMENTO:*\n" +
+                      "• Preferência: *" + tipoAgend + "*\n" +
+                      "• Horário: *" + prefHorario + "*\n\n" +
+                      "Gostaria de confirmar meu agendamento com a equipe!";
+
+            var zapUrl = "https://api.whatsapp.com/send?phone=55" + telEmpresa + "&text=" + encodeURIComponent(msg);
+            document.getElementById('btn_whatsapp_agendar').href = zapUrl;
+        }}
+
+        window.onload = function() {{
+            calcularParcelasCliente();
+        }};
+    </script>
+</body>
+</html>"""
 
 @app.post("/salvar-dados-completos-cliente", response_class=HTMLResponse)
 def salvar_dados_completos_cliente_route(
