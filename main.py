@@ -14,7 +14,7 @@ from datetime import datetime, date, timedelta
 from typing import List
 
 app = FastAPI(title="MVI Móveis Planejados - Master SaaS")
-DB_PATH = "mvi_production_v32.db"
+DB_PATH = "mvi_production_v33.db"
 
 # ==============================================================================
 # 1. TRATAMENTO DE ERROS GLOBAL
@@ -26,7 +26,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     <div style="background:#0f172a; color:#f8fafc; font-family:sans-serif; padding:30px; min-height:100vh;">
         <h2 style="color:#f59e0b;">⚠️ Diagnóstico do Sistema MVI</h2>
         <pre style="background:#1e293b; color:#f43f5e; padding:15px; border-radius:10px; font-size:12px; overflow-x:auto;">{err}</pre>
-        <a href="/painel-get" style="display:inline-block; margin-top:15px; padding:10px 20px; background:#f59e0b; color:#0f172a; font-weight:bold; border-radius:8px; text-decoration:none;">Voltar ao Painel</a>
+        <a href="/" style="display:inline-block; margin-top:15px; padding:10px 20px; background:#f59e0b; color:#0f172a; font-weight:bold; border-radius:8px; text-decoration:none;">Voltar ao Início</a>
     </div>
     """, status_code=500)
 
@@ -1068,7 +1068,8 @@ def render_dashboard_view():
     equipe = cursor.fetchall()
     conn.close()
 
-    cliente_ativo = None
+    # Tratamento seguro caso não existam orçamentos
+    cliente_ativo = {}
     if CURRENT_SESSION.get("cliente_ativo_id"):
         for h in leads:
             if h["id"] == CURRENT_SESSION["cliente_ativo_id"]:
@@ -1076,20 +1077,20 @@ def render_dashboard_view():
                 break
     if not cliente_ativo and leads:
         cliente_ativo = dict(leads[0])
-        CURRENT_SESSION["cliente_ativo_id"] = cliente_ativo["id"]
+        CURRENT_SESSION["cliente_ativo_id"] = cliente_ativo.get("id")
 
-    c_id = cliente_ativo["id"] if cliente_ativo else 0
-    c_nome = cliente_ativo.get("cliente_nome") or "Selecione um Cliente"
+    c_id = cliente_ativo.get("id", 0)
+    c_nome = cliente_ativo.get("cliente_nome") or "Nenhum cliente selecionado"
     c_amb = cliente_ativo.get("cliente_ambiente") or "Geral"
-    c_p_bruto = round(float(cliente_ativo.get("preco_bruto") or cliente_ativo.get("preco_venda") or 0)) if cliente_ativo else 0
-    c_p_venda = round(float(cliente_ativo.get("preco_venda") or 0)) if cliente_ativo else 0
-    c_lucro = round(float(cliente_ativo.get("lucro_liquido") or 0)) if cliente_ativo else 0
-    c_desc_pct = float(cliente_ativo.get("desconto_pct") or 0) if cliente_ativo else 0.0
-    c_markup = float(cliente_ativo.get("markup") or 2.2) if cliente_ativo else 2.2
-    c_entrada = round(float(cliente_ativo.get("entrada_valor") or 0)) if cliente_ativo else 0
-    c_parc = int(cliente_ativo.get("num_parcelas") or 1) if cliente_ativo else 1
+    c_p_bruto = round(float(cliente_ativo.get("preco_bruto") or cliente_ativo.get("preco_venda") or 0))
+    c_p_venda = round(float(cliente_ativo.get("preco_venda") or 0))
+    c_lucro = round(float(cliente_ativo.get("lucro_liquido") or 0))
+    c_desc_pct = float(cliente_ativo.get("desconto_pct") or 0)
+    c_markup = float(cliente_ativo.get("markup") or 2.2)
+    c_entrada = round(float(cliente_ativo.get("entrada_valor") or 0))
+    c_parc = int(cliente_ativo.get("num_parcelas") or 1)
     c_mod = cliente_ativo.get("modalidade_pagamento") or "Cartão de Crédito em até 12x"
-    c_aut_desc = int(cliente_ativo.get("desconto_autorizado") or 1) if cliente_ativo else 1
+    c_aut_desc = int(cliente_ativo.get("desconto_autorizado") or 1)
     
     saldo_financiar = max(c_p_venda - c_entrada, 0)
     valor_por_parcela = round(saldo_financiar / c_parc) if c_parc > 0 else 0
@@ -1223,7 +1224,7 @@ def render_dashboard_view():
     options_leads = "<option value='0'>➕ Cadastrar Novo Cliente / Orçamento Manual</option>"
     for h in leads:
         h_d = dict(h)
-        sel = "selected" if h_d["id"] == c_id else ""
+        sel = "selected" if h_d.get("id") == c_id else ""
         options_leads += f"<option value='{h_d['id']}' {sel}>#{h_d['id']} - {h_d.get('cliente_nome','')} ({h_d.get('cliente_ambiente','')})</option>"
 
     return f"""<!DOCTYPE html>
@@ -1656,7 +1657,7 @@ def render_dashboard_view():
 </body></html>"""
 
 # ==============================================================================
-# 5. FASTAPI ROUTES
+# 5. FASTAPI ROUTES (DECLARADAS APÓS TODAS AS FUNÇÕES DE RENDERIZAÇÃO)
 # ==============================================================================
 
 @app.get("/", response_class=HTMLResponse)
