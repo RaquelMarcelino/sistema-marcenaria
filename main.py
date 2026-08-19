@@ -14,7 +14,7 @@ from datetime import datetime, date, timedelta
 from typing import List
 
 app = FastAPI(title="MVI Móveis Planejados - Master SaaS")
-DB_PATH = "mvi_production_v47.db"
+DB_PATH = "mvi_production_v48.db"
 
 # ==============================================================================
 # 1. TRATAMENTO DE ERROS GLOBAL
@@ -73,7 +73,7 @@ def init_db():
             empresa_id INTEGER DEFAULT 1,
             criado_em TEXT,
             vendedor_responsavel TEXT DEFAULT 'Raquel Marcelino',
-            vendedor_email TEXT DEFAULT 'admin@mvi.com',
+            vendedor_email TEXT DEFAULT 'raquel@mvi.com',
             cliente_nome TEXT,
             cliente_cpf TEXT DEFAULT '',
             cliente_rg TEXT DEFAULT '',
@@ -301,7 +301,7 @@ def calcular_engenharia(
 
     preco_bruto = round((total_materiais + custo_mo + custo_frete) * markup)
     preco_venda = preco_bruto
-    comissao_venda = round(preco_venda * 0.04)
+    comissao_venda = round(preco_venda * (float(empresa.get("comissao_padrao_pct", 4.0)) / 100.0))
     lucro = round(preco_venda - (total_materiais + custo_mo + custo_frete + (preco_venda * 0.10)))
 
     return {
@@ -600,11 +600,7 @@ def render_pre_orcamento_agendamento(
     esp_caixa, cor_caixa, esp_porta, cor_porta, acab_porta, marca_ferr, esp_tamp, ambientes_str
 ):
     pv_redondo = round(preco_venda)
-    entrada_minima = round(pv_redondo * 0.20)
-    saldo_restante = pv_redondo - entrada_minima
-    parcela_12x = round(saldo_restante / 12.0)
     desconto_vista_5 = round(pv_redondo * 0.95)
-    economia_5 = pv_redondo - desconto_vista_5
     tel_limpo = (empresa.get("telefone") or "").replace("-","").replace(" ","").replace("(","").replace(")","")
 
     return f"""<!DOCTYPE html>
@@ -688,10 +684,8 @@ def render_dashboard_view():
     met = get_metricas()
     perfil = CURRENT_SESSION.get("user_perfil", "vendedor")
     
-    # REGRAS DE PERMISSÃO POR PERFIL
     pode_ver_lucro = (perfil == "adm")
     pode_ver_comissoes_geral = (perfil in ["adm", "gerente", "financeiro"])
-    pode_editar_empresa = (perfil == "adm")
     pode_gerenciar_equipe = (perfil == "adm")
     somente_leitura_fabrica = (perfil == "liberacao")
     
@@ -707,7 +701,6 @@ def render_dashboard_view():
         cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 ORDER BY id DESC LIMIT 50")
     
     leads = cursor.fetchall()
-    
     cursor.execute("SELECT * FROM usuarios WHERE empresa_id = 1 ORDER BY nome ASC")
     equipe = cursor.fetchall()
     conn.close()
@@ -725,13 +718,11 @@ def render_dashboard_view():
     c_id = cliente_ativo.get("id", 0)
     c_nome = cliente_ativo.get("cliente_nome") or "Novo Cliente (Sem Pasta)"
     c_cpf = cliente_ativo.get("cliente_cpf") or "Não informado"
-    c_rg = cliente_ativo.get("cliente_rg") or "—"
     c_tel = cliente_ativo.get("cliente_telefone") or "—"
     c_cep_post = cliente_ativo.get("cliente_cep_postal") or ""
     c_end_post = cliente_ativo.get("cliente_endereco_postal") or ""
     c_cep_ent = cliente_ativo.get("cliente_cep_entrega") or ""
     c_end_ent = cliente_ativo.get("cliente_endereco_entrega") or ""
-    c_email = cliente_ativo.get("cliente_email") or ""
     c_vendedor = cliente_ativo.get("vendedor_responsavel") or CURRENT_SESSION["user_nome"]
 
     c_prazo = cliente_ativo.get("prazo_entrega") or "25 dias úteis"
@@ -751,9 +742,7 @@ def render_dashboard_view():
     chk_comercial = int(cliente_ativo.get("check_comercial") or 1)
     chk_financeiro = int(cliente_ativo.get("check_financeiro") or 0)
     chk_contrato = int(cliente_ativo.get("check_contrato") or 0)
-    potencial = cliente_ativo.get("potencial_cliente") or "Morno"
 
-    # Carrega Ambientes
     ambientes_cadastrados = []
     try:
         ambientes_cadastrados = json.loads(cliente_ativo.get("ambientes_json") or "[]")
@@ -763,7 +752,6 @@ def render_dashboard_view():
     if not ambientes_cadastrados and c_id > 0:
         ambientes_cadastrados = [{"id": 1, "nome": c_amb, "valor": c_p_venda}]
 
-    # Carrega Versões
     versoes_orcamentos = []
     try:
         versoes_orcamentos = json.loads(cliente_ativo.get("versoes_orcamentos_json") or "[]")
@@ -774,7 +762,6 @@ def render_dashboard_view():
         versoes_orcamentos = [{"id": 1, "nome": "Orçamento #1 (Principal)", "valor": c_p_venda, "ativo": True}]
 
     versao_ativa_id = int(cliente_ativo.get("versao_ativa_id") or 1)
-
     saldo_financiar = max(c_p_venda - c_entrada, 0)
     valor_por_parcela = round(saldo_financiar / c_parc) if c_parc > 0 else 0
 
@@ -845,7 +832,6 @@ def render_dashboard_view():
         adendo = round(float(h_d.get("adendo_valor") or 0))
         pv_total = pv + adendo
         st = h_d.get("status") or "Em Negociação"
-        
         sel = "selected" if h_d.get("id") == c_id else ""
         options_leads += f"<option value='{h_d['id']}' {sel}>Pasta P{h_d['id']:05d} - {h_d.get('cliente_nome','')} ({h_d.get('cliente_ambiente','')})</option>"
 
@@ -867,14 +853,12 @@ def render_dashboard_view():
         </tr>
         """
 
-    # TABELA DE COMISSÕES
     tabela_comissoes_html = ""
     for h in leads:
         h_d = dict(h)
         pv = float(h_d.get("preco_venda") or 0) + float(h_d.get("adendo_valor") or 0)
         vendedor_linha = h_d.get("vendedor_responsavel") or "Raquel Marcelino"
         
-        # Filtro de comissão para o vendedor ver só a dele
         if perfil == "vendedor" and vendedor_linha != CURRENT_SESSION["user_nome"]:
             continue
 
@@ -897,7 +881,6 @@ def render_dashboard_view():
     if not tabela_comissoes_html:
         tabela_comissoes_html = "<tr><td colspan='7' class='py-4 text-center text-xs text-slate-500'>Nenhum lançamento de comissão registrado para esta visualização.</td></tr>"
 
-    # TABELA DE FUNCIONÁRIOS (ADM ONLY)
     tabela_equipe_html = ""
     for u in equipe:
         u_d = dict(u)
@@ -938,13 +921,10 @@ def render_dashboard_view():
         .tree-item.active {{ background: linear-gradient(135deg, #f59e0b, #d97706); color: #0f172a; font-weight: bold; }}
         .tab-content {{ display: none; }}
         .tab-content.active {{ display: block; }}
-        .btn-dot {{ transition: all 0.15s; }}
-        .btn-dot:hover {{ transform: scale(1.15); }}
     </style>
 </head>
 <body class="bg-slate-950 text-slate-100 font-sans min-h-screen">
     
-    <!-- HEADER SUPERIOR MVI -->
     <header class="bg-slate-900 border-b border-slate-800 px-6 py-3 flex flex-wrap items-center justify-between shadow-lg">
         <div class="flex items-center space-x-6">
             <div class="flex items-center space-x-2 cursor-pointer" onclick="mudarAba('aba-geral')">
@@ -972,7 +952,6 @@ def render_dashboard_view():
         </div>
     </header>
 
-    <!-- CORPO PRINCIPAL -->
     <div class="max-w-7xl mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-5">
         
         <!-- MENU LATERAL -->
@@ -1096,7 +1075,7 @@ def render_dashboard_view():
                 </form>
             </div>
 
-            <!-- ABA 3: MESA DE NEGOCIAÇÃO (COM TRAVA DE DESCONTO & LUCRO BLOQUEADO PARA NÃO-ADM) -->
+            <!-- ABA 3: MESA DE NEGOCIAÇÃO -->
             <div id="aba-mesa" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
                 <div class="flex justify-between items-center pb-1 border-b border-slate-800">
                     <h3 class="font-bold text-amber-400 uppercase">💼 Mesa de Negociação & Fechamento</h3>
@@ -1169,7 +1148,7 @@ def render_dashboard_view():
                 </form>
             </div>
 
-            <!-- ABA 5: EXTRATO DE COMISSÕES (ACESSO MULTIPERFIL) -->
+            <!-- ABA 5: EXTRATO DE COMISSÕES -->
             <div id="aba-comissoes" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
                 <div class="flex justify-between items-center pb-2 border-b border-slate-800">
                     <div>
@@ -1197,7 +1176,7 @@ def render_dashboard_view():
                 </div>
             </div>
 
-            <!-- ABA 6: GESTÃO DE EQUIPE & SENHAS PROVISÓRIAS (ADM ONLY) -->
+            <!-- ABA 6: GESTÃO DE EQUIPE (ADM ONLY) -->
             <div id="aba-equipe" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
                 <div class="flex justify-between items-center pb-2 border-b border-slate-800">
                     <div>
