@@ -14,7 +14,7 @@ from datetime import datetime, date, timedelta
 from typing import List
 
 app = FastAPI(title="MVI Móveis Planejados - Master SaaS")
-DB_PATH = "mvi_production_v40.db"
+DB_PATH = "mvi_production_v41.db"
 
 # ==============================================================================
 # 1. TRATAMENTO DE ERROS GLOBAL
@@ -351,7 +351,7 @@ def processar_arquivo_promob(conteudo_texto: str, nome_arquivo: str):
     return {"items": items, "total_mat": total_mat, "custo_mo": custo_mo, "custo_frete": custo_frete, "preco_bruto": preco_bruto, "preco_venda": preco_venda, "lucro": lucro}
 
 # ==============================================================================
-# 4. FUNÇÕES DE RENDERIZAÇÃO HTML (DECLARADAS ANTES DAS ROTAS)
+# 4. TODAS AS FUNÇÕES DE RENDERIZAÇÃO HTML (DECLARADAS ANTES DAS ROTAS)
 # ==============================================================================
 def render_login(msg=""):
     erro = f"<div class='p-3 bg-rose-950/70 border border-rose-800 text-rose-300 text-xs rounded-xl text-center'>{msg}</div>" if msg else ""
@@ -366,7 +366,7 @@ def render_login(msg=""):
         <div class="text-center space-y-2">
             <div class="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-black text-slate-950 text-2xl shadow-lg">MVI</div>
             <h1 class="text-xl font-bold text-white">MVI Móveis Planejados</h1>
-            <p class="text-xs text-slate-400">Hub Integrador Promob & Gestão</p>
+            <p class="text-xs text-slate-400">Hub Integrador Promob & Gestão Comercial</p>
         </div>
         {erro}
         <form action="/painel" method="post" class="space-y-4">
@@ -843,7 +843,7 @@ def render_tela_nova_senha(user, token):
 </body></html>"""
 
 # ==============================================================================
-# NOVO LAYOUT DO COCKPIT COM ALTERNÂNCIA COMPLETA ENTRE DASHBOARD E PASTAS
+# NOVO LAYOUT DO COCKPIT NO PADRÃO MVI DARK/GOLD
 # ==============================================================================
 def render_dashboard_view():
     empresa = get_empresa_dados(1)
@@ -865,10 +865,12 @@ def render_dashboard_view():
             if h["id"] == CURRENT_SESSION["cliente_ativo_id"]:
                 cliente_ativo = dict(h)
                 break
-    
-    tem_cliente = bool(cliente_ativo)
+    if not cliente_ativo and leads:
+        cliente_ativo = dict(leads[0])
+        CURRENT_SESSION["cliente_ativo_id"] = cliente_ativo.get("id")
+
     c_id = cliente_ativo.get("id", 0)
-    c_nome = cliente_ativo.get("cliente_nome") or "Nenhum cliente selecionado"
+    c_nome = cliente_ativo.get("cliente_nome") or "Novo Cliente (Sem Pasta)"
     c_cpf = cliente_ativo.get("cliente_cpf") or "Não informado"
     c_rg = cliente_ativo.get("cliente_rg") or "—"
     c_tel = cliente_ativo.get("cliente_telefone") or "—"
@@ -879,7 +881,7 @@ def render_dashboard_view():
     c_email = cliente_ativo.get("cliente_email") or ""
 
     c_prazo = cliente_ativo.get("prazo_entrega") or "45 dias úteis"
-    c_amb = cliente_ativo.get("cliente_ambiente") or "Geral"
+    c_amb = cliente_ativo.get("cliente_ambiente") or "Projeto Sob Medida"
     c_data_venda = cliente_ativo.get("criado_em") or datetime.now().strftime("%d/%m/%Y")
     
     c_p_bruto = round(float(cliente_ativo.get("preco_bruto") or cliente_ativo.get("preco_venda") or 0))
@@ -896,29 +898,27 @@ def render_dashboard_view():
     saldo_financiar = max(c_p_venda - c_entrada, 0)
     valor_por_parcela = round(saldo_financiar / c_parc) if c_parc > 0 else 0
 
-    # Linhas da tabela de parcelas detalhada da pasta
     linhas_parcelas = ""
     hoje = date.today()
     for i in range(1, c_parc + 1):
         dt_parc = (hoje + timedelta(days=30 * i)).strftime("%d/%m/%Y")
         linhas_parcelas += f"""
-        <tr class="border-b border-slate-200 text-xs hover:bg-slate-50">
-            <td class="py-2 px-3 text-center text-slate-500 font-mono">{i}</td>
-            <td class="py-2 px-3 text-slate-700">{dt_parc}</td>
-            <td class="py-2 px-3 font-bold text-slate-800 text-right">R$ {valor_por_parcela:,.2f}</td>
-            <td class="py-2 px-3 text-slate-600">{c_mod}</td>
-            <td class="py-2 px-3 text-center text-slate-400">—</td>
-            <td class="py-2 px-3 text-center text-slate-400">—</td>
-            <td class="py-2 px-3 text-center text-slate-400">—</td>
-            <td class="py-2 px-3 text-slate-500">Parcela regular do projeto</td>
-            <td class="py-2 px-3 text-center"><button class="text-sky-600 hover:underline">📄</button></td>
+        <tr class="border-b border-slate-800 text-xs hover:bg-slate-800/40">
+            <td class="py-2.5 px-3 text-center text-slate-400 font-mono">{i}</td>
+            <td class="py-2.5 px-3 text-slate-300">{dt_parc}</td>
+            <td class="py-2.5 px-3 font-bold text-amber-400 text-right">R$ {valor_por_parcela:,.2f}</td>
+            <td class="py-2.5 px-3 text-slate-300">{c_mod}</td>
+            <td class="py-2.5 px-3 text-center text-slate-500">—</td>
+            <td class="py-2.5 px-3 text-center text-slate-500">—</td>
+            <td class="py-2.5 px-3 text-center text-slate-500">—</td>
+            <td class="py-2.5 px-3 text-slate-400">Parcela regular do projeto</td>
+            <td class="py-2.5 px-3 text-center"><button class="text-amber-400 hover:underline">📄</button></td>
         </tr>
         """
 
     if not linhas_parcelas:
-        linhas_parcelas = "<tr><td colspan='9' class='py-4 text-center text-xs text-slate-400'>Nenhuma parcela gerada.</td></tr>"
+        linhas_parcelas = "<tr><td colspan='9' class='py-4 text-center text-xs text-slate-500'>Nenhuma parcela gerada.</td></tr>"
 
-    # Geração de linhas da tabela geral (Dashboard Geral com todos os clientes)
     leads_geral_html = ""
     options_leads = "<option value='0'>📂 Selecionar outra pasta...</option>"
     for h in leads:
@@ -926,23 +926,22 @@ def render_dashboard_view():
         pv = round(float(h_d.get("preco_venda") or 0))
         adendo = round(float(h_d.get("adendo_valor") or 0))
         pv_total = pv + adendo
-        lucro = round(float(h_d.get("lucro_liquido") or 0))
         st = h_d.get("status") or "Em Negociação"
         
         sel = "selected" if h_d.get("id") == c_id else ""
         options_leads += f"<option value='{h_d['id']}' {sel}>Pasta P{h_d['id']:05d} - {h_d.get('cliente_nome','')} ({h_d.get('cliente_ambiente','')})</option>"
 
         leads_geral_html += f"""
-        <tr class="border-b border-slate-200 text-xs hover:bg-slate-50">
-            <td class="py-3 px-4 font-mono font-bold text-sky-700">P{h_d['id']:05d}</td>
-            <td class="py-3 px-4 text-slate-800 font-bold">{h_d.get('cliente_nome','')}<span class="block text-[11px] text-slate-400 font-normal">CPF: {h_d.get('cliente_cpf') or 'Pendente'}</span></td>
-            <td class="py-3 px-4 text-slate-600">{h_d.get('cliente_ambiente','')}</td>
-            <td class="py-3 px-4 text-slate-700 font-bold text-right">R$ {pv_total:,.2f}</td>
-            <td class="py-3 px-4 text-center"><span class="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-800">{st}</span></td>
+        <tr class="border-b border-slate-800 text-xs hover:bg-slate-800/40">
+            <td class="py-3 px-4 font-mono font-bold text-amber-400">P{h_d['id']:05d}</td>
+            <td class="py-3 px-4 text-white font-bold">{h_d.get('cliente_nome','')}<span class="block text-[11px] text-slate-400 font-normal">CPF: {h_d.get('cliente_cpf') or 'Pendente'}</span></td>
+            <td class="py-3 px-4 text-slate-300">{h_d.get('cliente_ambiente','')}</td>
+            <td class="py-3 px-4 text-amber-400 font-bold text-right">R$ {pv_total:,.2f}</td>
+            <td class="py-3 px-4 text-center"><span class="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-950 text-amber-300 border border-amber-500/30">{st}</span></td>
             <td class="py-3 px-4 text-center">
                 <form action="/selecionar-cliente-trabalho" method="post" class="inline">
                     <input type="hidden" name="orcamento_id" value="{h_d['id']}">
-                    <button type="submit" class="px-3 py-1 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded text-xs shadow-sm">
+                    <button type="submit" class="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded text-xs shadow-sm">
                         📂 Abrir Pasta / Negociar
                     </button>
                 </form>
@@ -951,13 +950,7 @@ def render_dashboard_view():
         """
 
     if not leads_geral_html:
-        leads_geral_html = "<tr><td colspan='6' class='py-8 text-center text-xs text-slate-400'>Nenhum cliente ou orçamento cadastrado ainda.</td></tr>"
-
-    # Define qual tela abre por padrão
-    mostrar_pasta = "block" if tem_cliente else "none"
-    mostrar_geral = "none" if tem_cliente else "block"
-    tab_geral_active = "active font-bold text-sky-700 bg-white" if not tem_cliente else "bg-slate-200 text-slate-600"
-    tab_pasta_active = "active font-bold text-sky-700 bg-white border-t-2 border-sky-600" if tem_cliente else "bg-slate-200 text-slate-600"
+        leads_geral_html = "<tr><td colspan='6' class='py-8 text-center text-xs text-slate-500'>Nenhum cliente cadastrado ainda. Use a aba 'Dados do Cliente & CEP' ou 'Novo Orçamento'.</td></tr>"
 
     return f"""<!DOCTYPE html>
 <html lang="pt-br">
@@ -967,423 +960,371 @@ def render_dashboard_view():
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         .tree-item {{ transition: all 0.2s; cursor: pointer; }}
-        .tree-item:hover {{ background-color: #f1f5f9; }}
-        .tree-item.active {{ background-color: #e0f2fe; color: #0369a1; font-weight: bold; border-left: 3px solid #0284c7; }}
+        .tree-item:hover {{ background-color: #1e293b; color: #f59e0b; }}
+        .tree-item.active {{ background: linear-gradient(135deg, #f59e0b, #d97706); color: #0f172a; font-weight: bold; }}
         .tab-content {{ display: none; }}
         .tab-content.active {{ display: block; }}
     </style>
 </head>
-<body class="bg-slate-100 text-slate-800 font-sans min-h-screen">
+<body class="bg-slate-950 text-slate-100 font-sans min-h-screen">
     
-    <!-- 1. HEADER SUPERIOR AZUL PADRÃO ERP -->
-    <header class="bg-[#1e73be] text-white px-6 py-2.5 flex flex-wrap items-center justify-between shadow-md">
+    <!-- HEADER SUPERIOR MVI -->
+    <header class="bg-slate-900 border-b border-slate-800 px-6 py-3 flex flex-wrap items-center justify-between shadow-lg">
         <div class="flex items-center space-x-6">
-            <div class="flex items-center space-x-2 cursor-pointer" onclick="abrirDashboardGeral()">
-                <div class="w-8 h-8 rounded-lg bg-amber-400 text-slate-900 font-black flex items-center justify-center text-sm">MVI</div>
-                <span class="font-bold text-sm tracking-wide">MVI SISTEMAS</span>
+            <div class="flex items-center space-x-2 cursor-pointer" onclick="mudarAba('aba-geral')">
+                <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 text-slate-950 font-black flex items-center justify-center text-sm shadow">MVI</div>
+                <span class="font-bold text-base tracking-wide text-white">{empresa['nome_empresa']}</span>
             </div>
-            <nav class="flex items-center space-x-4 text-xs font-semibold">
-                <button onclick="abrirDashboardGeral()" class="hover:text-amber-300">Comercial</button>
-                <a href="/solicitar-orcamento" target="_blank" class="hover:text-amber-300">Simulador Web</a>
-                <a href="/exportar-csv" class="hover:text-amber-300">Consultas</a>
-                <a href="/solicitar-orcamento" target="_blank" class="hover:text-amber-300">Integrador</a>
+            <nav class="flex items-center space-x-3 text-xs font-semibold">
+                <button onclick="mudarAba('aba-geral')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">📂 Todas as Pastas</button>
+                <a href="/solicitar-orcamento" target="_blank" class="px-3 py-1.5 rounded-lg bg-amber-950 text-amber-300 hover:bg-amber-900 border border-amber-500/40">🔗 Simulador Público</a>
+                <a href="/exportar-csv" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">📊 Relatório CSV</a>
             </nav>
         </div>
 
         <div class="flex items-center space-x-4 text-xs">
             <form action="/selecionar-cliente-trabalho" method="post" class="flex items-center gap-1">
-                <select name="orcamento_id" onchange="this.form.submit()" class="px-3 py-1 rounded bg-white text-slate-800 text-xs font-medium border-0 focus:ring-2 focus:ring-amber-400">
+                <select name="orcamento_id" onchange="this.form.submit()" class="px-3 py-1.5 rounded-xl bg-slate-950 text-amber-300 font-semibold border border-slate-700 focus:border-amber-500">
                     {options_leads}
                 </select>
             </form>
-            <span class="bg-rose-600 px-2 py-0.5 rounded font-bold">{met['aprovados']}</span>
-            <span class="font-semibold text-white">{empresa['nome_empresa']}</span>
-            <span class="text-amber-300 font-bold">{CURRENT_SESSION['user_nome']}</span>
-            <a href="/" class="bg-sky-800 hover:bg-sky-900 px-2.5 py-1 rounded text-white font-semibold">Sair</a>
+            <span class="bg-amber-500 text-slate-950 px-2.5 py-0.5 rounded-full font-bold">{met['aprovados']} Fechados</span>
+            <span class="text-slate-300 font-semibold">{CURRENT_SESSION['user_nome']}</span>
+            <a href="/" class="bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-xl text-slate-300 border border-slate-700">Sair</a>
         </div>
     </header>
 
-    <!-- 2. SUB-BARRA DE ABAS RÁPIDAS COM BOTÃO DE FECHAR (✕) -->
-    <div class="bg-[#f8fafc] border-b border-slate-300 px-6 pt-2 flex items-center space-x-2 text-xs">
-        <button onclick="abrirDashboardGeral()" id="tab-top-geral" class="px-4 py-2 rounded-t-lg font-semibold {tab_geral_active}">
-            Dashboard Geral
-        </button>
+    <!-- CORPO PRINCIPAL COM ARQUITETURA DE 3 COLUNAS -->
+    <div class="max-w-7xl mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-5">
         
-        <div id="tab-top-pasta" class="flex items-center rounded-t-lg shadow-sm {tab_pasta_active}" style="display: {'flex' if tem_cliente else 'none'};">
-            <button onclick="abrirPastaAtiva()" class="px-3 py-2 font-bold">
-                Pasta Ativa P{c_id:05d}
-            </button>
-            <button onclick="fecharPastaAtiva()" class="pr-3 pl-1 py-2 font-black hover:text-rose-600 text-slate-400" title="Fechar Pasta Ativa">
-                ✕
-            </button>
-        </div>
-    </div>
-
-    <!-- 3. TELA DO DASHBOARD GERAL COM TODAS AS PASTAS/CLIENTES -->
-    <div id="view-dashboard-geral" class="max-w-7xl mx-auto p-4 sm:p-6 space-y-5" style="display: {mostrar_geral};">
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <div class="bg-white border border-slate-300 p-4 rounded-xl shadow-sm"><p class="text-[11px] font-bold text-slate-400 uppercase">Faturamento Liberado</p><p class="text-xl font-bold text-sky-700">R$ {met['faturamento']:,.2f}</p></div>
-            <div class="bg-white border border-slate-300 p-4 rounded-xl shadow-sm"><p class="text-[11px] font-bold text-slate-400 uppercase">Projetos Aprovados</p><p class="text-xl font-bold text-emerald-600">{met['aprovados']}</p></div>
-            <div class="bg-white border border-slate-300 p-4 rounded-xl shadow-sm"><p class="text-[11px] font-bold text-slate-400 uppercase">Ticket Médio</p><p class="text-xl font-bold text-slate-800">R$ {met['ticket']:,.2f}</p></div>
-            <div class="bg-white border border-slate-300 p-4 rounded-xl shadow-sm"><p class="text-[11px] font-bold text-slate-400 uppercase">Conversão Comercial</p><p class="text-xl font-bold text-amber-600">{met['taxa']:.1f}%</p></div>
-        </div>
-
-        <div class="bg-white border border-slate-300 rounded-xl overflow-hidden shadow-sm">
-            <div class="bg-slate-50 px-5 py-3 border-b border-slate-200 flex justify-between items-center">
-                <h3 class="font-bold text-xs uppercase text-slate-700 tracking-wide">📂 Carteira Geral de Contratos e Negociações</h3>
-                <a href="/solicitar-orcamento" target="_blank" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded text-xs shadow-sm">
-                    ➕ Novo Orçamento Web
-                </a>
-            </div>
-            <div class="overflow-x-auto">
-                <table class="w-full text-left text-xs border-collapse">
-                    <thead class="bg-slate-100 border-b border-slate-200 text-slate-500 font-semibold uppercase">
-                        <tr>
-                            <th class="py-3 px-4">Pasta</th>
-                            <th class="py-3 px-4">Cliente / Contratante</th>
-                            <th class="py-3 px-4">Ambientes</th>
-                            <th class="py-3 px-4 text-right">Valor Venda</th>
-                            <th class="py-3 px-4 text-center">Status</th>
-                            <th class="py-3 px-4 text-center">Ação</th>
-                        </tr>
-                    </thead>
-                    <tbody>{leads_geral_html}</tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
-    <!-- 4. TELA DA PASTA ATIVA DO CLIENTE (ARQUITETURA DE 3 COLUNAS) -->
-    <div id="view-pasta-cliente" class="max-w-7xl mx-auto p-4 sm:p-6" style="display: {mostrar_pasta};">
-        
-        <!-- IDENTIFICAÇÃO DA PASTA ATIVA -->
-        <div class="bg-white border border-slate-300 rounded-xl px-5 py-2.5 mb-4 flex justify-between items-center text-xs font-semibold text-slate-600 shadow-sm">
-            <div>Contratos Fechados - Ativos <span class="mx-2">›</span> <span class="bg-sky-100 text-sky-800 px-2.5 py-0.5 rounded font-bold">Pasta P{c_id:05d}</span></div>
-            <div class="text-[11px]">Status: <b class="text-emerald-600">{cliente_ativo.get('status','Em Negociação')}</b></div>
-        </div>
-
-        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
-            <!-- COLUNA 1: MENU LATERAL -->
-            <div class="lg:col-span-3 bg-white border border-slate-300 rounded-xl p-4 shadow-sm space-y-4 text-xs">
-                <div>
-                    <h3 class="font-bold text-slate-800 flex items-center gap-1.5 pb-2 border-b border-slate-200">
-                        <span>📁 Pasta P{c_id:05d}</span>
-                    </h3>
-                    <ul class="mt-2 space-y-1">
-                        <li><button onclick="mudarAba('aba-resumo')" id="btn-aba-resumo" class="tree-item active w-full text-left flex items-center gap-2 p-2 rounded">📋 Resumo Financeiro</button></li>
-                        <li><button onclick="mudarAba('aba-cliente')" id="btn-aba-cliente" class="tree-item w-full text-left flex items-center gap-2 p-2 rounded">👤 Dados do Cliente & CEP</button></li>
-                        <li><button onclick="mudarAba('aba-mesa')" id="btn-aba-mesa" class="tree-item w-full text-left flex items-center gap-2 p-2 rounded">💼 Mesa de Negociação</button></li>
-                        <li><button onclick="mudarAba('aba-promob')" id="btn-aba-promob" class="tree-item w-full text-left flex items-center gap-2 p-2 rounded">🚀 Integrador Promob</button></li>
-                        <li><a href="/minuta-contrato/{c_id}" target="_blank" class="tree-item flex items-center gap-2 p-2 rounded text-sky-700 font-bold hover:bg-sky-50">📜 Contrato & Minuta Jurídica</a></li>
-                        <li><a href="/assinar/{c_id}" target="_blank" class="tree-item flex items-center gap-2 p-2 rounded text-emerald-700 font-bold hover:bg-emerald-50">✍️ Assinaturas (Touch/2 Vias)</a></li>
-                    </ul>
-                </div>
-
-                <div>
-                    <div class="flex justify-between items-center pb-1 border-b border-slate-200 font-bold text-slate-800">
-                        <span>🏠 Ambientes</span>
-                        <button onclick="mudarAba('aba-novo-ambiente')" class="text-[11px] text-sky-600 hover:underline font-bold">➕ Novo</button>
-                    </div>
-                    <ul class="mt-2 space-y-1 text-slate-600">
-                        <li class="p-2 bg-slate-50 rounded border border-slate-200 flex justify-between items-center">
-                            <span>📦 {c_amb}</span>
-                            <span class="font-bold text-slate-700">R$ {c_p_venda:,.2f}</span>
-                        </li>
-                    </ul>
-                </div>
-
-                <div>
-                    <div class="flex justify-between items-center pb-1 border-b border-slate-200 font-bold text-slate-800">
-                        <span>⭐ Orçamentos</span>
-                        <span class="text-[11px] text-emerald-600 font-bold">Ativo #1</span>
-                    </div>
-                    <p class="mt-1 text-slate-500 text-[11px]">Proposta de Fechamento Principal</p>
-                </div>
+        <!-- COLUNA 1: MENU LATERAL COM TODAS AS ABAS -->
+        <div class="lg:col-span-3 bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-xl space-y-4 text-xs">
+            <div>
+                <h3 class="font-bold text-white flex items-center justify-between pb-2 border-b border-slate-800">
+                    <span>📁 Pasta P{c_id:05d}</span>
+                    <span class="text-[10px] bg-amber-950 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full">Ativa</span>
+                </h3>
+                <ul class="mt-2 space-y-1">
+                    <li><button onclick="mudarAba('aba-resumo')" id="btn-aba-resumo" class="tree-item active w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-white font-semibold">📋 1. Resumo Financeiro</button></li>
+                    <li><button onclick="mudarAba('aba-cliente')" id="btn-aba-cliente" class="tree-item w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-slate-300 font-medium">👤 2. Dados do Cliente & CEP</button></li>
+                    <li><button onclick="mudarAba('aba-mesa')" id="btn-aba-mesa" class="tree-item w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-slate-300 font-medium">💼 3. Mesa de Negociação</button></li>
+                    <li><button onclick="mudarAba('aba-promob')" id="btn-aba-promob" class="tree-item w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-slate-300 font-medium">🚀 4. Integrador Promob</button></li>
+                    <li><a href="/minuta-contrato/{c_id}" target="_blank" class="tree-item flex items-center gap-2 p-2.5 rounded-xl text-amber-400 font-bold hover:bg-slate-800">📜 5. Minuta do Contrato</a></li>
+                    <li><a href="/assinar/{c_id}" target="_blank" class="tree-item flex items-center gap-2 p-2.5 rounded-xl text-emerald-400 font-bold hover:bg-slate-800">✍️ 6. Assinatura (2 Vias)</a></li>
+                </ul>
             </div>
 
-            <!-- COLUNA 2: PAINEL CENTRAL DINÂMICO -->
-            <div class="lg:col-span-6 space-y-4">
-                
-                <!-- ABA 1: RESUMO FINANCEIRO E CONTRATO (DEFAULT) -->
-                <div id="aba-resumo" class="tab-content active space-y-4">
-                    <div class="bg-white border border-slate-300 rounded-xl p-5 shadow-sm space-y-3">
-                        <div class="text-center pb-2 border-b border-slate-200">
-                            <h2 class="text-xs font-bold text-sky-800 uppercase tracking-wide">CONTRATO IT{c_id:05d} vendido em: {c_data_venda} por {CURRENT_SESSION['user_nome']}</h2>
-                        </div>
+            <div>
+                <div class="flex justify-between items-center pb-1 border-b border-slate-800 font-bold text-white">
+                    <span>🏠 Ambientes</span>
+                    <button onclick="mudarAba('aba-cliente')" class="text-[11px] text-amber-400 hover:underline font-bold">➕ Novo</button>
+                </div>
+                <ul class="mt-2 space-y-1 text-slate-400">
+                    <li class="p-2 bg-slate-950 rounded-xl border border-slate-800 flex justify-between items-center">
+                        <span class="text-white font-medium">📦 {c_amb}</span>
+                        <span class="font-bold text-amber-400">R$ {c_p_venda:,.2f}</span>
+                    </li>
+                </ul>
+            </div>
 
-                        <div class="flex flex-wrap gap-2 justify-between items-center">
-                            <div class="flex gap-2">
-                                <a href="/minuta-contrato/{c_id}" target="_blank" class="px-3 py-1 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded text-xs font-semibold text-slate-700">🖨️ Imprimir Contrato</a>
-                                <a href="/assinar/{c_id}" target="_blank" class="px-3 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded text-xs font-bold shadow">✍️ Assinatura Digital</a>
-                            </div>
-                            <span class="text-[11px] text-slate-500 font-semibold">MVI Enterprise</span>
-                        </div>
+            <div>
+                <div class="flex justify-between items-center pb-1 border-b border-slate-800 font-bold text-white">
+                    <span>⭐ Orçamentos</span>
+                    <span class="text-[11px] text-emerald-400 font-bold">Ativo #1</span>
+                </div>
+                <p class="mt-1 text-slate-500 text-[11px]">Proposta de Fechamento Principal</p>
+            </div>
+        </div>
 
-                        <div class="grid grid-cols-2 gap-3 text-xs pt-2">
-                            <div><span class="text-slate-400 block text-[11px]">Cliente:</span><span class="font-bold text-sky-900 text-sm">{c_nome}</span></div>
-                            <div><span class="text-slate-400 block text-[11px]">CPF / CNPJ:</span><span class="font-bold text-slate-700">{c_cpf}</span></div>
-                            <div><span class="text-slate-400 block text-[11px]">Prazo de Entrega:</span><span class="font-bold text-slate-700">{c_prazo}</span></div>
-                            <div><span class="text-slate-400 block text-[11px]">Telefone / Contato:</span><span class="font-bold text-slate-700">{c_tel}</span></div>
-                        </div>
+        <!-- COLUNA 2: PAINEL CENTRAL DINÂMICO QUE ABRE TODAS AS TELAS -->
+        <div class="lg:col-span-6 space-y-4">
+            
+            <!-- ABA 1: RESUMO FINANCEIRO (DEFAULT) -->
+            <div id="aba-resumo" class="tab-content active space-y-4">
+                <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3">
+                    <div class="text-center pb-2 border-b border-slate-800">
+                        <h2 class="text-xs font-bold text-amber-400 uppercase tracking-wide">CONTRATO IT{c_id:05d} vendido em: {c_data_venda} por {CURRENT_SESSION['user_nome']}</h2>
                     </div>
 
-                    <!-- TABELA DE ENTRADA -->
-                    <div class="bg-white border border-slate-300 rounded-xl overflow-hidden shadow-sm">
-                        <div class="bg-slate-100 px-4 py-2 border-b border-slate-300 text-xs font-bold text-sky-800 text-center uppercase tracking-wide">ENTRADA</div>
+                    <div class="flex flex-wrap gap-2 justify-between items-center">
+                        <div class="flex gap-2">
+                            <a href="/minuta-contrato/{c_id}" target="_blank" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-xs font-bold text-slate-200">🖨️ Imprimir Contrato</a>
+                            <a href="/assinar/{c_id}" target="_blank" class="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold rounded-xl text-xs shadow-lg">✍️ Assinatura Digital</a>
+                        </div>
+                        <span class="text-[11px] text-slate-500 font-semibold">MVI Enterprise</span>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3 text-xs pt-2">
+                        <div><span class="text-slate-500 block text-[11px]">Cliente:</span><span class="font-bold text-white text-sm">{c_nome}</span></div>
+                        <div><span class="text-slate-500 block text-[11px]">CPF / CNPJ:</span><span class="font-bold text-slate-300">{c_cpf}</span></div>
+                        <div><span class="text-slate-500 block text-[11px]">Prazo de Entrega:</span><span class="font-bold text-slate-300">{c_prazo}</span></div>
+                        <div><span class="text-slate-500 block text-[11px]">Telefone:</span><span class="font-bold text-slate-300">{c_tel}</span></div>
+                    </div>
+                </div>
+
+                <!-- TABELA DE ENTRADA -->
+                <div class="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+                    <div class="bg-slate-850 px-4 py-2.5 border-b border-slate-800 text-xs font-bold text-amber-400 text-center uppercase tracking-wide">ENTRADA (20% MÍNIMO)</div>
+                    <table class="w-full text-left text-xs border-collapse">
+                        <thead class="bg-slate-950/60 border-b border-slate-800 text-slate-400 font-semibold">
+                            <tr>
+                                <th class="py-2.5 px-3 text-center">#</th>
+                                <th class="py-2.5 px-3">Data Entrada</th>
+                                <th class="py-2.5 px-3 text-right">Valor</th>
+                                <th class="py-2.5 px-3">Tipo de Cobrança</th>
+                                <th class="py-2.5 px-3 text-center">Banco</th>
+                                <th class="py-2.5 px-3 text-center">Agência</th>
+                                <th class="py-2.5 px-3 text-center">Conta</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr class="border-b border-slate-800/60">
+                                <td class="py-2.5 px-3 text-center text-slate-500">1</td>
+                                <td class="py-2.5 px-3 text-slate-300">{hoje.strftime('%d/%m/%Y')}</td>
+                                <td class="py-2.5 px-3 font-bold text-emerald-400 text-right">R$ {c_entrada:,.2f}</td>
+                                <td class="py-2.5 px-3 text-amber-300 font-semibold">{c_mod}</td>
+                                <td class="py-2.5 px-3 text-center text-slate-500">—</td>
+                                <td class="py-2.5 px-3 text-center text-slate-500">—</td>
+                                <td class="py-2.5 px-3 text-center text-slate-500">—</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- CRONOGRAMA DE PARCELAS -->
+                <div class="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+                    <div class="bg-slate-850 px-4 py-2.5 border-b border-slate-800 text-xs font-bold text-amber-400 text-center uppercase tracking-wide">CRONOGRAMA DE PARCELAS</div>
+                    <div class="overflow-x-auto">
                         <table class="w-full text-left text-xs border-collapse">
-                            <thead class="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold">
+                            <thead class="bg-slate-950/60 border-b border-slate-800 text-slate-400 font-semibold">
                                 <tr>
-                                    <th class="py-2 px-3 text-center">#</th>
-                                    <th class="py-2 px-3">Data Entrada</th>
-                                    <th class="py-2 px-3 text-right">Valor</th>
-                                    <th class="py-2 px-3">Tipo de Cobrança</th>
-                                    <th class="py-2 px-3 text-center">Banco</th>
-                                    <th class="py-2 px-3 text-center">Agência</th>
-                                    <th class="py-2 px-3 text-center">Conta</th>
+                                    <th class="py-2.5 px-3 text-center">#</th>
+                                    <th class="py-2.5 px-3">Data Parcelas</th>
+                                    <th class="py-2.5 px-3 text-right">Valor</th>
+                                    <th class="py-2.5 px-3">Tipo de Cobrança</th>
+                                    <th class="py-2.5 px-3 text-center">Bco</th>
+                                    <th class="py-2.5 px-3 text-center">Ag</th>
+                                    <th class="py-2.5 px-3 text-center">Conta</th>
+                                    <th class="py-2.5 px-3">Observação</th>
+                                    <th class="py-2.5 px-3 text-center">Ação</th>
                                 </tr>
                             </thead>
-                            <tbody>
-                                <tr class="border-b border-slate-100">
-                                    <td class="py-2.5 px-3 text-center text-slate-500">1</td>
-                                    <td class="py-2.5 px-3 text-slate-700">{hoje.strftime('%d/%m/%Y')}</td>
-                                    <td class="py-2.5 px-3 font-bold text-emerald-700 text-right">R$ {c_entrada:,.2f}</td>
-                                    <td class="py-2.5 px-3 text-sky-700 font-semibold">{c_mod}</td>
-                                    <td class="py-2.5 px-3 text-center text-slate-400">—</td>
-                                    <td class="py-2.5 px-3 text-center text-slate-400">—</td>
-                                    <td class="py-2.5 px-3 text-center text-slate-400">—</td>
-                                </tr>
-                            </tbody>
+                            <tbody>{linhas_parcelas}</tbody>
                         </table>
                     </div>
-
-                    <!-- TABELA DE PARCELAS DETALHADAS -->
-                    <div class="bg-white border border-slate-300 rounded-xl overflow-hidden shadow-sm">
-                        <div class="bg-slate-100 px-4 py-2 border-b border-slate-300 text-xs font-bold text-sky-800 text-center uppercase tracking-wide">CRONOGRAMA DE PARCELAS</div>
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-left text-xs border-collapse">
-                                <thead class="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold">
-                                    <tr>
-                                        <th class="py-2 px-3 text-center">#</th>
-                                        <th class="py-2 px-3">Data Parcelas</th>
-                                        <th class="py-2 px-3 text-right">Valor</th>
-                                        <th class="py-2 px-3">Tipo de Cobrança</th>
-                                        <th class="py-2 px-3 text-center">Bco</th>
-                                        <th class="py-2 px-3 text-center">Ag</th>
-                                        <th class="py-2 px-3 text-center">Conta</th>
-                                        <th class="py-2 px-3">Observação</th>
-                                        <th class="py-2 px-3 text-center">Ação</th>
-                                    </tr>
-                                </thead>
-                                <tbody>{linhas_parcelas}</tbody>
-                            </table>
-                        </div>
-                    </div>
                 </div>
-
-                <!-- ABA 2: DADOS DO CLIENTE & BUSCA DE CEP -->
-                <div id="aba-cliente" class="tab-content bg-white border border-slate-300 rounded-xl p-5 shadow-sm space-y-4 text-xs">
-                    <h3 class="font-bold text-slate-800 uppercase pb-1 border-b border-slate-200">👤 Ficha Cadastral do Cliente & Endereços</h3>
-                    <form action="/salvar-dados-completos-cliente" method="post" class="space-y-3">
-                        <input type="hidden" name="orcamento_id" value="{c_id}">
-                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                            <div class="sm:col-span-2">
-                                <label class="block text-slate-500 mb-1">Nome Completo</label>
-                                <input type="text" name="cliente_nome" value="{c_nome}" required class="w-full p-2 bg-slate-50 border border-slate-300 rounded font-bold">
-                            </div>
-                            <div>
-                                <label class="block text-slate-500 mb-1">CPF</label>
-                                <input type="text" name="cliente_cpf" value="{c_cpf if c_cpf != 'Não informado' else ''}" placeholder="000.000.000-00" class="w-full p-2 bg-slate-50 border border-slate-300 rounded">
-                            </div>
-                            <div>
-                                <label class="block text-slate-500 mb-1">RG</label>
-                                <input type="text" name="cliente_rg" value="{c_rg if c_rg != '—' else ''}" placeholder="RG" class="w-full p-2 bg-slate-50 border border-slate-300 rounded">
-                            </div>
-                            <div>
-                                <label class="block text-slate-500 mb-1">Telefone Principal</label>
-                                <input type="text" name="cliente_telefone" value="{c_tel if c_tel != '—' else ''}" placeholder="WhatsApp" class="w-full p-2 bg-slate-50 border border-slate-300 rounded">
-                            </div>
-                            <div>
-                                <label class="block text-slate-500 mb-1">E-mail</label>
-                                <input type="email" name="cliente_email" value="{c_email}" placeholder="E-mail" class="w-full p-2 bg-slate-50 border border-slate-300 rounded">
-                            </div>
-                        </div>
-
-                        <div class="border-t border-slate-200 pt-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div class="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-2">
-                                <label class="font-bold text-slate-700 block">📬 Endereço Postal</label>
-                                <div class="flex gap-2">
-                                    <input type="text" id="cep_postal" name="cliente_cep_postal" value="{c_cep_post}" placeholder="CEP" class="w-1/2 p-2 bg-white border border-slate-300 rounded">
-                                    <button type="button" onclick="buscarCep('postal')" class="w-1/2 px-2 py-1 bg-sky-600 text-white rounded font-bold">🔍 Buscar CEP</button>
-                                </div>
-                                <textarea id="end_postal" name="cliente_endereco_postal" rows="2" placeholder="Rua, Número, Bairro, Cidade - UF" class="w-full p-2 bg-white border border-slate-300 rounded">{c_end_post}</textarea>
-                            </div>
-                            <div class="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-2">
-                                <label class="font-bold text-slate-700 block">🚚 Endereço da Obra</label>
-                                <div class="flex gap-2">
-                                    <input type="text" id="cep_entrega" name="cliente_cep_entrega" value="{c_cep_ent}" placeholder="CEP Obra" class="w-1/2 p-2 bg-white border border-slate-300 rounded">
-                                    <button type="button" onclick="buscarCep('entrega')" class="w-1/2 px-2 py-1 bg-sky-600 text-white rounded font-bold">🔍 Buscar CEP</button>
-                                </div>
-                                <textarea id="end_entrega" name="cliente_endereco_entrega" rows="2" placeholder="Endereço da Instalação..." class="w-full p-2 bg-white border border-slate-300 rounded">{c_end_ent}</textarea>
-                            </div>
-                        </div>
-
-                        <button type="submit" class="w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded shadow">💾 Salvar Dados do Cliente</button>
-                    </form>
-                </div>
-
-                <!-- ABA 3: MESA DE NEGOCIAÇÃO E FECHAMENTO COM TODAS AS OPÇÕES E OLHO -->
-                <div id="aba-mesa" class="tab-content bg-white border border-slate-300 rounded-xl p-5 shadow-sm space-y-4 text-xs">
-                    <div class="flex justify-between items-center pb-1 border-b border-slate-200">
-                        <h3 class="font-bold text-slate-800 uppercase">💼 Mesa de Negociação & Fechamento Financeiro</h3>
-                        <input type="hidden" id="preco_bruto_base" value="{c_p_bruto if c_p_bruto > 0 else c_p_venda}">
-                    </div>
-
-                    <form id="form_mesa_negociacao" action="/salvar-negociacao-mesa" method="post" class="space-y-4" onkeydown="impedirEnterSubmit(event)">
-                        <input type="hidden" name="orcamento_id" value="{c_id}">
-
-                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                            <!-- VALOR DE VENDA MANUAL (CALCULA DESCONTO AUTOMATICAMENTE AO DIGITAR) -->
-                            <div>
-                                <label class="block text-slate-500 mb-1 font-semibold">Valor Venda (R$)</label>
-                                <input type="number" step="1" name="preco_venda" id="preco_venda_input" value="{c_p_venda}" required oninput="calcularDescontoPorValorVenda()" class="w-full p-2 bg-slate-50 border border-slate-300 rounded font-bold text-sky-800 text-sm focus:border-sky-500">
-                            </div>
-
-                            <!-- DESCONTO (%) + BOTÃO DE SIMULAÇÃO -->
-                            <div>
-                                <label class="block text-slate-500 mb-1 font-semibold">Desconto (%)</label>
-                                <div class="flex gap-1.5">
-                                    <input type="number" step="0.1" name="desconto_pct" id="desconto_pct_input" value="{c_desc_pct}" oninput="calcularValorVendaPorDesconto()" class="w-2/3 p-2 bg-slate-50 border border-slate-300 rounded font-bold">
-                                    <button type="button" onclick="calcularValorVendaPorDesconto()" class="w-1/3 px-2 py-1 bg-amber-500 hover:bg-amber-400 text-slate-900 font-bold rounded text-[11px]" title="Atualizar simulação de desconto">
-                                        ⚡ Simular
-                                    </button>
-                                </div>
-                            </div>
-
-                            <!-- VALOR DE ENTRADA -->
-                            <div>
-                                <label class="block text-slate-500 mb-1 font-semibold">Entrada (R$)</label>
-                                <input type="number" step="100" name="entrada_valor" id="entrada_valor_input" value="{c_entrada}" required oninput="recalcularLucroEMesa()" class="w-full p-2 bg-slate-50 border border-slate-300 rounded font-bold text-emerald-700 text-sm">
-                            </div>
-                        </div>
-
-                        <!-- FORMA DE PAGAMENTO COM SELEÇÃO DE PARCELAS EMBUTIDA -->
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                                <label class="block text-slate-500 mb-1 font-semibold">Forma de Pagamento</label>
-                                <select name="forma_opcao" id="forma_opcao_select" onchange="atualizarFormaPagamento()" class="w-full p-2 bg-slate-50 border border-slate-300 rounded font-semibold text-slate-800">
-                                    <option value="Entrada PIX + 3 à Vista" {"selected" if "3 à Vista" in c_mod or "PIX + 3" in c_mod else ""}>Entrada PIX + 3 à Vista (PIX/TED)</option>
-                                    <option value="Entrada + Cartão de Crédito" {"selected" if "Cartão" in c_mod and "3 à Vista" not in c_mod else ""}>Entrada + Cartão de Crédito</option>
-                                    <option value="Entrada + Boleto Bancário" {"selected" if "Boleto" in c_mod else ""}>Entrada + Boleto Bancário</option>
-                                    <option value="PIX Integral à Vista" {"selected" if "PIX Integral" in c_mod else ""}>PIX Integral à Vista (5% OFF)</option>
-                                </select>
-                                <input type="hidden" name="modalidade_pagamento" id="modalidade_pagamento_hidden" value="{c_mod}">
-                            </div>
-
-                            <div id="box_parcelas_dinamico">
-                                <label class="block text-slate-500 mb-1 font-semibold" id="label_vezes">Quantidade de Parcelas</label>
-                                <select name="num_parcelas" id="num_parcelas_select" onchange="atualizarFormaPagamento()" class="w-full p-2 bg-slate-50 border border-slate-300 rounded font-bold text-slate-800">
-                                    <!-- Preenchido dinamicamente via JS -->
-                                </select>
-                            </div>
-                        </div>
-
-                        <!-- LUCRO LÍQUIDO COM OLHO DE VISUALIZAÇÃO -->
-                        <div class="p-3.5 bg-emerald-50 border border-emerald-200 rounded-lg flex justify-between items-center">
-                            <div>
-                                <span class="font-bold text-emerald-900 block text-xs">Lucro Líquido da Operação:</span>
-                                <span id="valor_lucro_operacao" data-real="R$ {c_lucro:,.2f}" class="font-black text-emerald-700 text-lg">R$ {c_lucro:,.2f}</span>
-                            </div>
-                            <button type="button" onclick="alternarOlhoLucro()" id="btn_olho_lucro" title="Ocultar / Revelar Lucro" class="p-2 bg-white hover:bg-emerald-100 border border-emerald-300 rounded-lg text-slate-700 text-sm font-bold shadow-sm">
-                                👁️
-                            </button>
-                        </div>
-
-                        <button type="submit" class="w-full py-3 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-lg text-xs shadow-md">
-                            💾 Salvar Negociação da Pasta
-                        </button>
-                    </form>
-                </div>
-
-                <!-- ABA 4: NOVO AMBIENTE -->
-                <div id="aba-novo-ambiente" class="tab-content bg-white border border-slate-300 rounded-xl p-5 shadow-sm space-y-4 text-xs">
-                    <h3 class="font-bold text-slate-800 uppercase pb-1 border-b border-slate-200">➕ Lançar / Adicionar Novo Ambiente</h3>
-                    <form action="/salvar-dados-completos-cliente" method="post" class="space-y-3">
-                        <input type="hidden" name="orcamento_id" value="0">
-                        <input type="text" name="cliente_nome" placeholder="Nome do Cliente / Projeto" required class="w-full p-2 bg-slate-50 border border-slate-300 rounded font-bold">
-                        <input type="text" name="cliente_telefone" placeholder="Telefone / WhatsApp" required class="w-full p-2 bg-slate-50 border border-slate-300 rounded">
-                        <textarea name="descricao_manual" rows="3" placeholder="Descreva o novo ambiente (Ex: Cozinha com Ilha, Tamponamento 25mm, Portas em Lacca...)" required class="w-full p-2 bg-slate-50 border border-slate-300 rounded"></textarea>
-                        <button type="submit" class="w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded shadow">⚡ Criar Pasta & Salvar Ambiente</button>
-                    </form>
-                </div>
-
-                <!-- ABA 5: PROMOB INTEGRADOR -->
-                <div id="aba-promob" class="tab-content bg-white border border-slate-300 rounded-xl p-5 shadow-sm space-y-4 text-xs">
-                    <h3 class="font-bold text-slate-800 uppercase pb-1 border-b border-slate-200">🚀 Importação Direta de Arquivo Promob</h3>
-                    <form action="/importar-promob" method="post" enctype="multipart/form-data" class="space-y-3">
-                        <input type="text" name="cliente_nome" value="{c_nome}" placeholder="Nome do Cliente" required class="w-full p-2 bg-slate-50 border border-slate-300 rounded font-bold">
-                        <input type="text" name="cliente_telefone" value="{c_tel}" placeholder="WhatsApp" required class="w-full p-2 bg-slate-50 border border-slate-300 rounded">
-                        <input type="text" name="cliente_ambiente" value="{c_amb}" placeholder="Ambiente" required class="w-full p-2 bg-slate-50 border border-slate-300 rounded">
-                        <div class="p-3 bg-slate-50 border border-slate-200 rounded">
-                            <label class="block font-bold text-slate-700 mb-1">Selecione o arquivo exportado (.xml, .csv, .txt, .cut):</label>
-                            <input type="file" name="arquivo_promob" accept=".xml,.csv,.txt,.cut" required class="w-full text-slate-600">
-                        </div>
-                        <button type="submit" class="w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded shadow">⚡ Processar Peças & Gerar Orçamento</button>
-                    </form>
-                </div>
-
             </div>
 
-            <!-- COLUNA 3: RESUMO DA VENDA & CHECKLIST LATERAL (3 colunas) -->
-            <div class="lg:col-span-3 space-y-4">
-                
-                <div class="bg-white border border-slate-300 rounded-xl p-5 shadow-sm space-y-3 text-xs">
-                    <h3 class="font-bold text-sky-800 pb-1 border-b border-slate-200 uppercase tracking-wide">Resumo da Venda</h3>
-                    
-                    <div class="space-y-1.5 text-slate-600">
-                        <div class="flex justify-between"><span class="text-slate-400">Responsável:</span> <span class="font-semibold text-slate-800">{CURRENT_SESSION['user_nome']}</span></div>
-                        <div class="flex justify-between"><span class="text-slate-400">Orçamento:</span> <span class="font-semibold text-slate-800">#1</span></div>
-                        <div class="flex justify-between"><span class="text-slate-400">Tipo de Venda:</span> <span class="font-semibold text-slate-800">Normal</span></div>
-                    </div>
-
-                    <div class="pt-2 border-t border-slate-200 space-y-1">
-                        <div class="flex justify-between items-center"><span class="text-slate-500 font-semibold">Valor da Venda:</span> <span class="font-bold text-sky-700 text-sm">R$ {c_p_venda:,.2f}</span></div>
-                        <div class="flex justify-between items-center"><span class="text-slate-500 font-semibold">Valor da Entrada:</span> <span class="font-bold text-emerald-600 text-sm">R$ {c_entrada:,.2f}</span></div>
-                        <div class="flex justify-between items-center"><span class="text-slate-400">Opção de Pagto:</span> <span class="font-semibold text-slate-700">{c_mod}</span></div>
-                        <div class="flex justify-between items-center"><span class="text-slate-400">Parcelas:</span> <span class="font-semibold text-slate-700">1 + {c_parc}x</span></div>
-                    </div>
-
-                    <div class="pt-2 border-t border-slate-200">
-                        <span class="text-[11px] font-bold text-slate-500 block mb-1">Ambientes Vendidos</span>
-                        <div class="flex justify-between text-[11px] font-medium text-slate-700 bg-slate-50 p-2 rounded border border-slate-200">
-                            <span>{c_amb}</span>
-                            <span class="font-bold">R$ {c_p_venda:,.2f}</span>
+            <!-- ABA 2: DADOS DO CLIENTE & BUSCA DE CEP -->
+            <div id="aba-cliente" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
+                <h3 class="font-bold text-amber-400 uppercase pb-1 border-b border-slate-800">👤 Ficha Cadastral do Cliente & Endereços</h3>
+                <form action="/salvar-dados-completos-cliente" method="post" class="space-y-3">
+                    <input type="hidden" name="orcamento_id" value="{c_id}">
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div class="sm:col-span-2">
+                            <label class="block text-slate-400 mb-1">Nome Completo</label>
+                            <input type="text" name="cliente_nome" value="{c_nome if c_nome != 'Nenhum cliente selecionado' else ''}" required placeholder="Nome do Cliente" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold">
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 mb-1">CPF</label>
+                            <input type="text" name="cliente_cpf" value="{c_cpf if c_cpf != 'Não informado' else ''}" placeholder="000.000.000-00" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 mb-1">RG</label>
+                            <input type="text" name="cliente_rg" value="{c_rg if c_rg != '—' else ''}" placeholder="RG" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 mb-1">Telefone Principal</label>
+                            <input type="text" name="cliente_telefone" value="{c_tel if c_tel != '—' else ''}" placeholder="WhatsApp" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 mb-1">E-mail</label>
+                            <input type="email" name="cliente_email" value="{c_email}" placeholder="E-mail" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
                         </div>
                     </div>
+
+                    <div class="border-t border-slate-800 pt-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div class="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-2">
+                            <label class="font-bold text-amber-400 block">📬 Endereço Postal</label>
+                            <div class="flex gap-2">
+                                <input type="text" id="cep_postal" name="cliente_cep_postal" value="{c_cep_post}" placeholder="CEP" class="w-1/2 p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                                <button type="button" onclick="buscarCep('postal')" class="w-1/2 px-2 py-1 bg-amber-500 font-bold text-slate-950 rounded-xl">🔍 Buscar CEP</button>
+                            </div>
+                            <textarea id="end_postal" name="cliente_endereco_postal" rows="2" placeholder="Rua, Número, Bairro, Cidade - UF" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">{c_end_post}</textarea>
+                        </div>
+                        <div class="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-2">
+                            <label class="font-bold text-slate-300 block">🚚 Endereço da Obra</label>
+                            <div class="flex gap-2">
+                                <input type="text" id="cep_entrega" name="cliente_cep_entrega" value="{c_cep_ent}" placeholder="CEP Obra" class="w-1/2 p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                                <button type="button" onclick="buscarCep('entrega')" class="w-1/2 px-2 py-1 bg-amber-500 font-bold text-slate-950 rounded-xl">🔍 Buscar CEP</button>
+                            </div>
+                            <textarea id="end_entrega" name="cliente_endereco_entrega" rows="2" placeholder="Endereço da Instalação..." class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">{c_end_ent}</textarea>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-lg">💾 Salvar Dados do Cliente</button>
+                </form>
+            </div>
+
+            <!-- ABA 3: MESA DE NEGOCIAÇÃO E FECHAMENTO -->
+            <div id="aba-mesa" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
+                <div class="flex justify-between items-center pb-1 border-b border-slate-800">
+                    <h3 class="font-bold text-amber-400 uppercase">💼 Mesa de Negociação & Fechamento Financeiro</h3>
+                    <input type="hidden" id="preco_bruto_base" value="{c_p_bruto if c_p_bruto > 0 else c_p_venda}">
                 </div>
 
-                <div class="bg-white border border-slate-300 rounded-xl p-5 shadow-sm space-y-3 text-xs">
-                    <h3 class="font-bold text-slate-800 pb-1 border-b border-slate-200 uppercase tracking-wide">Check List</h3>
-                    
-                    <ul class="space-y-2.5">
-                        <li class="flex justify-between items-center">
-                            <span class="font-medium text-slate-700">Dados do Cliente:</span>
-                            <span class="w-3.5 h-3.5 rounded-full {'bg-emerald-500' if c_cpf != 'Não informado' else 'bg-rose-500'}"></span>
-                        </li>
-                        <li class="flex justify-between items-center">
-                            <span class="font-medium text-slate-700">Aprovação Comercial:</span>
-                            <span class="w-3.5 h-3.5 rounded-full {'bg-emerald-500' if c_aut_desc else 'bg-amber-500'}"></span>
-                        </li>
-                        <li class="flex justify-between items-center">
-                            <span class="font-medium text-slate-700">Aprovação Financeira:</span>
-                            <span class="w-3.5 h-3.5 rounded-full {'bg-emerald-500' if c_lib_fin else 'bg-slate-300'}"></span>
-                        </li>
-                        <li class="flex justify-between items-center">
-                            <span class="font-medium text-slate-700">Assinatura do Contrato:</span>
-                            <span class="w-3.5 h-3.5 rounded-full {'bg-emerald-500' if c_assinado else 'bg-slate-300'}"></span>
-                        </li>
-                    </ul>
+                <form id="form_mesa_negociacao" action="/salvar-negociacao-mesa" method="post" class="space-y-4" onkeydown="impedirEnterSubmit(event)">
+                    <input type="hidden" name="orcamento_id" value="{c_id}">
+
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div>
+                            <label class="block text-slate-400 mb-1 font-semibold">Valor Venda (R$)</label>
+                            <input type="number" step="1" name="preco_venda" id="preco_venda_input" value="{c_p_venda}" required oninput="calcularDescontoPorValorVenda()" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-amber-400 text-sm focus:border-amber-500">
+                        </div>
+
+                        <div>
+                            <label class="block text-slate-400 mb-1 font-semibold">Desconto (%)</label>
+                            <div class="flex gap-1.5">
+                                <input type="number" step="0.1" name="desconto_pct" id="desconto_pct_input" value="{c_desc_pct}" oninput="calcularValorVendaPorDesconto()" class="w-2/3 p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-white">
+                                <button type="button" onclick="calcularValorVendaPorDesconto()" class="w-1/3 px-2 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-[11px]">
+                                    ⚡ Simular
+                                </button>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-slate-400 mb-1 font-semibold">Entrada (R$)</label>
+                            <input type="number" step="100" name="entrada_valor" id="entrada_valor_input" value="{c_entrada}" required oninput="recalcularLucroEMesa()" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-emerald-400 text-sm">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-slate-400 mb-1 font-semibold">Forma de Pagamento</label>
+                            <select name="forma_opcao" id="forma_opcao_select" onchange="atualizarFormaPagamento()" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-semibold text-white">
+                                <option value="Entrada PIX + 3 à Vista" {"selected" if "3 à Vista" in c_mod or "PIX + 3" in c_mod else ""}>Entrada PIX + 3 à Vista (PIX/TED)</option>
+                                <option value="Entrada + Cartão de Crédito" {"selected" if "Cartão" in c_mod and "3 à Vista" not in c_mod else ""}>Entrada + Cartão de Crédito</option>
+                                <option value="Entrada + Boleto Bancário" {"selected" if "Boleto" in c_mod else ""}>Entrada + Boleto Bancário</option>
+                                <option value="PIX Integral à Vista" {"selected" if "PIX Integral" in c_mod else ""}>PIX Integral à Vista (5% OFF)</option>
+                            </select>
+                            <input type="hidden" name="modalidade_pagamento" id="modalidade_pagamento_hidden" value="{c_mod}">
+                        </div>
+
+                        <div id="box_parcelas_dinamico">
+                            <label class="block text-slate-400 mb-1 font-semibold" id="label_vezes">Quantidade de Parcelas</label>
+                            <select name="num_parcelas" id="num_parcelas_select" onchange="atualizarFormaPagamento()" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-white">
+                                <!-- Preenchido dinamicamente via JS -->
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="p-4 bg-slate-950 border border-emerald-500/30 rounded-2xl flex justify-between items-center">
+                        <div>
+                            <span class="font-bold text-slate-400 block text-xs uppercase">Lucro Líquido da Operação:</span>
+                            <span id="valor_lucro_operacao" data-real="R$ {c_lucro:,.2f}" class="font-black text-emerald-400 text-lg">R$ {c_lucro:,.2f}</span>
+                        </div>
+                        <button type="button" onclick="alternarOlhoLucro()" id="btn_olho_lucro" title="Ocultar / Revelar Lucro" class="p-2 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-xl text-slate-300 text-sm font-bold shadow">
+                            👁️
+                        </button>
+                    </div>
+
+                    <button type="submit" class="w-full py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-xs shadow-lg">
+                        💾 Atualizar Negociação & Salvar
+                    </button>
+                </form>
+            </div>
+
+            <!-- ABA 4: PROMOB INTEGRADOR -->
+            <div id="aba-promob" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
+                <h3 class="font-bold text-amber-400 uppercase pb-1 border-b border-slate-800">🚀 Importação Direta de Arquivo Promob</h3>
+                <form action="/importar-promob" method="post" enctype="multipart/form-data" class="space-y-3">
+                    <input type="text" name="cliente_nome" value="{c_nome if c_nome != 'Nenhum cliente selecionado' else ''}" placeholder="Nome do Cliente" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold">
+                    <input type="text" name="cliente_telefone" value="{c_tel if c_tel != '—' else ''}" placeholder="WhatsApp" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                    <input type="text" name="cliente_ambiente" value="{c_amb}" placeholder="Ambiente" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                    <div class="p-4 bg-slate-950 border border-slate-800 rounded-2xl">
+                        <label class="block font-bold text-amber-400 mb-1">Selecione o arquivo exportado (.xml, .csv, .txt, .cut):</label>
+                        <input type="file" name="arquivo_promob" accept=".xml,.csv,.txt,.cut" required class="w-full text-slate-400 file:bg-amber-500 file:border-0 file:rounded-xl file:px-3 file:py-1 file:font-bold">
+                    </div>
+                    <button type="submit" class="w-full py-3.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-lg">⚡ Processar Peças & Gerar Orçamento</button>
+                </form>
+            </div>
+
+            <!-- ABA 5: CARTEIRA GERAL DE CLIENTES -->
+            <div id="aba-geral" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl space-y-3">
+                <div class="bg-slate-850 px-5 py-3 border-b border-slate-800 flex justify-between items-center">
+                    <h3 class="font-bold text-xs uppercase text-amber-400 tracking-wide">📂 Carteira Geral de Contratos e Negociações</h3>
+                    <button onclick="mudarAba('aba-cliente')" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs shadow-sm">
+                        ➕ Novo Cadastro
+                    </button>
+                </div>
+                <div class="overflow-x-auto p-2">
+                    <table class="w-full text-left text-xs border-collapse">
+                        <thead class="bg-slate-950 border-b border-slate-800 text-slate-400 font-semibold uppercase">
+                            <tr>
+                                <th class="py-3 px-4">Pasta</th>
+                                <th class="py-3 px-4">Cliente / Contratante</th>
+                                <th class="py-3 px-4">Ambientes</th>
+                                <th class="py-3 px-4 text-right">Valor Venda</th>
+                                <th class="py-3 px-4 text-center">Status</th>
+                                <th class="py-3 px-4 text-center">Ação</th>
+                            </tr>
+                        </thead>
+                        <tbody>{leads_geral_html}</tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- COLUNA 3: RESUMO DA VENDA & CHECKLIST LATERAL -->
+        <div class="lg:col-span-3 space-y-4">
+            
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3 text-xs">
+                <h3 class="font-bold text-amber-400 pb-1 border-b border-slate-800 uppercase tracking-wide">Resumo da Venda</h3>
+                
+                <div class="space-y-1.5 text-slate-400">
+                    <div class="flex justify-between"><span>Responsável:</span> <span class="font-semibold text-white">{CURRENT_SESSION['user_nome']}</span></div>
+                    <div class="flex justify-between"><span>Orçamento:</span> <span class="font-semibold text-white">#1</span></div>
+                    <div class="flex justify-between"><span>Tipo de Venda:</span> <span class="font-semibold text-white">Normal</span></div>
                 </div>
 
+                <div class="pt-2 border-t border-slate-800 space-y-1">
+                    <div class="flex justify-between items-center"><span class="text-slate-400 font-semibold">Valor da Venda:</span> <span class="font-bold text-amber-400 text-sm">R$ {c_p_venda:,.2f}</span></div>
+                    <div class="flex justify-between items-center"><span class="text-slate-400 font-semibold">Valor da Entrada:</span> <span class="font-bold text-emerald-400 text-sm">R$ {c_entrada:,.2f}</span></div>
+                    <div class="flex justify-between items-center"><span class="text-slate-500">Opção de Pagto:</span> <span class="font-semibold text-slate-300">{c_mod}</span></div>
+                    <div class="flex justify-between items-center"><span class="text-slate-500">Parcelas:</span> <span class="font-semibold text-slate-300">1 + {c_parc}x</span></div>
+                </div>
+
+                <div class="pt-2 border-t border-slate-800">
+                    <span class="text-[11px] font-bold text-slate-400 block mb-1">Ambientes Vendidos</span>
+                    <div class="flex justify-between text-[11px] font-medium text-slate-300 bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                        <span>{c_amb}</span>
+                        <span class="font-bold text-amber-400">R$ {c_p_venda:,.2f}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3 text-xs">
+                <h3 class="font-bold text-white pb-1 border-b border-slate-800 uppercase tracking-wide">Check List</h3>
+                
+                <ul class="space-y-2.5">
+                    <li class="flex justify-between items-center">
+                        <span class="font-medium text-slate-300">Dados do Cliente:</span>
+                        <span class="w-3.5 h-3.5 rounded-full {'bg-emerald-500' if c_cpf != 'Não informado' else 'bg-rose-500'}"></span>
+                    </li>
+                    <li class="flex justify-between items-center">
+                        <span class="font-medium text-slate-300">Aprovação Comercial:</span>
+                        <span class="w-3.5 h-3.5 rounded-full {'bg-emerald-500' if c_aut_desc else 'bg-amber-500'}"></span>
+                    </li>
+                    <li class="flex justify-between items-center">
+                        <span class="font-medium text-slate-300">Aprovação Financeira:</span>
+                        <span class="w-3.5 h-3.5 rounded-full {'bg-emerald-500' if c_lib_fin else 'bg-slate-700'}"></span>
+                    </li>
+                    <li class="flex justify-between items-center">
+                        <span class="font-medium text-slate-300">Assinatura do Contrato:</span>
+                        <span class="w-3.5 h-3.5 rounded-full {'bg-emerald-500' if c_assinado else 'bg-slate-700'}"></span>
+                    </li>
+                </ul>
             </div>
 
         </div>
@@ -1391,35 +1332,13 @@ def render_dashboard_view():
     </div>
 
     <!-- RODAPÉ ERP -->
-    <footer class="text-center py-4 text-[11px] text-slate-400">
+    <footer class="text-center py-4 text-[11px] text-slate-500">
         Copyright © 2026 - MVI Sistemas de Marcenaria Sob Medida. Todos os direitos reservados.
     </footer>
 
     <!-- JAVASCRIPT DE CONTROLE DAS ABAS, SIMULAÇÃO E OLHO -->
     <script>
         var parcelasSalvas = {c_parc};
-
-        function abrirDashboardGeral() {{
-            document.getElementById('view-dashboard-geral').style.display = "block";
-            document.getElementById('view-pasta-cliente').style.display = "none";
-            document.getElementById('tab-top-geral').className = "px-4 py-2 rounded-t-lg font-bold text-sky-700 bg-white shadow-sm border-t-2 border-sky-600";
-            if (document.getElementById('tab-top-pasta')) {{
-                document.getElementById('tab-top-pasta').className = "flex items-center rounded-t-lg bg-slate-200 text-slate-600";
-            }}
-        }}
-
-        function abrirPastaAtiva() {{
-            document.getElementById('view-dashboard-geral').style.display = "none";
-            document.getElementById('view-pasta-cliente').style.display = "block";
-            document.getElementById('tab-top-geral').className = "px-4 py-2 rounded-t-lg font-semibold bg-slate-200 text-slate-600";
-            if (document.getElementById('tab-top-pasta')) {{
-                document.getElementById('tab-top-pasta').className = "flex items-center rounded-t-lg bg-white text-sky-700 font-bold shadow-sm border-t-2 border-sky-600";
-            }}
-        }}
-
-        function fecharPastaAtiva() {{
-            window.location.href = "/fechar-pasta-ativa";
-        }}
 
         function mudarAba(abaId) {{
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
@@ -1430,6 +1349,7 @@ def render_dashboard_view():
             
             if (targetAba) targetAba.classList.add('active');
             if (targetBtn) targetBtn.classList.add('active');
+            window.scrollTo({{ top: 0, behavior: 'smooth' }});
         }}
 
         function impedirEnterSubmit(event) {{
@@ -1602,11 +1522,6 @@ def login_route(username: str = Form(...), password: str = Form(...)):
 @app.get("/painel-get", response_class=HTMLResponse)
 def painel_get_route():
     return render_dashboard_view()
-
-@app.get("/fechar-pasta-ativa", response_class=HTMLResponse)
-def fechar_pasta_ativa_route():
-    CURRENT_SESSION["cliente_ativo_id"] = None
-    return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.get("/minuta-contrato/{orcamento_id}", response_class=HTMLResponse)
 def minuta_contrato_route(orcamento_id: int):
