@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Form, UploadFile, File, Response, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 import io
 import csv
 import urllib.parse
@@ -14,7 +14,7 @@ from datetime import datetime, date, timedelta
 from typing import List
 
 app = FastAPI(title="MVI Móveis Planejados - Master SaaS")
-DB_PATH = "mvi_production_v41.db"
+DB_PATH = "mvi_production_v42.db"
 
 # ==============================================================================
 # 1. TRATAMENTO DE ERROS GLOBAL
@@ -98,6 +98,11 @@ def init_db():
             prazo_entrega TEXT DEFAULT '45 dias úteis',
             data_entrega_prevista TEXT DEFAULT '',
             status TEXT DEFAULT 'Em Negociação',
+            potencial_cliente TEXT DEFAULT 'Morno',
+            check_dados INTEGER DEFAULT 0,
+            check_comercial INTEGER DEFAULT 1,
+            check_financeiro INTEGER DEFAULT 0,
+            check_contrato INTEGER DEFAULT 0,
             custo_materiais REAL DEFAULT 0,
             custo_mao_obra REAL DEFAULT 0,
             custo_frete_montagem REAL DEFAULT 0,
@@ -351,7 +356,7 @@ def processar_arquivo_promob(conteudo_texto: str, nome_arquivo: str):
     return {"items": items, "total_mat": total_mat, "custo_mo": custo_mo, "custo_frete": custo_frete, "preco_bruto": preco_bruto, "preco_venda": preco_venda, "lucro": lucro}
 
 # ==============================================================================
-# 4. TODAS AS FUNÇÕES DE RENDERIZAÇÃO HTML (DECLARADAS ANTES DAS ROTAS)
+# 4. FUNÇÕES DE RENDERIZAÇÃO HTML (DECLARADAS ANTES DAS ROTAS)
 # ==============================================================================
 def render_login(msg=""):
     erro = f"<div class='p-3 bg-rose-950/70 border border-rose-800 text-rose-300 text-xs rounded-xl text-center'>{msg}</div>" if msg else ""
@@ -843,7 +848,7 @@ def render_tela_nova_senha(user, token):
 </body></html>"""
 
 # ==============================================================================
-# NOVO LAYOUT DO COCKPIT NO PADRÃO MVI DARK/GOLD
+# NOVO LAYOUT DO COCKPIT NO PADRÃO MVI DARK/GOLD COM CHECKLIST INTERATIVO
 # ==============================================================================
 def render_dashboard_view():
     empresa = get_empresa_dados(1)
@@ -891,10 +896,14 @@ def render_dashboard_view():
     c_entrada = round(float(cliente_ativo.get("entrada_valor") or 0))
     c_parc = int(cliente_ativo.get("num_parcelas") or 1)
     c_mod = cliente_ativo.get("modalidade_pagamento") or "Entrada + Cartão de Crédito"
-    c_aut_desc = int(cliente_ativo.get("desconto_autorizado") or 1)
-    c_lib_fin = int(cliente_ativo.get("liberado_financeiro") or 0)
-    c_assinado = int(cliente_ativo.get("contrato_assinado") or 0)
     
+    # Status interativo dos indicadores do Checklist
+    chk_dados = int(cliente_ativo.get("check_dados") or (1 if c_cpf != 'Não informado' else 0))
+    chk_comercial = int(cliente_ativo.get("check_comercial") or 1)
+    chk_financeiro = int(cliente_ativo.get("check_financeiro") or 0)
+    chk_contrato = int(cliente_ativo.get("check_contrato") or 0)
+    potencial = cliente_ativo.get("potencial_cliente") or "Morno"
+
     saldo_financiar = max(c_p_venda - c_entrada, 0)
     valor_por_parcela = round(saldo_financiar / c_parc) if c_parc > 0 else 0
 
@@ -952,6 +961,16 @@ def render_dashboard_view():
     if not leads_geral_html:
         leads_geral_html = "<tr><td colspan='6' class='py-8 text-center text-xs text-slate-500'>Nenhum cliente cadastrado ainda. Use a aba 'Dados do Cliente & CEP' ou 'Novo Orçamento'.</td></tr>"
 
+    def cor_bolinha(val):
+        if val == 2: return "bg-emerald-500 shadow-emerald-500/50 shadow-md", "✓ Concluído"
+        if val == 1: return "bg-amber-400 shadow-amber-400/50 shadow-md", "⚡ Em Análise"
+        return "bg-rose-500 shadow-rose-500/50 shadow-md", "✕ Pendente"
+
+    cor_d, txt_d = cor_bolinha(chk_dados)
+    cor_c, txt_c = cor_bolinha(chk_comercial)
+    cor_f, txt_f = cor_bolinha(chk_financeiro)
+    cor_con, txt_con = cor_bolinha(chk_contrato)
+
     return f"""<!DOCTYPE html>
 <html lang="pt-br">
 <head>
@@ -964,6 +983,8 @@ def render_dashboard_view():
         .tree-item.active {{ background: linear-gradient(135deg, #f59e0b, #d97706); color: #0f172a; font-weight: bold; }}
         .tab-content {{ display: none; }}
         .tab-content.active {{ display: block; }}
+        .btn-dot {{ transition: all 0.15s; }}
+        .btn-dot:hover {{ transform: scale(1.15); }}
     </style>
 </head>
 <body class="bg-slate-950 text-slate-100 font-sans min-h-screen">
@@ -1123,7 +1144,7 @@ def render_dashboard_view():
                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
                         <div class="sm:col-span-2">
                             <label class="block text-slate-400 mb-1">Nome Completo</label>
-                            <input type="text" name="cliente_nome" value="{c_nome if c_nome != 'Nenhum cliente selecionado' else ''}" required placeholder="Nome do Cliente" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold">
+                            <input type="text" name="cliente_nome" value="{c_nome if c_nome != 'Nenhum cliente cadastrado' else ''}" required placeholder="Nome do Cliente" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold">
                         </div>
                         <div>
                             <label class="block text-slate-400 mb-1">CPF</label>
@@ -1238,7 +1259,7 @@ def render_dashboard_view():
             <div id="aba-promob" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
                 <h3 class="font-bold text-amber-400 uppercase pb-1 border-b border-slate-800">🚀 Importação Direta de Arquivo Promob</h3>
                 <form action="/importar-promob" method="post" enctype="multipart/form-data" class="space-y-3">
-                    <input type="text" name="cliente_nome" value="{c_nome if c_nome != 'Nenhum cliente selecionado' else ''}" placeholder="Nome do Cliente" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold">
+                    <input type="text" name="cliente_nome" value="{c_nome if c_nome != 'Nenhum cliente cadastrado' else ''}" placeholder="Nome do Cliente" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold">
                     <input type="text" name="cliente_telefone" value="{c_tel if c_tel != '—' else ''}" placeholder="WhatsApp" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
                     <input type="text" name="cliente_ambiente" value="{c_amb}" placeholder="Ambiente" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
                     <div class="p-4 bg-slate-950 border border-slate-800 rounded-2xl">
@@ -1276,7 +1297,7 @@ def render_dashboard_view():
 
         </div>
 
-        <!-- COLUNA 3: RESUMO DA VENDA & CHECKLIST LATERAL -->
+        <!-- COLUNA 3: RESUMO DA VENDA & CHECKLIST CLICÁVEL -->
         <div class="lg:col-span-3 space-y-4">
             
             <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3 text-xs">
@@ -1304,25 +1325,55 @@ def render_dashboard_view():
                 </div>
             </div>
 
-            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3 text-xs">
-                <h3 class="font-bold text-white pb-1 border-b border-slate-800 uppercase tracking-wide">Check List</h3>
+            <!-- CHECK LIST & POTENCIAL DO CLIENTE COM BOTÕES CLICÁVEIS -->
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3.5 text-xs">
+                <div class="flex justify-between items-center pb-1 border-b border-slate-800">
+                    <h3 class="font-bold text-white uppercase tracking-wide">Qualificação & Check List</h3>
+                    <span class="text-[10px] text-slate-500">Clique para mudar</span>
+                </div>
                 
+                <!-- SELETOR DE POTENCIAL DO CLIENTE (TERMÔMETRO DE VENDAS) -->
+                <div class="bg-slate-950 p-3 rounded-2xl border border-slate-800 space-y-1.5">
+                    <span class="text-[11px] font-bold text-amber-400 block uppercase">Potencial do Cliente:</span>
+                    <div class="grid grid-cols-3 gap-1.5 text-center font-bold text-[10px]">
+                        <button type="button" onclick="alterarPotencial('Quente')" class="p-1.5 rounded-lg border {'bg-rose-950 border-rose-500 text-rose-300' if potencial == 'Quente' else 'bg-slate-900 border-slate-800 text-slate-400'}">🔥 Quente</button>
+                        <button type="button" onclick="alterarPotencial('Morno')" class="p-1.5 rounded-lg border {'bg-amber-950 border-amber-500 text-amber-300' if potencial == 'Morno' else 'bg-slate-900 border-slate-800 text-slate-400'}">⚡ Morno</button>
+                        <button type="button" onclick="alterarPotencial('Frio')" class="p-1.5 rounded-lg border {'bg-sky-950 border-sky-500 text-sky-300' if potencial == 'Frio' else 'bg-slate-900 border-slate-800 text-slate-400'}">❄️ Frio</button>
+                    </div>
+                </div>
+
+                <!-- BOLINHAS DO CHECKLIST CLICÁVEIS (VERDE/AMARELO/VERMELHO) -->
                 <ul class="space-y-2.5">
-                    <li class="flex justify-between items-center">
+                    <li class="flex justify-between items-center p-1.5 bg-slate-950 rounded-xl border border-slate-800">
                         <span class="font-medium text-slate-300">Dados do Cliente:</span>
-                        <span class="w-3.5 h-3.5 rounded-full {'bg-emerald-500' if c_cpf != 'Não informado' else 'bg-rose-500'}"></span>
+                        <button type="button" onclick="toggleCheckItem('check_dados')" title="Clique para alterar status" class="flex items-center gap-1.5 btn-dot">
+                            <span class="w-3.5 h-3.5 rounded-full {cor_d}"></span>
+                            <span class="text-[10px] text-slate-400 font-semibold">{txt_d}</span>
+                        </button>
                     </li>
-                    <li class="flex justify-between items-center">
+
+                    <li class="flex justify-between items-center p-1.5 bg-slate-950 rounded-xl border border-slate-800">
                         <span class="font-medium text-slate-300">Aprovação Comercial:</span>
-                        <span class="w-3.5 h-3.5 rounded-full {'bg-emerald-500' if c_aut_desc else 'bg-amber-500'}"></span>
+                        <button type="button" onclick="toggleCheckItem('check_comercial')" title="Clique para alterar status" class="flex items-center gap-1.5 btn-dot">
+                            <span class="w-3.5 h-3.5 rounded-full {cor_c}"></span>
+                            <span class="text-[10px] text-slate-400 font-semibold">{txt_c}</span>
+                        </button>
                     </li>
-                    <li class="flex justify-between items-center">
+
+                    <li class="flex justify-between items-center p-1.5 bg-slate-950 rounded-xl border border-slate-800">
                         <span class="font-medium text-slate-300">Aprovação Financeira:</span>
-                        <span class="w-3.5 h-3.5 rounded-full {'bg-emerald-500' if c_lib_fin else 'bg-slate-700'}"></span>
+                        <button type="button" onclick="toggleCheckItem('check_financeiro')" title="Clique para alterar status" class="flex items-center gap-1.5 btn-dot">
+                            <span class="w-3.5 h-3.5 rounded-full {cor_f}"></span>
+                            <span class="text-[10px] text-slate-400 font-semibold">{txt_f}</span>
+                        </button>
                     </li>
-                    <li class="flex justify-between items-center">
+
+                    <li class="flex justify-between items-center p-1.5 bg-slate-950 rounded-xl border border-slate-800">
                         <span class="font-medium text-slate-300">Assinatura do Contrato:</span>
-                        <span class="w-3.5 h-3.5 rounded-full {'bg-emerald-500' if c_assinado else 'bg-slate-700'}"></span>
+                        <button type="button" onclick="toggleCheckItem('check_contrato')" title="Clique para alterar status" class="flex items-center gap-1.5 btn-dot">
+                            <span class="w-3.5 h-3.5 rounded-full {cor_con}"></span>
+                            <span class="text-[10px] text-slate-400 font-semibold">{txt_con}</span>
+                        </button>
                     </li>
                 </ul>
             </div>
@@ -1339,6 +1390,7 @@ def render_dashboard_view():
     <!-- JAVASCRIPT DE CONTROLE DAS ABAS, SIMULAÇÃO E OLHO -->
     <script>
         var parcelasSalvas = {c_parc};
+        var idOrcamentoAtivo = {c_id};
 
         function mudarAba(abaId) {{
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
@@ -1350,6 +1402,24 @@ def render_dashboard_view():
             if (targetAba) targetAba.classList.add('active');
             if (targetBtn) targetBtn.classList.add('active');
             window.scrollTo({{ top: 0, behavior: 'smooth' }});
+        }}
+
+        function toggleCheckItem(campo) {{
+            if (idOrcamentoAtivo === 0) {{
+                alert("Selecione um cliente para alterar o check list.");
+                return;
+            }}
+            fetch('/atualizar-checklist-item?orcamento_id=' + idOrcamentoAtivo + '&campo=' + campo, {{ method: 'POST' }})
+                .then(() => window.location.reload());
+        }}
+
+        function alterarPotencial(valor) {{
+            if (idOrcamentoAtivo === 0) {{
+                alert("Selecione um cliente para classificar o potencial.");
+                return;
+            }}
+            fetch('/atualizar-potencial-cliente?orcamento_id=' + idOrcamentoAtivo + '&potencial=' + encodeURIComponent(valor), {{ method: 'POST' }})
+                .then(() => window.location.reload());
         }}
 
         function impedirEnterSubmit(event) {{
@@ -1522,6 +1592,30 @@ def login_route(username: str = Form(...), password: str = Form(...)):
 @app.get("/painel-get", response_class=HTMLResponse)
 def painel_get_route():
     return render_dashboard_view()
+
+@app.post("/atualizar-checklist-item")
+def atualizar_checklist_item(orcamento_id: int, campo: str):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(f"SELECT {campo} FROM orcamentos WHERE id = ?", (orcamento_id,))
+    row = cursor.fetchone()
+    if row:
+        val_atual = row[0] or 0
+        # Ciclo: 0 (vermelho) -> 1 (amarelo) -> 2 (verde) -> 0
+        novo_val = (val_atual + 1) % 3
+        cursor.execute(f"UPDATE orcamentos SET {campo} = ? WHERE id = ?", (novo_val, orcamento_id))
+        conn.commit()
+    conn.close()
+    return JSONResponse({"status": "ok"})
+
+@app.post("/atualizar-potencial-cliente")
+def atualizar_potencial_cliente(orcamento_id: int, potencial: str):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE orcamentos SET potencial_cliente = ? WHERE id = ?", (potencial, orcamento_id))
+    conn.commit()
+    conn.close()
+    return JSONResponse({"status": "ok"})
 
 @app.get("/minuta-contrato/{orcamento_id}", response_class=HTMLResponse)
 def minuta_contrato_route(orcamento_id: int):
