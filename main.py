@@ -14,7 +14,7 @@ from datetime import datetime, date, timedelta
 from typing import List
 
 app = FastAPI(title="MVI Móveis Planejados - Master SaaS")
-DB_PATH = "mvi_production_v24.db"
+DB_PATH = "mvi_production_v25.db"
 
 # ==============================================================================
 # 1. TRATAMENTO DE ERROS GLOBAL
@@ -638,10 +638,15 @@ def render_dashboard_view():
                             <span class="text-[10px] text-slate-500 block">Pode digitar o valor final direto</span>
                         </div>
 
-                        <!-- MARGEM / MARKUP -->
+                        <!-- MARGEM / MARKUP COM CADEADO DE SEGURANÇA -->
                         <div class="bg-slate-950 p-4 border border-slate-800 rounded-2xl space-y-1">
-                            <label class="text-[11px] text-slate-400 font-bold uppercase block">4. Margem / Markup Venda</label>
-                            <input type="number" step="0.1" min="1.0" max="5.0" name="markup" id="markup" value="{c_markup:.1f}" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold text-base">
+                            <div class="flex justify-between items-center">
+                                <label class="text-[11px] text-slate-400 font-bold uppercase block">4. Margem / Markup Venda</label>
+                                <button type="button" onclick="alternarTravaMarkup()" id="btn_trava_markup" title="Travar / Destravar Margem" class="text-xs text-amber-400 hover:text-amber-300">
+                                    🔒 Trancado
+                                </button>
+                            </div>
+                            <input type="number" step="0.1" min="1.0" max="5.0" name="markup" id="markup" value="{c_markup:.1f}" readonly class="w-full px-3 py-2 bg-slate-900/60 border border-slate-800 rounded-xl text-slate-300 font-bold text-base cursor-not-allowed">
                         </div>
                     </div>
 
@@ -889,6 +894,26 @@ def render_dashboard_view():
             }}
         }}
 
+        // TRAVA E DESTRAVA DA MARGEM / MARKUP
+        var markupTravado = true;
+        function alternarTravaMarkup() {{
+            var inputMarkup = document.getElementById('markup');
+            var btnTrava = document.getElementById('btn_trava_markup');
+            markupTravado = !markupTravado;
+            
+            if (markupTravado) {{
+                inputMarkup.setAttribute('readonly', 'true');
+                inputMarkup.classList.add('cursor-not-allowed', 'bg-slate-900/60');
+                inputMarkup.classList.remove('bg-slate-900');
+                btnTrava.innerText = "🔒 Trancado";
+            }} else {{
+                inputMarkup.removeAttribute('readonly');
+                inputMarkup.classList.remove('cursor-not-allowed', 'bg-slate-900/60');
+                inputMarkup.classList.add('bg-slate-900');
+                btnTrava.innerText = "🔓 Destravado";
+            }}
+        }}
+
         function recalcularParcelas() {{
             var valorFinal = parseFloat(document.getElementById('preco_venda').value) || 0;
             var entrada = parseFloat(document.getElementById('entrada_valor').value) || 0;
@@ -1081,7 +1106,7 @@ def render_form_captacao(empresa):
                 </div>
                 <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1">
                     <label class="font-bold text-slate-300 block">🖼️ Foto de Inspiração / Referência</label>
-                    <input type="file" name="inspiracao" class="w-full text-slate-400 file:bg-slate-700 file:border-0 file:rounded-xl file:px-3 file:py-1 file:font-bold file:text-white text-xs">
+                    <input type="file" name="inspiracao" class="w-full text-slate-400 file:bg-slate-700 file:border-0 file:rounded-xl file:px-3 file:py-1 file:font-bold text-white text-xs">
                 </div>
             </div>
             
@@ -1092,24 +1117,8 @@ def render_form_captacao(empresa):
     </main>
 </body></html>"""
 
-def render_sucesso(empresa, estimativa, zap_url):
-    return f"""<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Sucesso</title><script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-slate-950 text-slate-100 min-h-screen flex items-center justify-center p-4 font-sans">
-    <div class="max-w-md w-full bg-slate-900 border border-amber-500/50 p-8 rounded-3xl text-center shadow-2xl">
-        <span class="text-5xl block animate-bounce mb-4">✨</span>
-        <h2 class="text-xl font-bold text-white">Orçamento Calculado!</h2>
-        <p class="text-3xl font-black text-amber-400 my-4">R$ {estimativa:,.2f}</p>
-        <a href="{zap_url}" class="inline-block w-full py-3.5 bg-amber-500 font-bold text-slate-950 rounded-xl shadow-lg">👉 Abrir Conversa no WhatsApp</a>
-        <script>setTimeout(function() {{ window.location.href = "{zap_url}"; }}, 2000);</script>
-    </div>
-</body></html>"""
-
 # ==============================================================================
-# TELA DE PRÉ-ORÇAMENTO COM AGENDAMENTO REDUZIDO (APENAS NA LOJA OU SEM INTERESSE)
+# TELA DE PRÉ-ORÇAMENTO COM DESCONTO DE 5% À VISTA E FORMAS DE PAGAMENTO
 # ==============================================================================
 def render_pre_orcamento_agendamento(
     empresa, orcamento_id, nome, whatsapp, cidade, area_m2, preco_venda,
@@ -1118,6 +1127,8 @@ def render_pre_orcamento_agendamento(
     entrada_minima = preco_venda * 0.30
     saldo_restante = preco_venda - entrada_minima
     parcela_12x = saldo_restante / 12.0
+    desconto_vista_5 = preco_venda * 0.95
+    economia_5 = preco_venda * 0.05
 
     tel_limpo = empresa["telefone"].replace("-","").replace(" ","").replace("(","").replace(")","")
 
@@ -1138,14 +1149,22 @@ def render_pre_orcamento_agendamento(
             <p class="text-xs text-slate-400">Olá, <b>{nome}</b>! Confira abaixo a estimativa do seu projeto para <b>{cidade} ({area_m2} m²)</b>.</p>
         </div>
 
-        <!-- ESTIMATIVA TOTAL -->
-        <div class="bg-slate-950 p-6 rounded-2xl border border-amber-500/40 text-center space-y-1">
-            <span class="text-xs text-slate-400 font-bold uppercase tracking-wider block">Estimativa Total do Projeto</span>
-            <span class="text-3xl sm:text-4xl font-black text-amber-400">R$ {preco_venda:,.2f}</span>
-            <p class="text-[11px] text-slate-500">Caixas {esp_caixa} ({cor_caixa}) • Portas {acab_porta} • Ferragens {marca_ferr}</p>
+        <!-- ESTIMATIVA TOTAL COM DESCONTO À VISTA DE 5% -->
+        <div class="bg-slate-950 p-6 rounded-2xl border border-amber-500/40 text-center space-y-2">
+            <span class="text-xs text-slate-400 font-bold uppercase tracking-wider block">Valor de Tabela do Projeto</span>
+            <span id="txt_valor_principal" class="text-3xl sm:text-4xl font-black text-amber-400">R$ {preco_venda:,.2f}</span>
+            
+            <!-- CAIXA DO DESCONTO DE 5% À VISTA -->
+            <div class="p-3 bg-emerald-950/60 border border-emerald-500/40 rounded-xl inline-block mt-1">
+                <span class="text-xs text-emerald-300 font-bold block">⚡ Valor à Vista no PIX (com 5% de desconto):</span>
+                <span class="text-xl sm:text-2xl font-black text-emerald-400">R$ {desconto_vista_5:,.2f}</span>
+                <span class="text-[11px] text-emerald-200 block">Economia de R$ {economia_5:,.2f}</span>
+            </div>
+
+            <p class="text-[11px] text-slate-500 pt-1">Caixas {esp_caixa} ({cor_caixa}) • Portas {acab_porta} • Ferragens {marca_ferr}</p>
         </div>
 
-        <!-- PERGUNTAS DE INTERESSE NO AGENDAMENTO (APENAS NA LOJA OU NÃO TENHO INTERESSE) -->
+        <!-- PERGUNTAS DE INTERESSE NO AGENDAMENTO -->
         <div class="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4 text-xs">
             <h3 class="text-xs font-bold text-amber-400 uppercase tracking-wide flex items-center gap-1">
                 <span>📅 1. Interesse em Agendamento na Loja</span>
@@ -1172,21 +1191,23 @@ def render_pre_orcamento_agendamento(
 
         <!-- SIMULAÇÃO FINANCEIRA DE PARCELAS (ENTRADA MÍN. 30%) -->
         <div class="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4 text-xs">
-            <h3 class="text-xs font-bold text-amber-400 uppercase tracking-wide flex items-center gap-1">
-                <span>💳 2. Como você pretende realizar o pagamento?</span>
-            </h3>
+            <div class="flex justify-between items-center">
+                <h3 class="text-xs font-bold text-amber-400 uppercase tracking-wide flex items-center gap-1">
+                    <span>💳 2. Como você pretende realizar o pagamento?</span>
+                </h3>
+            </div>
 
             <div class="grid sm:grid-cols-3 gap-3">
                 <div>
                     <label class="block text-slate-300 font-semibold mb-1">Forma de Pagamento</label>
-                    <select id="forma_pagamento_cli" onchange="calcularParcelasCliente()" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                    <select id="forma_pagamento_cli" onchange="calcularParcelasCliente()" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-medium">
                         <option value="Cartão de Crédito">Cartão de Crédito (até 12x)</option>
-                        <option value="PIX à Vista">PIX / À Vista (com desconto)</option>
+                        <option value="PIX à Vista (5% OFF)">⚡ PIX à Vista (5% de Desconto)</option>
                         <option value="Boleto Bancário">Boleto Bancário (até 24x)</option>
                     </select>
                 </div>
 
-                <div>
+                <div id="box_entrada_cli">
                     <label class="block text-slate-300 font-semibold mb-1">
                         Entrada (Mínimo de 30%)
                     </label>
@@ -1194,7 +1215,7 @@ def render_pre_orcamento_agendamento(
                     <span class="text-[10px] text-slate-500 block mt-0.5">Mínimo: R$ {entrada_minima:,.2f}</span>
                 </div>
 
-                <div>
+                <div id="box_parcelas_cli">
                     <label class="block text-slate-300 font-semibold mb-1">Nº de Parcelas</label>
                     <select id="parcelas_cli" onchange="calcularParcelasCliente()" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold">
                         <option value="1">1x (Sem juros)</option>
@@ -1209,7 +1230,7 @@ def render_pre_orcamento_agendamento(
             </div>
 
             <!-- RESULTADO DO PARCELAMENTO SIMULADO PELO CLIENTE -->
-            <div class="p-4 bg-slate-900 rounded-xl border border-slate-800 text-center space-y-1">
+            <div id="box_resultado_parcelas" class="p-4 bg-slate-900 rounded-xl border border-slate-800 text-center space-y-1">
                 <span class="text-slate-400 text-[11px] uppercase tracking-wider block">Seu Plano Simulado:</span>
                 <p class="text-sm font-bold text-white">
                     Entrada de <span id="res_entrada" class="text-amber-400">R$ {entrada_minima:,.2f}</span> + 
@@ -1230,7 +1251,8 @@ def render_pre_orcamento_agendamento(
     </div>
 
     <script>
-        var valorTotal = {preco_venda};
+        var valorTotalOriginal = {preco_venda};
+        var valorComDesconto5 = {desconto_vista_5};
         var entradaMinimaPermitida = {entrada_minima};
         var telEmpresa = "{tel_limpo}";
         var nomeCliente = "{nome}";
@@ -1255,22 +1277,44 @@ def render_pre_orcamento_agendamento(
 
         function calcularParcelasCliente() {{
             var forma = document.getElementById('forma_pagamento_cli').value;
+            var boxEntrada = document.getElementById('box_entrada_cli');
+            var boxParcelas = document.getElementById('box_parcelas_cli');
+            var boxResultado = document.getElementById('box_resultado_parcelas');
             var entradaInput = document.getElementById('entrada_cli');
-            var entrada = parseFloat(entradaInput.value) || 0;
-            var nParc = parseInt(document.getElementById('parcelas_cli').value) || 1;
 
-            if (entrada < entradaMinimaPermitida) {{
-                entrada = entradaMinimaPermitida;
-                entradaInput.value = entradaMinimaPermitida.toFixed(2);
+            if (forma.indexOf("PIX") !== -1) {{
+                // Se for PIX à Vista com 5% de desconto
+                boxEntrada.style.display = "none";
+                boxParcelas.style.display = "none";
+                boxResultado.innerHTML = `
+                    <span class="text-slate-400 text-[11px] uppercase tracking-wider block">Condição Especial Selecionada:</span>
+                    <p class="text-sm font-bold text-white">Pagamento Integral no PIX: <span class="text-emerald-400 font-black text-lg">R$ ` + valorComDesconto5.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }}) + `</span></p>
+                    <p class="text-[10px] text-emerald-300">Desconto de 5% aplicado com sucesso!</p>
+                `;
+            }} else {{
+                boxEntrada.style.display = "block";
+                boxParcelas.style.display = "block";
+                
+                var entrada = parseFloat(entradaInput.value) || 0;
+                var nParc = parseInt(document.getElementById('parcelas_cli').value) || 1;
+
+                if (entrada < entradaMinimaPermitida) {{
+                    entrada = entradaMinimaPermitida;
+                    entradaInput.value = entradaMinimaPermitida.toFixed(2);
+                }}
+
+                var saldo = Math.max(valorTotalOriginal - entrada, 0);
+                var valorParc = nParc > 0 ? (saldo / nParc) : 0;
+
+                boxResultado.innerHTML = `
+                    <span class="text-slate-400 text-[11px] uppercase tracking-wider block">Seu Plano Simulado:</span>
+                    <p class="text-sm font-bold text-white">
+                        Entrada de <span id="res_entrada" class="text-amber-400">R$ ` + entrada.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }}) + `</span> + 
+                        <span id="res_num_parc">` + nParc + `</span>x de <span id="res_valor_parc" class="text-emerald-400 font-black text-base">R$ ` + valorParc.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }}) + `</span>
+                    </p>
+                    <p class="text-[10px] text-slate-500">Saldo a parcelar: R$ ` + saldo.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }}) + `</p>
+                `;
             }}
-
-            var saldo = Math.max(valorTotal - entrada, 0);
-            var valorParc = nParc > 0 ? (saldo / nParc) : 0;
-
-            document.getElementById('res_entrada').innerText = "R$ " + entrada.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
-            document.getElementById('res_num_parc').innerText = nParc;
-            document.getElementById('res_valor_parc').innerText = "R$ " + valorParc.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
-            document.getElementById('res_saldo').innerText = saldo.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
 
             atualizarMensagemZap();
         }}
@@ -1281,8 +1325,6 @@ def render_pre_orcamento_agendamento(
             var forma = document.getElementById('forma_pagamento_cli').value;
             var entrada = parseFloat(document.getElementById('entrada_cli').value) || entradaMinimaPermitida;
             var nParc = document.getElementById('parcelas_cli').value;
-            var saldo = Math.max(valorTotal - entrada, 0);
-            var valorParc = (saldo / nParc).toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
 
             var agendamentoTexto = "";
             if (tipoAgend === "Não tenho interesse no momento") {{
@@ -1291,16 +1333,22 @@ def render_pre_orcamento_agendamento(
                 agendamentoTexto = "📅 *AGENDAMENTO NA LOJA:*\n• Preferência: *Agendamento Presencial na Loja*\n• Horário: *" + prefHorario + "*";
             }}
 
+            var financeiroTexto = "";
+            if (forma.indexOf("PIX") !== -1) {{
+                financeiroTexto = "💳 *FORMA DE PAGAMENTO:* PIX à Vista com 5% de Desconto\n• Valor Final c/ Desconto: *R$ " + valorComDesconto5.toLocaleString('pt-BR', {{ minimumFractionDigits: 2 }}) + "*";
+            }} else {{
+                var saldo = Math.max(valorTotalOriginal - entrada, 0);
+                var valorParc = (saldo / nParc).toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
+                financeiroTexto = "💳 *SIMULAÇÃO DE PAGAMENTO:*\n• Forma: " + forma + "\n• Entrada (mín. 30%): R$ " + entrada.toLocaleString('pt-BR', {{ minimumFractionDigits: 2 }}) + "\n• Parcelamento: *" + nParc + "x de R$ " + valorParc + "*";
+            }}
+
             var msg = "Olá! Meu nome é *" + nomeCliente + "*.\n" +
                       "Gerei meu pré-orçamento no site da *{empresa['nome_empresa']}* (Projeto #" + idOrc + ").\n\n" +
                       "📋 *DADOS DO PROJETO:*\n" +
                       "• Cidade: " + cidadeCliente + "\n" +
                       "• Metragem: " + areaCliente + " m²\n" +
-                      "• Estimativa Total: *R$ " + valorTotal.toLocaleString('pt-BR', {{ minimumFractionDigits: 2 }}) + "*\n\n" +
-                      "💳 *SIMULAÇÃO DE PAGAMENTO:*\n" +
-                      "• Forma: " + forma + "\n" +
-                      "• Entrada (mín. 30%): R$ " + entrada.toLocaleString('pt-BR', {{ minimumFractionDigits: 2 }}) + "\n" +
-                      "• Parcelamento: *" + nParc + "x de R$ " + valorParc + "*\n\n" +
+                      "• Valor de Tabela: *R$ " + valorTotalOriginal.toLocaleString('pt-BR', {{ minimumFractionDigits: 2 }}) + "*\n\n" +
+                      financeiroTexto + "\n\n" +
                       agendamentoTexto + "\n\n" +
                       "Gostaria de dar andamento no meu atendimento!";
 
