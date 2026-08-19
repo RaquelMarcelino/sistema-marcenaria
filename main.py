@@ -14,7 +14,7 @@ from datetime import datetime, date, timedelta
 from typing import List
 
 app = FastAPI(title="MVI Móveis Planejados - Master SaaS")
-DB_PATH = "mvi_production_v29.db"
+DB_PATH = "mvi_production_v30.db"
 
 # ==============================================================================
 # 1. TRATAMENTO DE ERROS GLOBAL
@@ -26,7 +26,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     <div style="background:#0f172a; color:#f8fafc; font-family:sans-serif; padding:30px; min-height:100vh;">
         <h2 style="color:#f59e0b;">⚠️ Diagnóstico do Sistema MVI</h2>
         <pre style="background:#1e293b; color:#f43f5e; padding:15px; border-radius:10px; font-size:12px; overflow-x:auto;">{err}</pre>
-        <a href="/painel-get" style="display:inline-block; margin-top:15px; padding:10px 20px; background:#f59e0b; color:#0f172a; font-weight:bold; border-radius:8px; text-decoration:none;">Voltar ao Painel</a>
+        <a href="/" style="display:inline-block; margin-top:15px; padding:10px 20px; background:#f59e0b; color:#0f172a; font-weight:bold; border-radius:8px; text-decoration:none;">Voltar ao Início</a>
     </div>
     """, status_code=500)
 
@@ -352,8 +352,38 @@ def processar_arquivo_promob(conteudo_texto: str, nome_arquivo: str):
     return {"items": items, "total_mat": total_mat, "custo_mo": custo_mo, "custo_frete": custo_frete, "preco_bruto": preco_bruto, "preco_venda": preco_venda, "lucro": lucro}
 
 # ==============================================================================
-# 4. TODAS AS TELAS E FUNÇÕES DE RENDERIZAÇÃO
+# 4. FUNÇÕES DE RENDERIZAÇÃO HTML (DECLARADAS ANTES DAS ROTAS)
 # ==============================================================================
+def render_login(msg=""):
+    erro = f"<div class='p-3 bg-rose-950/70 border border-rose-800 text-rose-300 text-xs rounded-xl text-center'>{msg}</div>" if msg else ""
+    return f"""<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MVI - Login</title><script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4 font-sans">
+    <div class="max-w-md w-full bg-slate-900 border border-amber-500/30 rounded-3xl p-8 shadow-2xl space-y-6">
+        <div class="text-center space-y-2">
+            <div class="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-black text-slate-950 text-2xl shadow-lg">MVI</div>
+            <h1 class="text-xl font-bold text-white">MVI Móveis Planejados</h1>
+            <p class="text-xs text-slate-400">Hub Integrador Promob & Gestão</p>
+        </div>
+        {erro}
+        <form action="/painel" method="post" class="space-y-4">
+            <div><label class="block text-xs font-semibold text-slate-300 uppercase mb-1">E-mail</label>
+            <input type="email" name="username" required value="admin@mvi.com" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white"></div>
+            <div><label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Senha</label>
+            <input type="password" name="password" required value="123456" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white"></div>
+            <button type="submit" class="w-full py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-sm shadow-lg">Acessar Painel</button>
+        </form>
+        <div class="border-t border-slate-800 pt-4 text-center">
+            <a href="/solicitar-orcamento" target="_blank" class="text-xs text-amber-400 hover:underline font-semibold block mb-1">🔗 Ver Simulador Público (Instagram)</a>
+            <p class="text-[11px] text-slate-500">Admin: <b>admin@mvi.com</b> | Senha: <b>123456</b></p>
+        </div>
+    </div>
+</body></html>"""
+
 def render_minuta_contrato(orc, empresa):
     pv_total = float(orc.get('preco_venda') or 0) + float(orc.get('adendo_valor') or 0)
     adendo_bloco = f"""
@@ -565,249 +595,26 @@ def render_assinatura_online(orc, empresa):
     </script>
 </body></html>"""
 
-def render_pre_orcamento_agendamento(
-    empresa, orcamento_id, nome, whatsapp, cidade, area_m2, preco_venda,
-    esp_caixa, cor_caixa, esp_porta, cor_porta, acab_porta, marca_ferr, esp_tamp, ambientes_str
-):
-    pv_redondo = round(preco_venda)
-    entrada_minima = round(pv_redondo * 0.20)
-    saldo_restante = pv_redondo - entrada_minima
-    parcela_12x = round(saldo_restante / 12.0)
-    desconto_vista_5 = round(pv_redondo * 0.95)
-    economia_5 = pv_redondo - desconto_vista_5
+def render_convite_gerado(nome, email, p, tel, link):
+    return f"""<html><body style='background:#0f172a; color:#fff; text-align:center; padding:50px; font-family:sans-serif;'>
+        <h1 style='color:#f59e0b;'>Convite de Acesso Gerado</h1>
+        <p style='margin:20px 0;'>Link Seguro: <br><b style='color:#38bdf8;'>{link}</b></p>
+        <a href='/painel-get' style='color:#f59e0b;'>Voltar ao Painel</a>
+    </body></html>"""
 
-    tel_limpo = empresa["telefone"].replace("-","").replace(" ","").replace("(","").replace(")","")
-
+def render_tela_nova_senha(user, token):
     return f"""<!DOCTYPE html>
 <html lang="pt-br">
-<head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{empresa['nome_empresa']} - Pré-Orçamento & Agendamento</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-slate-950 text-slate-100 min-h-screen p-4 sm:p-8 font-sans flex items-center justify-center">
-    <div class="max-w-2xl w-full bg-slate-900 border border-amber-500/40 rounded-3xl p-6 sm:p-10 shadow-2xl space-y-6">
-        
-        <!-- CABEÇALHO DO RESULTADO -->
-        <div class="text-center space-y-2 border-b border-slate-800 pb-4">
-            <span class="text-4xl block animate-bounce">✨</span>
-            <h1 class="text-xl sm:text-2xl font-bold text-white">Seu Pré-Orçamento Sob Medida foi Calculado!</h1>
-            <p class="text-xs text-slate-400">Olá, <b>{nome}</b>! Estimativa para <b>{cidade} ({area_m2} m²)</b>.</p>
-            <p class="text-[11px] text-amber-300 font-semibold">{ambientes_str}</p>
-        </div>
-
-        <!-- ESTIMATIVA TOTAL COM NÚMEROS REDONDOS -->
-        <div class="bg-slate-950 p-6 rounded-2xl border border-amber-500/40 text-center space-y-2">
-            <span class="text-xs text-slate-400 font-bold uppercase tracking-wider block">Valor de Tabela do Projeto</span>
-            <span id="txt_valor_principal" class="text-3xl sm:text-4xl font-black text-amber-400">R$ {pv_redondo:,.0f}</span>
-            
-            <!-- CAIXA DO DESCONTO DE 5% À VISTA -->
-            <div class="p-3 bg-emerald-950/60 border border-emerald-500/40 rounded-xl inline-block mt-1">
-                <span class="text-xs text-emerald-300 font-bold block">⚡ Valor à Vista no PIX (com 5% de desconto):</span>
-                <span class="text-xl sm:text-2xl font-black text-emerald-400">R$ {desconto_vista_5:,.0f}</span>
-                <span class="text-[11px] text-emerald-200 block">Economia de R$ {economia_5:,.0f}</span>
-            </div>
-
-            <p class="text-[11px] text-slate-500 pt-1">Caixas {esp_caixa} ({cor_caixa}) • Portas {acab_porta} • Ferragens {marca_ferr}</p>
-        </div>
-
-        <!-- PERGUNTAS DE INTERESSE NO AGENDAMENTO -->
-        <div class="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4 text-xs">
-            <h3 class="text-xs font-bold text-amber-400 uppercase tracking-wide flex items-center gap-1">
-                <span>📅 1. Interesse em Agendamento na Loja</span>
-            </h3>
-            
-            <div class="grid sm:grid-cols-2 gap-3">
-                <div>
-                    <label class="block text-slate-300 font-semibold mb-1">Deseja agendar um atendimento?</label>
-                    <select id="tipo_agendamento" onchange="verificarInteresseAgendamento()" class="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white">
-                        <option value="Agendamento Presencial na Loja">🏢 Sim, quero agendamento na loja</option>
-                        <option value="Não tenho interesse no momento">❌ Não tenho interesse no momento</option>
-                    </select>
-                </div>
-                <div id="box_horario">
-                    <label class="block text-slate-300 font-semibold mb-1">Melhor Período para Atendimento</label>
-                    <select id="preferencia_horario" onchange="atualizarMensagemZap()" class="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white">
-                        <option value="Manhã (09h às 12h)">🌅 Manhã (09h às 12h)</option>
-                        <option value="Tarde (14h às 18h)" selected>☀️ Tarde (14h às 18h)</option>
-                        <option value="Sábado (09h às 13h)">📅 Sábado (09h às 13h)</option>
-                    </select>
-                </div>
-            </div>
-        </div>
-
-        <!-- SIMULAÇÃO FINANCEIRA DE PARCELAS (ENTRADA MÍN. 20%) -->
-        <div class="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4 text-xs">
-            <h3 class="text-xs font-bold text-amber-400 uppercase tracking-wide flex items-center gap-1">
-                <span>💳 2. Como você pretende realizar o pagamento?</span>
-            </h3>
-
-            <div class="grid sm:grid-cols-3 gap-3">
-                <div>
-                    <label class="block text-slate-300 font-semibold mb-1">Forma de Pagamento</label>
-                    <select id="forma_pagamento_cli" onchange="calcularParcelasCliente()" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-medium">
-                        <option value="Cartão de Crédito">Cartão de Crédito (até 12x)</option>
-                        <option value="PIX à Vista (5% OFF)">⚡ PIX à Vista (5% de Desconto)</option>
-                        <option value="Boleto Bancário">Boleto Bancário (até 24x)</option>
-                    </select>
-                </div>
-
-                <div id="box_entrada_cli">
-                    <label class="block text-slate-300 font-semibold mb-1">
-                        Entrada (Mínimo de 20%)
-                    </label>
-                    <input type="number" id="entrada_cli" min="{entrada_minima}" step="100" value="{entrada_minima}" oninput="calcularParcelasCliente()" class="w-full px-3 py-2 bg-slate-900 border border-amber-500/50 rounded-xl text-amber-300 font-bold">
-                    <span class="text-[10px] text-slate-500 block mt-0.5">Mínimo: R$ {entrada_minima:,.0f}</span>
-                </div>
-
-                <div id="box_parcelas_cli">
-                    <label class="block text-slate-300 font-semibold mb-1">Nº de Parcelas</label>
-                    <select id="parcelas_cli" onchange="calcularParcelasCliente()" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold">
-                        <option value="1">1x (Sem juros)</option>
-                        <option value="3">3x</option>
-                        <option value="6">6x</option>
-                        <option value="10">10x</option>
-                        <option value="12" selected>12x</option>
-                        <option value="18">18x (Boleto)</option>
-                        <option value="24">24x (Boleto)</option>
-                    </select>
-                </div>
-            </div>
-
-            <!-- RESULTADO DO PLANO REDONDO -->
-            <div id="box_resultado_parcelas" class="p-4 bg-slate-900 rounded-xl border border-slate-800 text-center space-y-1">
-                <span class="text-slate-400 text-[11px] uppercase tracking-wider block">Seu Plano Simulado:</span>
-                <p class="text-sm font-bold text-white">
-                    Entrada de <span id="res_entrada" class="text-amber-400">R$ {entrada_minima:,.0f}</span> + 
-                    <span id="res_num_parc">12</span>x de <span id="res_valor_parc" class="text-emerald-400 font-black text-base">R$ {parcela_12x:,.0f}</span>
-                </p>
-                <p class="text-[10px] text-slate-500">Saldo a parcelar: R$ <span id="res_saldo">{saldo_restante:,.0f}</span></p>
-            </div>
-        </div>
-
-        <!-- BOTÃO WHATSAPP -->
-        <div class="pt-2">
-            <a id="btn_whatsapp_agendar" href="#" target="_blank" class="flex items-center justify-center gap-2 w-full py-4 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 font-black rounded-xl text-sm transition-all shadow-xl">
-                <span id="txt_btn_zap">📲 Quero ser direcionado ao WhatsApp para agendar atendimento</span>
-            </a>
-            <p class="text-[11px] text-center text-slate-500 mt-2">Você será atendido pela equipe oficial da <b>{empresa['nome_empresa']}</b> com sua simulação salva.</p>
-        </div>
-
-    </div>
-
-    <script>
-        var valorTotalOriginal = {pv_redondo};
-        var valorComDesconto5 = {desconto_vista_5};
-        var entradaMinimaPermitida = {entrada_minima};
-        var telEmpresa = "{tel_limpo}";
-        var nomeCliente = "{nome}";
-        var cidadeCliente = "{cidade}";
-        var areaCliente = "{area_m2}";
-        var ambientesTexto = "{ambientes_str}";
-        var idOrc = "{orcamento_id:04d}";
-
-        function verificarInteresseAgendamento() {{
-            var tipoAgend = document.getElementById('tipo_agendamento').value;
-            var boxHorario = document.getElementById('box_horario');
-            var txtBtnZap = document.getElementById('txt_btn_zap');
-
-            if (tipoAgend === "Não tenho interesse no momento") {{
-                boxHorario.classList.add('opacity-40', 'pointer-events-none');
-                txtBtnZap.innerText = "📲 Enviar simulação para o WhatsApp da loja";
-            }} else {{
-                boxHorario.classList.remove('opacity-40', 'pointer-events-none');
-                txtBtnZap.innerText = "📲 Quero ser direcionado ao WhatsApp para agendar atendimento";
-            }}
-            atualizarMensagemZap();
-        }}
-
-        function calcularParcelasCliente() {{
-            var forma = document.getElementById('forma_pagamento_cli').value;
-            var boxEntrada = document.getElementById('box_entrada_cli');
-            var boxParcelas = document.getElementById('box_parcelas_cli');
-            var boxResultado = document.getElementById('box_resultado_parcelas');
-            var entradaInput = document.getElementById('entrada_cli');
-
-            if (forma.indexOf("PIX") !== -1) {{
-                boxEntrada.style.display = "none";
-                boxParcelas.style.display = "none";
-                boxResultado.innerHTML = `
-                    <span class="text-slate-400 text-[11px] uppercase tracking-wider block">Condição Especial Selecionada:</span>
-                    <p class="text-sm font-bold text-white">Pagamento Integral no PIX: <span class="text-emerald-400 font-black text-lg">R$ ` + valorComDesconto5.toLocaleString('pt-BR') + `</span></p>
-                    <p class="text-[10px] text-emerald-300">Desconto de 5% aplicado com sucesso!</p>
-                `;
-            }} else {{
-                boxEntrada.style.display = "block";
-                boxParcelas.style.display = "block";
-                
-                var entrada = Math.round(parseFloat(entradaInput.value) || 0);
-                var nParc = parseInt(document.getElementById('parcelas_cli').value) || 1;
-
-                if (entrada < entradaMinimaPermitida) {{
-                    entrada = entradaMinimaPermitida;
-                    entradaInput.value = entradaMinimaPermitida;
-                }}
-
-                var saldo = Math.max(valorTotalOriginal - entrada, 0);
-                var valorParc = nParc > 0 ? Math.round(saldo / nParc) : 0;
-
-                boxResultado.innerHTML = `
-                    <span class="text-slate-400 text-[11px] uppercase tracking-wider block">Seu Plano Simulado:</span>
-                    <p class="text-sm font-bold text-white">
-                        Entrada de <span id="res_entrada" class="text-amber-400">R$ ` + entrada.toLocaleString('pt-BR') + `</span> + 
-                        <span id="res_num_parc">` + nParc + `</span>x de <span id="res_valor_parc" class="text-emerald-400 font-black text-base">R$ ` + valorParc.toLocaleString('pt-BR') + `</span>
-                    </p>
-                    <p class="text-[10px] text-slate-500">Saldo a parcelar: R$ ` + saldo.toLocaleString('pt-BR') + `</p>
-                `;
-            }}
-
-            atualizarMensagemZap();
-        }}
-
-        function atualizarMensagemZap() {{
-            var tipoAgend = document.getElementById('tipo_agendamento').value;
-            var prefHorario = document.getElementById('preferencia_horario').value;
-            var forma = document.getElementById('forma_pagamento_cli').value;
-            var entrada = Math.round(parseFloat(document.getElementById('entrada_cli').value) || entradaMinimaPermitida);
-            var nParc = document.getElementById('parcelas_cli').value;
-
-            var agendamentoTexto = "";
-            if (tipoAgend === "Não tenho interesse no momento") {{
-                agendamentoTexto = "📅 *AGENDAMENTO:* Cliente prefere avaliar a proposta antes de agendar.";
-            }} else {{
-                agendamentoTexto = "📅 *AGENDAMENTO NA LOJA:*\n• Preferência: *Agendamento Presencial na Loja*\n• Horário: *" + prefHorario + "*";
-            }}
-
-            var financeiroTexto = "";
-            if (forma.indexOf("PIX") !== -1) {{
-                financeiroTexto = "💳 *FORMA DE PAGAMENTO:* PIX à Vista com 5% de Desconto\n• Valor Final c/ Desconto: *R$ " + valorComDesconto5.toLocaleString('pt-BR') + "*";
-            }} else {{
-                var saldo = Math.max(valorTotalOriginal - entrada, 0);
-                var valorParc = Math.round(saldo / nParc).toLocaleString('pt-BR');
-                financeiroTexto = "💳 *SIMULAÇÃO DE PAGAMENTO:*\n• Forma: " + forma + "\n• Entrada (mín. 20%): R$ " + entrada.toLocaleString('pt-BR') + "\n• Parcelamento: *" + nParc + "x de R$ " + valorParc + "*";
-            }}
-
-            var msg = "Olá! Meu nome é *" + nomeCliente + "*.\n" +
-                      "Gerei meu pré-orçamento no site da *{empresa['nome_empresa']}* (Projeto #" + idOrc + ").\n\n" +
-                      "📋 *DADOS DO PROJETO:*\n" +
-                      "• Cidade: " + cidadeCliente + "\n" +
-                      "• Metragem: " + areaCliente + " m²\n" +
-                      "• Ambientes: " + ambientesTexto + "\n" +
-                      "• Valor de Tabela: *R$ " + valorTotalOriginal.toLocaleString('pt-BR') + "*\n\n" +
-                      financeiroTexto + "\n\n" +
-                      agendamentoTexto + "\n\n" +
-                      "Gostaria de dar andamento no meu atendimento!";
-
-            var zapUrl = "https://api.whatsapp.com/send?phone=55" + telEmpresa + "&text=" + encodeURIComponent(msg);
-            document.getElementById('btn_whatsapp_agendar').href = zapUrl;
-        }}
-
-        window.onload = function() {{
-            calcularParcelasCliente();
-        }};
-    </script>
-</body>
-</html>"""
+<head><title>Nova Senha</title><script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4">
+    <form action="/salvar-nova-senha" method="post" class="bg-slate-900 p-8 rounded-3xl space-y-4 max-w-sm w-full shadow-2xl">
+        <h1 class="text-xl font-bold">Definir Nova Senha</h1>
+        <input type="hidden" name="token" value="{token}">
+        <input type="password" name="nova_senha" required placeholder="Nova Senha" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white">
+        <input type="password" name="confirma_senha" required placeholder="Confirme Senha" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white">
+        <button type="submit" class="w-full py-3 bg-amber-500 font-bold text-slate-950 rounded-xl">Ativar Conta</button>
+    </form>
+</body></html>"""
 
 def render_form_captacao(empresa):
     return f"""<!DOCTYPE html>
@@ -825,7 +632,6 @@ def render_form_captacao(empresa):
             <h2 class="text-lg font-bold text-white mb-1">Simulador de Projeto Sob Medida</h2>
             <p class="text-xs text-slate-400 mb-3">Defina seus ambientes, caixaria, portas, acabamentos e ferragens.</p>
             
-            <!-- IDENTIFICAÇÃO BÁSICA -->
             <div class="grid sm:grid-cols-2 gap-3 text-xs">
                 <div>
                     <label class="block text-slate-300 font-semibold mb-1">👤 Seu Nome Completo</label>
@@ -845,7 +651,6 @@ def render_form_captacao(empresa):
                 </div>
             </div>
             
-            <!-- SEÇÃO DE ESCOLHA DE AMBIENTES COM ATÉ 6 UNIDADES -->
             <div class="bg-slate-950 p-4 sm:p-5 rounded-2xl border border-slate-800 space-y-3 text-xs">
                 <h3 class="font-bold text-amber-400 uppercase tracking-wide">🏠 Escolha os Ambientes do seu Projeto</h3>
                 
@@ -876,7 +681,6 @@ def render_form_captacao(empresa):
                     </label>
                 </div>
 
-                <!-- AMBIENTES COM ATÉ 6 UNIDADES -->
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-800/80">
                     <div class="bg-slate-900 p-2.5 rounded-xl border border-slate-800 flex justify-between items-center">
                         <label class="font-semibold text-slate-300">🛏️ Dorm. Solteiro</label>
@@ -919,11 +723,9 @@ def render_form_captacao(empresa):
                 </div>
             </div>
             
-            <!-- SEÇÃO DE CAIXAS, PORTAS, ACABAMENTOS, FERRAGENS E TAMPONAMENTO -->
             <div class="bg-slate-950 p-4 sm:p-5 rounded-2xl border border-slate-800 space-y-4 text-xs">
                 <h3 class="font-bold text-amber-400 uppercase tracking-wide">🪵 Especificações de Caixas, Portas & Ferragens</h3>
                 
-                <!-- 1. Caixaria -->
                 <div class="grid sm:grid-cols-2 gap-3">
                     <div>
                         <label class="block text-slate-300 font-semibold mb-1">Espessura da Caixa (Estrutura)</label>
@@ -941,7 +743,6 @@ def render_form_captacao(empresa):
                     </div>
                 </div>
 
-                <!-- 2. Portas e Frentes -->
                 <div class="grid sm:grid-cols-3 gap-3">
                     <div>
                         <label class="block text-slate-300 font-semibold mb-1">Espessura das Portas</label>
@@ -970,7 +771,6 @@ def render_form_captacao(empresa):
                     </div>
                 </div>
 
-                <!-- 3. Ferragens e Tamponamento -->
                 <div class="grid sm:grid-cols-2 gap-3">
                     <div>
                         <label class="block text-slate-300 font-semibold mb-1">Marca das Ferragens</label>
@@ -993,7 +793,6 @@ def render_form_captacao(empresa):
                     </div>
                 </div>
 
-                <!-- 4. CAIXA DE OBSERVAÇÃO -->
                 <div>
                     <label class="block text-slate-300 font-semibold mb-1">Observações & Detalhes Especiais do seu Projeto</label>
                     <textarea name="descricao" rows="3" placeholder="Ex: Gostaria de iluminação em LED embutida nos aéreos, puxador cava usinada nos gaveteiros da cozinha, amortecedor em todas as portas e portas de vidro reflecta bronze na suíte..." class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-amber-500 text-xs"></textarea>
@@ -1018,605 +817,24 @@ def render_form_captacao(empresa):
     </main>
 </body></html>"""
 
-def render_dashboard_view():
-    empresa = get_empresa_dados(1)
-    met = get_metricas()
-    is_admin = (CURRENT_SESSION["user_perfil"] == "admin")
-    
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 ORDER BY id DESC LIMIT 25")
-    leads = cursor.fetchall()
-    cursor.execute("SELECT * FROM usuarios WHERE empresa_id = 1")
-    equipe = cursor.fetchall()
-    conn.close()
-
-    cliente_ativo = None
-    if CURRENT_SESSION.get("cliente_ativo_id"):
-        for h in leads:
-            if h["id"] == CURRENT_SESSION["cliente_ativo_id"]:
-                cliente_ativo = dict(h)
-                break
-    if not cliente_ativo and leads:
-        cliente_ativo = dict(leads[0])
-        CURRENT_SESSION["cliente_ativo_id"] = cliente_ativo["id"]
-
-    c_id = cliente_ativo["id"] if cliente_ativo else 0
-    c_nome = cliente_ativo.get("cliente_nome") or "Selecione um Cliente"
-    c_amb = cliente_ativo.get("cliente_ambiente") or "Geral"
-    c_p_bruto = round(float(cliente_ativo.get("preco_bruto") or cliente_ativo.get("preco_venda") or 0)) if cliente_ativo else 0
-    c_p_venda = round(float(cliente_ativo.get("preco_venda") or 0)) if cliente_ativo else 0
-    c_lucro = round(float(cliente_ativo.get("lucro_liquido") or 0)) if cliente_ativo else 0
-    c_desc_pct = float(cliente_ativo.get("desconto_pct") or 0) if cliente_ativo else 0.0
-    c_markup = float(cliente_ativo.get("markup") or 2.2) if cliente_ativo else 2.2
-    c_entrada = round(float(cliente_ativo.get("entrada_valor") or 0)) if cliente_ativo else 0
-    c_parc = int(cliente_ativo.get("num_parcelas") or 1) if cliente_ativo else 1
-    c_mod = cliente_ativo.get("modalidade_pagamento") or "Cartão de Crédito em até 12x"
-    c_aut_desc = int(cliente_ativo.get("desconto_autorizado") or 1) if cliente_ativo else 1
-    
-    saldo_financiar = max(c_p_venda - c_entrada, 0)
-    valor_por_parcela = round(saldo_financiar / c_parc) if c_parc > 0 else 0
-
-    leads_html = ""
-    for h in leads:
-        h_dict = dict(h)
-        pv = round(float(h_dict.get("preco_venda") or 0))
-        adendo = round(float(h_dict.get("adendo_valor") or 0))
-        pv_total = pv + adendo
-        lucro = round(float(h_dict.get("lucro_liquido") or 0))
-        st = h_dict.get("status") or "Em Negociação"
-        desc = float(h_dict.get("desconto_pct") or 0)
-        aut_desc = int(h_dict.get("desconto_autorizado") or 1)
-        lib_fin = int(h_dict.get("liberado_financeiro") or 0)
-        
-        acoes_admin = ""
-        if not aut_desc and is_admin:
-            acoes_admin += f"""<form action="/autorizar-com-chave" method="post" class="flex flex-col gap-1 my-1 p-2 bg-amber-950/60 border border-amber-500/40 rounded-xl"><span class='text-[10px] text-amber-300 font-bold'>⚠️ Desconto {desc:.1f}%</span><input type="hidden" name="orcamento_id" value="{h_dict['id']}"><input type="hidden" name="tipo_acao" value="desconto"><input type="password" name="chave_digitada" placeholder="Chave Mestra" required class="px-2 py-1 bg-slate-950 border border-slate-700 text-white rounded text-[10px]"><button type="submit" class="px-2 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded text-[10px] font-bold">Autorizar</button></form>"""
-        elif not aut_desc:
-            acoes_admin += f"<span class='text-[10px] text-rose-400 font-bold animate-pulse'>🚨 Bloqueado Admin ({desc:.1f}%)</span>"
-
-        if not lib_fin and is_admin:
-            acoes_admin += f"""<form action="/autorizar-com-chave" method="post" class="flex flex-col gap-1 my-1 p-2 bg-sky-950/60 border border-sky-500/40 rounded-xl"><span class='text-[10px] text-sky-300 font-bold'>💳 Liberar Financeiro</span><input type="hidden" name="orcamento_id" value="{h_dict['id']}"><input type="hidden" name="tipo_acao" value="financeiro"><input type="password" name="chave_digitada" placeholder="Chave" required class="px-2 py-1 bg-slate-950 border border-slate-700 text-white rounded text-[10px]"><button type="submit" class="px-2 py-1 bg-sky-500 text-slate-950 rounded text-[10px] font-bold">Liberar</button></form>"""
-        elif lib_fin:
-            acoes_admin += "<span class='text-[10px] text-emerald-400 font-bold'>✓ Financeiro OK</span>"
-
-        link_ass = f"/assinar/{h_dict['id']}"
-        link_previa = f"/minuta-contrato/{h_dict['id']}"
-        
-        status_ass = f"""
-        <div class="flex flex-col gap-1 items-center">
-            <span class='text-emerald-400 font-bold'>✓ Assinado</span>
-            <a href='{link_ass}' target='_blank' class='text-[10px] text-sky-400 underline'>Ver Via do Sistema</a>
-        </div>
-        """ if h_dict.get("contrato_assinado") else (
-            f"""
-            <div class="flex flex-col gap-1 items-center">
-                <a href='{link_previa}' target='_blank' class='text-[10px] text-slate-300 hover:text-white underline font-semibold'>👁️ Prévia Contrato</a>
-                <a href='{link_ass}' target='_blank' class='text-[11px] text-amber-400 underline font-bold'>✍️ Enviar p/ Assinar</a>
-            </div>
-            """ if aut_desc else "<span class='text-[10px] text-rose-400 font-bold'>🔒 Contrato Travado</span>"
-        )
-        
-        lucro_td = f"<td class='py-3 px-4 text-right text-emerald-400 font-bold valor-lucro-col'>R$ {lucro:,.2f}</td>" if is_admin else ""
-        adendo_tag = f"<span class='block text-[10px] text-amber-400 font-bold'>+ Adendo R$ {adendo:,.2f}</span>" if adendo > 0 else ""
-
-        btn_selecionar = f"""
-        <form action="/selecionar-cliente-trabalho" method="post" class="inline">
-            <input type="hidden" name="orcamento_id" value="{h_dict['id']}">
-            <button type="submit" class="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg text-[10px] font-bold">
-                ⚡ Negociar
-            </button>
-        </form>
-        """
-
-        leads_html += f"""<tr class="border-b border-slate-800 hover:bg-slate-800/40 text-xs">
-            <td class="py-3 px-4 font-mono text-slate-400">#{h_dict['id']}</td>
-            <td class="py-3 px-4 text-white font-medium">{h_dict.get('cliente_nome','')}<span class="block text-[10px] text-slate-400">CPF: {h_dict.get('cliente_cpf') or 'Pendente'}</span></td>
-            <td class="py-3 px-4 text-slate-300">{h_dict.get('cliente_ambiente','')}</td>
-            <td class="py-3 px-4 text-right text-amber-400 font-bold">R$ {pv_total:,.2f}{adendo_tag}</td>
-            {lucro_td}
-            <td class="py-3 px-4 text-center">{acoes_admin if acoes_admin else st}</td>
-            <td class="py-3 px-4 text-center">{status_ass}</td>
-            <td class="py-3 px-4 text-center">{btn_selecionar}</td>
-        </tr>"""
-
-    if not leads_html:
-        leads_html = "<tr><td colspan='8' class='py-8 text-center text-xs text-slate-500'>Nenhum projeto registrado ainda.</td></tr>"
-
-    th_lucro = "<th class='py-3 px-4 text-right'>Lucro Líquido</th>" if is_admin else ""
-
-    eq_html = ""
-    for u in equipe:
-        perf = "Admin" if u["perfil"] == "admin" else "Vendedor"
-        ativo = u["ativo"] if "ativo" in u.keys() else 1
-        st_acesso = f"""<div class='flex items-center gap-2'>
-            <span class='{"text-emerald-400" if ativo else "text-rose-400"} font-bold'>{"✓ Ativo" if ativo else "🚫 Bloqueado"}</span>
-            <form action='/redefinir-senha-funcionario' method='post' class='inline'><input type='hidden' name='email_funcionario' value='{u['email']}'><button type='submit' class='px-2 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded text-[10px]'>Reset Senha</button></form>
-            <form action='/alternar-status-funcionario' method='post' class='inline'><input type='hidden' name='email_funcionario' value='{u['email']}'><button type='submit' class='px-2 py-1 {"bg-rose-500/20 text-rose-300" if ativo else "bg-emerald-500/20 text-emerald-300"} rounded text-[10px] font-bold'>{"Bloquear" if ativo else "Reativar"}</button></form>
-        </div>""" if u["primeiro_acesso_concluido"] else f"<a href='/primeiro-acesso/{u['token_primeiro_acesso']}' target='_blank' class='px-2 py-1 bg-amber-500/20 text-amber-300 rounded text-[10px] underline'>Link Convite</a>"
-        eq_html += f"<li class='flex justify-between py-2 border-b border-slate-800 text-xs'><div><span class='font-bold text-white'>{u['nome']}</span><span class='text-slate-400 block text-[11px]'>{u['email']}</span></div><div class='flex gap-2'><span class='bg-amber-950 text-amber-300 px-2 rounded-xl'>{perf}</span>{st_acesso}</div></li>"
-
-    admin_tabs = """<button onclick="mudarAba('aba-equipe')" id="btn-aba-equipe" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300">👥 Equipe</button>
-                    <button onclick="mudarAba('aba-config')" id="btn-aba-config" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300">🔑 Configurações</button>""" if is_admin else ""
-
-    admin_content = f"""
-        <div id="aba-equipe" class="tab-content space-y-6">
-            <div class="grid lg:grid-cols-3 gap-6">
-                <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow">
-                    <h2 class="text-base font-bold text-white mb-4">Cadastrar Novo Usuário</h2>
-                    <form action="/criar-usuario" method="post" class="grid sm:grid-cols-2 gap-3 text-xs">
-                        <input type="text" name="nome" required placeholder="Nome Completo" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                        <input type="email" name="email" required placeholder="E-mail" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                        <input type="text" name="telefone" placeholder="WhatsApp para Envio" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                        <select name="perfil" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white"><option value="vendedor">Vendedor</option><option value="admin">Administrador</option></select>
-                        <button type="submit" class="col-span-full py-3 bg-amber-500 text-slate-950 font-bold rounded-xl">Gerar Link de Convite</button>
-                    </form>
-                </div>
-                <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow"><h3 class="text-xs font-bold text-slate-300 uppercase mb-3">Equipe MVI</h3><ul class="divide-y divide-slate-800">{eq_html}</ul></div>
-            </div>
-        </div>
-        <div id="aba-config" class="tab-content space-y-6">
-            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow">
-                <h2 class="text-base font-bold text-white mb-4">Configuração da Empresa e Chave Mestra</h2>
-                <form action="/salvar-empresa" method="post" class="grid sm:grid-cols-4 gap-4 text-xs">
-                    <input type="text" name="nome_empresa" value="{empresa['nome_empresa']}" required placeholder="Nome da Empresa" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                    <input type="text" name="cnpj" value="{empresa.get('cnpj','')}" required placeholder="CNPJ" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                    <input type="text" name="telefone" value="{empresa['telefone']}" required placeholder="WhatsApp" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                    <input type="text" name="chave_mestra" value="{empresa['chave_mestra']}" required placeholder="Chave Mestra (PIN)" class="px-3 py-2 bg-slate-950 border border-amber-500/50 rounded-xl text-amber-300 font-bold">
-                    <button type="submit" class="col-span-full py-3 bg-amber-500 text-slate-950 font-bold rounded-xl">Salvar Configurações</button>
-                </form>
-            </div>
-        </div>
-    """ if is_admin else ""
-
-    lucro_card = f"""<div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow"><p class="text-[11px] font-bold text-slate-400 uppercase">Lucro Líquido</p><p class="text-xl font-bold text-emerald-400 valor-ocultavel">R$ {met['lucro']:,.2f}</p></div>""" if is_admin else ""
-    
-    lucro_negociacao_box = f"""
-    <div class="bg-slate-950 p-4 border border-emerald-500/30 rounded-2xl flex items-center justify-between gap-4">
-        <div>
-            <span class="text-[11px] text-slate-400 font-bold uppercase block">Lucro Líquido da Operação</span>
-            <span id="valor_lucro_operacao" data-real="R$ {c_lucro:,.2f}" class="text-2xl font-black text-emerald-400">R$ {c_lucro:,.2f}</span>
-        </div>
-        <button type="button" onclick="alternarOlhoLucro()" id="btn_olho_lucro" title="Ocultar / Revelar Lucro" class="p-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-xl text-slate-300 text-base">
-            👁️
-        </button>
-    </div>
-    """ if is_admin else ""
-
-    options_leads = "<option value='0'>➕ Cadastrar Novo Cliente / Orçamento Manual</option>"
-    for h in leads:
-        h_d = dict(h)
-        sel = "selected" if h_d["id"] == c_id else ""
-        options_leads += f"<option value='{h_d['id']}' {sel}>#{h_d['id']} - {h_d.get('cliente_nome','')} ({h_d.get('cliente_ambiente','')})</option>"
-
+def render_sucesso(empresa, estimativa, zap_url):
     return f"""<!DOCTYPE html>
 <html lang="pt-br">
 <head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>MVI - Master Cockpit</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>.tab-btn.active {{ background: linear-gradient(135deg, #f59e0b, #d97706); color: #0f172a; font-weight: 800; }} .tab-content {{ display: none; }} .tab-content.active {{ display: block; }}</style>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Sucesso</title><script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen font-sans">
-    <header class="bg-slate-900 border-b border-slate-800 px-6 py-4 flex flex-wrap items-center justify-between gap-3">
-        <div class="flex items-center gap-3"><div class="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-black text-slate-950 text-lg shadow">MVI</div><span class="font-bold text-lg text-white">{empresa['nome_empresa']}</span><span class="text-[10px] bg-slate-800 border border-slate-700 text-amber-400 px-2 py-0.5 rounded-full font-bold uppercase">{CURRENT_SESSION['user_perfil']}</span></div>
-        <div class="flex items-center gap-3"><a href="/solicitar-orcamento" target="_blank" class="text-xs bg-amber-950 text-amber-300 border border-amber-500/40 px-3 py-1.5 rounded-xl">🔗 Simulador Público</a><span class="text-xs text-slate-400">Operador: <b class="text-amber-400">{CURRENT_SESSION['user_nome']}</b></span><a href="/" class="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-xl text-slate-300 border border-slate-700">Sair</a></div>
-    </header>
-
-    <nav class="bg-slate-900/80 border-b border-slate-800 px-6 py-3 sticky top-0 z-50 backdrop-blur-md">
-        <div class="max-w-7xl mx-auto flex items-center gap-2 overflow-x-auto">
-            <button onclick="mudarAba('aba-leads')" id="btn-aba-leads" class="tab-btn active px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300">🏠 Fechamentos & Mesa de Negociação</button>
-            <button onclick="mudarAba('aba-promob')" id="btn-aba-promob" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300">🚀 Promob</button>
-            <button onclick="mudarAba('aba-cadastro')" id="btn-aba-cadastro" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300">📋 Ficha & CEP</button>
-            <button onclick="mudarAba('aba-adendo')" id="btn-aba-adendo" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 text-slate-300">➕ Adendo</button>
-            {admin_tabs}
-        </div>
-    </nav>
-
-    <main class="max-w-7xl mx-auto p-6 space-y-6">
-        <!-- ABA PRINCIPAL -->
-        <div id="aba-leads" class="tab-content active space-y-6">
-            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow"><p class="text-[11px] font-bold text-slate-400 uppercase">Faturamento Liberado</p><p class="text-xl font-bold text-amber-400">R$ {met['faturamento']:,.2f}</p></div>
-                {lucro_card}
-                <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow"><p class="text-[11px] font-bold text-slate-400 uppercase">Ticket Médio</p><p class="text-xl font-bold text-white">R$ {met['ticket']:,.2f}</p></div>
-                <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow"><p class="text-[11px] font-bold text-slate-400 uppercase">Conversão</p><p class="text-xl font-bold text-amber-400">{met['taxa']:.1f}%</p></div>
-            </div>
-
-            <!-- TARJA VERMELHA DE ALERTA DINÂMICA -->
-            <div id="tarja_alerta_margem" class="hidden p-4 bg-rose-950/90 border-2 border-rose-500 text-rose-200 rounded-2xl text-center space-y-1 shadow-2xl animate-pulse">
-                <span class="text-base font-black tracking-wide block">🚨 ALERTA: DESCONTO ULTRAPASSOU A MARGEM DE VENDA AUTORIZADA!</span>
-                <p class="text-xs text-rose-300">A margem máxima permitida foi excedida. A geração de contrato e a conclusão da venda foram travadas e exigem a liberação do Administrador Geral.</p>
-            </div>
-
-            <!-- MESA DE NEGOCIAÇÃO COMERCIAL COMPLETA -->
-            <div class="bg-slate-900 border border-amber-500/40 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-5">
-                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-800 pb-3 gap-2">
-                    <div>
-                        <h2 class="text-lg font-bold text-white flex items-center gap-2">
-                            <span>💼 Mesa de Negociação & Fechamento Manual</span>
-                        </h2>
-                        <p class="text-xs text-slate-400">Valores arredondados e bloqueio de segurança na margem de venda.</p>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <a href="/minuta-contrato/{c_id}" target="_blank" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold">
-                            👁️ Ver Minuta Contrato
-                        </a>
-                        <span class="px-3 py-1.5 bg-amber-950 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-bold">
-                            Cliente Ativo: {c_nome} (#{c_id})
-                        </span>
-                    </div>
-                </div>
-
-                <form action="/salvar-negociacao-mesa" method="post" class="space-y-4 text-xs">
-                    <input type="hidden" name="orcamento_id" value="{c_id}">
-
-                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <!-- VALOR BRUTO -->
-                        <div class="bg-slate-950 p-4 border border-slate-800 rounded-2xl space-y-1">
-                            <label class="text-[11px] text-slate-400 font-bold uppercase block">1. Valor Bruto (Tabela / Projeto)</label>
-                            <input type="number" step="1" name="preco_bruto" id="preco_bruto" value="{c_p_bruto}" oninput="recalcularPorBrutoOuDesc()" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold text-base focus:border-amber-500">
-                        </div>
-
-                        <!-- DESCONTO COMERCIAL -->
-                        <div class="bg-slate-950 p-4 border border-slate-800 rounded-2xl space-y-1">
-                            <label class="text-[11px] text-slate-400 font-bold uppercase block">2. Desconto Aplicado (%)</label>
-                            <div class="flex gap-2">
-                                <input type="number" step="0.1" min="0" max="60" name="desconto_pct" id="desconto_pct" value="{c_desc_pct:.1f}" oninput="recalcularPorBrutoOuDesc()" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold text-base focus:border-amber-500">
-                                <span class="px-3 py-2 bg-slate-800 rounded-xl text-slate-300 font-bold flex items-center">%</span>
-                            </div>
-                        </div>
-
-                        <!-- VALOR LÍQUIDO FINAL -->
-                        <div class="bg-slate-950 p-4 border border-amber-500/50 rounded-2xl space-y-1">
-                            <label class="text-[11px] text-amber-400 font-bold uppercase block">3. Valor Fechamento Manual (R$)</label>
-                            <input type="number" step="1" name="preco_venda" id="preco_venda" value="{c_p_venda}" oninput="recalcularPorValorManual()" class="w-full px-3 py-2 bg-slate-900 border border-amber-500 rounded-xl text-amber-300 font-black text-xl focus:outline-none">
-                            <span class="text-[10px] text-slate-500 block">Pode digitar o valor final direto</span>
-                        </div>
-
-                        <!-- MARGEM / MARKUP COM CADEADO DE SEGURANÇA -->
-                        <div class="bg-slate-950 p-4 border border-slate-800 rounded-2xl space-y-1">
-                            <div class="flex justify-between items-center">
-                                <label class="text-[11px] text-slate-400 font-bold uppercase block">4. Margem / Markup Venda</label>
-                                <button type="button" onclick="alternarTravaMarkup()" id="btn_trava_markup" title="Travar / Destravar Margem" class="text-xs text-amber-400 hover:text-amber-300">
-                                    🔒 Trancado
-                                </button>
-                            </div>
-                            <input type="number" step="0.1" min="1.0" max="5.0" name="markup" id="markup" value="{c_markup:.1f}" readonly class="w-full px-3 py-2 bg-slate-900/60 border border-slate-800 rounded-xl text-slate-300 font-bold text-base cursor-not-allowed">
-                        </div>
-                    </div>
-
-                    <div class="p-5 bg-slate-950 border border-slate-800 rounded-2xl space-y-3">
-                        <h3 class="text-xs font-bold text-amber-400 uppercase tracking-wide">💳 Condições de Pagamento & Parcelamento</h3>
-                        <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                            <div class="sm:col-span-2">
-                                <label class="block text-slate-400 mb-1">Modalidade Selecionada</label>
-                                <select name="modalidade_pagamento" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-medium">
-                                    <option value="PIX à Vista" {"selected" if c_mod == "PIX à Vista" else ""}>⚡ PIX à Vista (com desconto)</option>
-                                    <option value="Cartão de Débito" {"selected" if c_mod == "Cartão de Débito" else ""}>💳 Cartão de Débito</option>
-                                    <option value="Cartão de Crédito em até 12x" {"selected" if "12x" in c_mod else ""}>🔢 Cartão de Crédito (até 12x)</option>
-                                    <option value="Boleto Bancário em até 24x" {"selected" if "24x" in c_mod else ""}>📄 Boleto Bancário / Financiamento (até 24x)</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-slate-400 mb-1">Valor de Entrada (R$)</label>
-                                <input type="number" step="100" name="entrada_valor" id="entrada_valor" value="{c_entrada}" oninput="recalcularParcelas()" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold">
-                            </div>
-                            <div>
-                                <label class="block text-slate-400 mb-1">Nº de Parcelas</label>
-                                <input type="number" min="1" max="24" name="num_parcelas" id="num_parcelas" value="{c_parc}" oninput="recalcularParcelas()" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold">
-                            </div>
-                        </div>
-
-                        <div class="p-3 bg-slate-900 rounded-xl border border-slate-800 flex flex-wrap justify-between items-center text-xs">
-                            <span class="text-slate-300">
-                                Simulação: Entrada de <b>R$ {c_entrada:,.0f}</b> + <b>{c_parc}x de <span id="txt_parcela" class="text-amber-400 font-bold">R$ {valor_por_parcela:,.0f}</span></b>
-                            </span>
-                            <span class="text-[11px] text-slate-400">Saldo Financiado: R$ <span id="txt_saldo">{saldo_financiar:,.0f}</span></span>
-                        </div>
-                    </div>
-
-                    <div class="flex flex-col sm:flex-row justify-between items-center gap-3 pt-2">
-                        {lucro_negociacao_box}
-                        <button type="submit" id="btn_salvar_mesa" class="w-full sm:w-auto px-8 py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-sm shadow-lg">
-                            💾 Atualizar Negociação & Aplicar no Contrato
-                        </button>
-                    </div>
-                </form>
-            </div>
-
-            <!-- TABELA DE VENDAS -->
-            <div class="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow">
-                <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-850">
-                    <div>
-                        <h3 class="text-sm font-semibold text-white">📁 Fila de Vendas e Liberações (Clique em 'Negociar' para carregar nas abas)</h3>
-                    </div>
-                    <a href="/exportar-csv" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold">📊 CSV</a>
-                </div>
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left border-collapse">
-                        <thead>
-                            <tr class="bg-slate-800/40 border-b border-slate-800 text-xs font-semibold text-slate-400 uppercase">
-                                <th class="py-3 px-4"># ID</th>
-                                <th class="py-3 px-4">Cliente</th>
-                                <th class="py-3 px-4">Ambiente</th>
-                                <th class="py-3 px-4 text-right">Valor Venda</th>
-                                {th_lucro}
-                                <th class="py-3 px-4 text-center">Liberação</th>
-                                <th class="py-3 px-4 text-center">Contrato & Assinatura</th>
-                                <th class="py-3 px-4 text-center">Ação</th>
-                            </tr>
-                        </thead>
-                        <tbody>{leads_html}</tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-
-        <!-- ABA PROMOB -->
-        <div id="aba-promob" class="tab-content space-y-6">
-            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow space-y-4">
-                <h2 class="text-base font-bold text-white">🚀 Integrador Promob Universal (XML, CSV, TXT, Cut)</h2>
-                <form action="/importar-promob" method="post" enctype="multipart/form-data" class="grid sm:grid-cols-3 gap-4 text-xs">
-                    <input type="text" name="cliente_nome" value="{c_nome if c_id else ''}" required placeholder="Nome do Cliente" class="px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                    <input type="text" name="cliente_telefone" value="{cliente_ativo.get('cliente_telefone','') if cliente_ativo else ''}" required placeholder="WhatsApp" class="px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                    <input type="text" name="cliente_ambiente" value="{c_amb if c_id else ''}" required placeholder="Ambientes" class="px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                    <div class="sm:col-span-3 p-4 bg-slate-950 border border-slate-800 rounded-2xl">
-                        <label class="block font-bold text-amber-400 mb-2">📁 Arquivo de Peças Exportado do Promob (.xml, .csv, .txt, .cut)</label>
-                        <input type="file" name="arquivo_promob" accept=".xml,.csv,.txt,.cut" required class="w-full text-slate-400 file:bg-amber-500 file:border-0 file:rounded-xl file:px-4 file:py-2 file:font-bold">
-                    </div>
-                    <button type="submit" class="sm:col-span-3 py-3.5 bg-amber-500 font-bold rounded-xl text-slate-950 text-sm">⚡ Processar Promob & Gerar Orçamento no CRM</button>
-                </form>
-            </div>
-        </div>
-
-        <!-- ABA FICHA CADASTRAL & CEP -->
-        <div id="aba-cadastro" class="tab-content space-y-6">
-            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow space-y-6">
-                <div>
-                    <h2 class="text-base font-bold text-white">📑 Ficha Cadastral Completa & Geração de Contrato</h2>
-                    <p class="text-xs text-slate-400">Preencha os dados completos do cliente e utilize a busca de CEP nos endereços.</p>
-                </div>
-                <form action="/salvar-dados-completos-cliente" method="post" class="space-y-4 text-xs">
-                    <div class="bg-slate-950 p-4 rounded-xl border border-slate-800">
-                        <label class="block text-amber-400 font-bold mb-1">Selecione o Projeto / Lead existente ou crie um novo:</label>
-                        <select name="orcamento_id" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
-                            {options_leads}
-                        </select>
-                    </div>
-
-                    <div class="space-y-3">
-                        <h3 class="text-xs font-bold text-amber-400 uppercase tracking-wide">1. Identificação Pessoal</h3>
-                        <div class="grid sm:grid-cols-4 gap-3">
-                            <input type="text" name="cliente_nome" value="{c_nome if c_id else ''}" required placeholder="Nome Completo" class="sm:col-span-2 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                            <input type="text" name="cliente_cpf" value="{cliente_ativo.get('cliente_cpf','') if cliente_ativo else ''}" placeholder="CPF" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                            <div class="flex gap-1">
-                                <input type="text" name="cliente_rg" value="{cliente_ativo.get('cliente_rg','') if cliente_ativo else ''}" placeholder="RG" class="w-2/3 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                                <input type="text" name="cliente_rg_emissor" value="{cliente_ativo.get('cliente_rg_emissor','') if cliente_ativo else ''}" placeholder="SSP/SP" class="w-1/3 px-2 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                            </div>
-                            <input type="date" name="cliente_nascimento" value="{cliente_ativo.get('cliente_nascimento','') if cliente_ativo else ''}" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                            <input type="text" name="cliente_pais" value="Brasil" placeholder="País" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                            <input type="text" name="cliente_cidade" value="{cliente_ativo.get('cliente_cidade','') if cliente_ativo else ''}" placeholder="Cidade / UF" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                            <input type="email" name="cliente_email" value="{cliente_ativo.get('cliente_email','') if cliente_ativo else ''}" placeholder="E-mail" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                            <input type="text" name="cliente_telefone" value="{cliente_ativo.get('cliente_telefone','') if cliente_ativo else ''}" placeholder="WhatsApp Principal" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                            <input type="text" name="cliente_telefone_2" value="{cliente_ativo.get('cliente_telefone_2','') if cliente_ativo else ''}" placeholder="Telefone 2 / Recado" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                        </div>
-                    </div>
-
-                    <div class="space-y-3">
-                        <h3 class="text-xs font-bold text-amber-400 uppercase tracking-wide">2. Endereços com Busca de CEP</h3>
-                        <div class="grid sm:grid-cols-2 gap-4">
-                            <div class="bg-slate-950 p-4 border border-slate-800 rounded-xl space-y-2">
-                                <label class="font-bold text-white block">📬 Endereço Postal</label>
-                                <div class="flex gap-2">
-                                    <input type="text" id="cep_postal" name="cliente_cep_postal" value="{cliente_ativo.get('cliente_cep_postal','') if cliente_ativo else ''}" placeholder="CEP Postal" class="w-1/2 px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
-                                    <button type="button" onclick="buscarCep('postal')" class="w-1/2 px-3 py-2 bg-amber-500 font-bold text-slate-950 rounded-xl">🔍 Buscar CEP</button>
-                                </div>
-                                <textarea id="end_postal" name="cliente_endereco_postal" rows="2" placeholder="Rua, Número, Bairro, Cidade - UF" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">{cliente_ativo.get('cliente_endereco_postal','') if cliente_ativo else ''}</textarea>
-                            </div>
-                            <div class="bg-slate-950 p-4 border border-slate-800 rounded-xl space-y-2">
-                                <label class="font-bold text-white block">🚚 Endereço da Obra</label>
-                                <div class="flex gap-2">
-                                    <input type="text" id="cep_entrega" name="cliente_cep_entrega" value="{cliente_ativo.get('cliente_cep_entrega','') if cliente_ativo else ''}" placeholder="CEP Obra" class="w-1/2 px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
-                                    <button type="button" onclick="buscarCep('entrega')" class="w-1/2 px-3 py-2 bg-amber-500 font-bold text-slate-950 rounded-xl">🔍 Buscar CEP</button>
-                                </div>
-                                <textarea id="end_entrega" name="cliente_endereco_entrega" rows="2" placeholder="Endereço da Instalação..." class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">{cliente_ativo.get('cliente_endereco_entrega','') if cliente_ativo else ''}</textarea>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="space-y-3">
-                        <h3 class="text-xs font-bold text-amber-400 uppercase tracking-wide">3. Dados Bancários, Renda & Referências</h3>
-                        <div class="grid sm:grid-cols-4 gap-3">
-                            <input type="text" name="cliente_banco" value="{cliente_ativo.get('cliente_banco','') if cliente_ativo else ''}" placeholder="Banco" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                            <input type="text" name="cliente_agencia" value="{cliente_ativo.get('cliente_agencia','') if cliente_ativo else ''}" placeholder="Agência" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                            <input type="text" name="cliente_conta" value="{cliente_ativo.get('cliente_conta','') if cliente_ativo else ''}" placeholder="Conta Corrente" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                            <input type="text" name="cliente_renda" value="{cliente_ativo.get('cliente_renda','') if cliente_ativo else ''}" placeholder="Renda Mensal Estimada" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                            <input type="text" name="ref_nome_1" value="{cliente_ativo.get('ref_nome_1','') if cliente_ativo else ''}" placeholder="Nome Referência 1" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                            <input type="text" name="ref_tel_1" value="{cliente_ativo.get('ref_tel_1','') if cliente_ativo else ''}" placeholder="Telefone Referência 1" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                            <input type="text" name="ref_nome_2" value="{cliente_ativo.get('ref_nome_2','') if cliente_ativo else ''}" placeholder="Nome Referência 2" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                            <input type="text" name="ref_tel_2" value="{cliente_ativo.get('ref_tel_2','') if cliente_ativo else ''}" placeholder="Telefone Referência 2" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                        </div>
-                    </div>
-
-                    <div class="space-y-3">
-                        <h3 class="text-xs font-bold text-amber-400 uppercase tracking-wide">4. Memorial Descritivo & Pagamento</h3>
-                        <div class="grid sm:grid-cols-4 gap-3 bg-slate-950 p-4 border border-slate-800 rounded-xl">
-                            <textarea name="descricao_manual" rows="2" placeholder="Memorial Descritivo / Detalhes de Acabamentos..." class="sm:col-span-4 px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">{cliente_ativo.get('descricao_manual','') if cliente_ativo else ''}</textarea>
-                            <select name="forma_pagamento" class="sm:col-span-2 px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
-                                <option value="PIX à Vista">PIX à Vista</option>
-                                <option value="Cartão de Débito">Cartão de Débito</option>
-                                <option value="Cartão de Crédito até 12x">Cartão de Crédito até 12x</option>
-                                <option value="Boleto Bancário até 24x">Boleto Bancário até 24x</option>
-                                <option value="Entrada PIX + Saldo no Cartão">Entrada PIX + Saldo no Cartão</option>
-                            </select>
-                            <input type="number" step="0.5" name="desconto_pct" value="{c_desc_pct}" placeholder="Desconto (%)" class="px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
-                            <input type="number" step="100" name="entrada_valor" value="{c_entrada}" placeholder="Entrada (R$)" class="px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
-                            <input type="number" min="1" max="24" name="num_parcelas" value="{c_parc}" placeholder="Nº Parcelas" class="px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
-                        </div>
-                    </div>
-
-                    <button type="submit" class="w-full py-3.5 bg-amber-500 font-bold rounded-xl text-slate-950 text-sm shadow-lg">💾 Salvar Ficha Cadastral e Liberar Contrato</button>
-                </form>
-            </div>
-        </div>
-
-        <!-- ABA ADENDO -->
-        <div id="aba-adendo" class="tab-content space-y-6">
-            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow">
-                <h2 class="text-base font-bold text-white mb-4">➕ Termo Aditivo / Complemento</h2>
-                <form action="/salvar-adendo" method="post" class="grid sm:grid-cols-3 gap-4 text-xs">
-                    <select name="orcamento_id" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">{options_leads}</select>
-                    <input type="number" step="10" name="adendo_valor" required placeholder="Valor Adicional R$" class="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                    <textarea name="adendo_descricao" rows="2" required placeholder="Descrição dos novos itens adicionados..." class="sm:col-span-3 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white"></textarea>
-                    <button type="submit" class="col-span-full py-3 bg-amber-500 font-bold rounded-xl text-slate-950">Salvar Termo Aditivo</button>
-                </form>
-            </div>
-        </div>
-
-        {admin_content}
-
-    </main>
-
-    <script>
-        function mudarAba(abaId) {{
-            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-            document.getElementById(abaId).classList.add('active');
-            document.getElementById('btn-' + abaId).classList.add('active');
-            window.scrollTo({{ top: 0, behavior: 'smooth' }});
-        }}
-
-        function recalcularPorBrutoOuDesc() {{
-            var bruto = parseFloat(document.getElementById('preco_bruto').value) || 0;
-            var desc = parseFloat(document.getElementById('desconto_pct').value) || 0;
-            var valorFinal = Math.round(bruto * (1.0 - (desc / 100.0)));
-            document.getElementById('preco_venda').value = valorFinal;
-            verificarMargemEAlerta(desc);
-            recalcularParcelas();
-        }}
-
-        function recalcularPorValorManual() {{
-            var bruto = parseFloat(document.getElementById('preco_bruto').value) || 0;
-            var manual = parseFloat(document.getElementById('preco_venda').value) || 0;
-            
-            if (bruto > 0) {{
-                var descCalculado = ((bruto - manual) / bruto) * 100.0;
-                descCalculado = Math.max(descCalculado, 0);
-                document.getElementById('desconto_pct').value = descCalculado.toFixed(1);
-                verificarMargemEAlerta(descCalculado);
-            }}
-            recalcularParcelas();
-        }}
-
-        function verificarMargemEAlerta(desc) {{
-            var tarja = document.getElementById('tarja_alerta_margem');
-            var btnSalvar = document.getElementById('btn_salvar_mesa');
-            var descAutorizado = {c_aut_desc};
-            var isUserAdmin = {'true' if is_admin else 'false'};
-
-            if (desc > 3.0) {{
-                tarja.classList.remove('hidden');
-                if (!isUserAdmin && !descAutorizado) {{
-                    btnSalvar.classList.remove('from-amber-500', 'to-amber-600', 'hover:from-amber-400', 'hover:to-amber-500', 'text-slate-950');
-                    btnSalvar.classList.add('bg-rose-600', 'text-white', 'hover:bg-rose-500');
-                    btnSalvar.innerText = "🔒 Bloqueado: Solicitar Liberação do Administrador";
-                }}
-            }} else {{
-                tarja.classList.add('hidden');
-                btnSalvar.classList.add('from-amber-500', 'to-amber-600', 'text-slate-950');
-                btnSalvar.classList.remove('bg-rose-600', 'text-white');
-                btnSalvar.innerText = "💾 Atualizar Negociação & Aplicar no Contrato";
-            }}
-        }}
-
-        var markupTravado = true;
-        function alternarTravaMarkup() {{
-            var inputMarkup = document.getElementById('markup');
-            var btnTrava = document.getElementById('btn_trava_markup');
-            markupTravado = !markupTravado;
-            
-            if (markupTravado) {{
-                inputMarkup.setAttribute('readonly', 'true');
-                inputMarkup.classList.add('cursor-not-allowed', 'bg-slate-900/60');
-                inputMarkup.classList.remove('bg-slate-900');
-                btnTrava.innerText = "🔒 Trancado";
-            }} else {{
-                inputMarkup.removeAttribute('readonly');
-                inputMarkup.classList.remove('cursor-not-allowed', 'bg-slate-900/60');
-                inputMarkup.classList.add('bg-slate-900');
-                btnTrava.innerText = "🔓 Destravado";
-            }}
-        }}
-
-        function recalcularParcelas() {{
-            var valorFinal = Math.round(parseFloat(document.getElementById('preco_venda').value) || 0);
-            var entrada = Math.round(parseFloat(document.getElementById('entrada_valor').value) || 0);
-            var nParc = parseInt(document.getElementById('num_parcelas').value) || 1;
-
-            var saldo = Math.max(valorFinal - entrada, 0);
-            var vParc = nParc > 0 ? Math.round(saldo / nParc) : 0;
-            document.getElementById('txt_parcela').innerText = "R$ " + vParc.toLocaleString('pt-BR');
-            document.getElementById('txt_saldo').innerText = saldo.toLocaleString('pt-BR');
-        }}
-
-        var lucroVisivel = true;
-        function alternarOlhoLucro() {{
-            var elem = document.getElementById('valor_lucro_operacao');
-            var btn = document.getElementById('btn_olho_lucro');
-            if (!elem) return;
-
-            lucroVisivel = !lucroVisivel;
-            if (lucroVisivel) {{
-                elem.innerText = elem.getAttribute('data-real');
-                btn.innerText = "👁️";
-                document.querySelectorAll('.valor-lucro-col').forEach(td => td.style.filter = 'none');
-                document.querySelectorAll('.valor-ocultavel').forEach(c => c.style.filter = 'none');
-            }} else {{
-                elem.innerText = "••••••••";
-                btn.innerText = "🙈";
-                document.querySelectorAll('.valor-lucro-col').forEach(td => td.style.filter = 'blur(6px)');
-                document.querySelectorAll('.valor-ocultavel').forEach(c => c.style.filter = 'blur(6px)');
-            }}
-        }}
-
-        function buscarCep(tipo) {{
-            var cepInput = document.getElementById(tipo === 'postal' ? 'cep_postal' : 'cep_entrega');
-            var endText = document.getElementById(tipo === 'postal' ? 'end_postal' : 'end_entrega');
-            var cep = cepInput.value.replace(/\\D/g, '');
-
-            if (cep.length !== 8) {{
-                alert("Por favor, digite um CEP com 8 dígitos.");
-                return;
-            }}
-
-            endText.value = "Buscando endereço nos Correios...";
-
-            fetch('https://viacep.com.br/ws/' + cep + '/json/')
-                .then(res => res.json())
-                .then(dados => {{
-                    if (dados.erro) {{
-                        alert("CEP não encontrado!");
-                        endText.value = "";
-                    }} else {{
-                        endText.value = dados.logradouro + ", Nº [DIGITE O NÚMERO], " + (dados.bairro ? dados.bairro + ", " : "") + dados.localidade + " - " + dados.uf;
-                    }}
-                }})
-                .catch(() => {{
-                    alert("Erro ao buscar CEP.");
-                    endText.value = "";
-                }});
-        }}
-
-        window.onload = function() {{
-            var descInicial = parseFloat(document.getElementById('desconto_pct').value) || 0;
-            verificarMargemEAlerta(descInicial);
-        }};
-    </script>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex items-center justify-center p-4 font-sans">
+    <div class="max-w-md w-full bg-slate-900 border border-amber-500/50 p-8 rounded-3xl text-center shadow-2xl">
+        <span class="text-5xl block animate-bounce mb-4">✨</span>
+        <h2 class="text-xl font-bold text-white">Orçamento Calculado!</h2>
+        <p class="text-3xl font-black text-amber-400 my-4">R$ {estimativa:,.2f}</p>
+        <a href="{zap_url}" class="inline-block w-full py-3.5 bg-amber-500 font-bold text-slate-950 rounded-xl shadow-lg">👉 Abrir Conversa no WhatsApp</a>
+        <script>setTimeout(function() {{ window.location.href = "{zap_url}"; }}, 2000);</script>
+    </div>
 </body></html>"""
 
 # ==============================================================================
-# 5. FASTAPI ROUTES
+# 5. FASTAPI ROUTES (DECLARADAS APÓS TODAS AS FUNÇÕES DE RENDERIZAÇÃO)
 # ==============================================================================
 
 @app.get("/", response_class=HTMLResponse)
