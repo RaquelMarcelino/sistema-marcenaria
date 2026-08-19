@@ -14,7 +14,7 @@ from datetime import datetime, date, timedelta
 from typing import List
 
 app = FastAPI(title="MVI Móveis Planejados - Master SaaS")
-DB_PATH = "mvi_production_v43.db"
+DB_PATH = "mvi_production_v44.db"
 
 # ==============================================================================
 # 1. TRATAMENTO DE ERROS GLOBAL
@@ -1055,6 +1055,717 @@ def render_assinatura_online(orc, empresa):
                 document.getElementById('sign-form').submit();
             }}
         }});
+    </script>
+</body></html>"""
+
+def render_dashboard_view():
+    empresa = get_empresa_dados(1)
+    met = get_metricas()
+    is_admin = (CURRENT_SESSION["user_perfil"] == "admin")
+    
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 ORDER BY id DESC LIMIT 50")
+    leads = cursor.fetchall()
+    cursor.execute("SELECT * FROM usuarios WHERE empresa_id = 1")
+    equipe = cursor.fetchall()
+    conn.close()
+
+    cliente_ativo = {}
+    if CURRENT_SESSION.get("cliente_ativo_id"):
+        for h in leads:
+            if h["id"] == CURRENT_SESSION["cliente_ativo_id"]:
+                cliente_ativo = dict(h)
+                break
+    if not cliente_ativo and leads:
+        cliente_ativo = dict(leads[0])
+        CURRENT_SESSION["cliente_ativo_id"] = cliente_ativo.get("id")
+
+    c_id = cliente_ativo.get("id", 0)
+    c_nome = cliente_ativo.get("cliente_nome") or "Novo Cliente (Sem Pasta)"
+    c_cpf = cliente_ativo.get("cliente_cpf") or "Não informado"
+    c_rg = cliente_ativo.get("cliente_rg") or "—"
+    c_tel = cliente_ativo.get("cliente_telefone") or "—"
+    c_cep_post = cliente_ativo.get("cliente_cep_postal") or ""
+    c_end_post = cliente_ativo.get("cliente_endereco_postal") or ""
+    c_cep_ent = cliente_ativo.get("cliente_cep_entrega") or ""
+    c_end_ent = cliente_ativo.get("cliente_endereco_entrega") or ""
+    c_email = cliente_ativo.get("cliente_email") or ""
+
+    c_prazo = cliente_ativo.get("prazo_entrega") or "45 dias úteis"
+    c_amb = cliente_ativo.get("cliente_ambiente") or "Projeto Sob Medida"
+    c_data_venda = cliente_ativo.get("criado_em") or datetime.now().strftime("%d/%m/%Y")
+    
+    c_p_bruto = round(float(cliente_ativo.get("preco_bruto") or cliente_ativo.get("preco_venda") or 0))
+    c_p_venda = round(float(cliente_ativo.get("preco_venda") or 0))
+    c_lucro = round(float(cliente_ativo.get("lucro_liquido") or 0))
+    c_desc_pct = float(cliente_ativo.get("desconto_pct") or 0)
+    c_entrada = round(float(cliente_ativo.get("entrada_valor") or 0))
+    c_parc = int(cliente_ativo.get("num_parcelas") or 1)
+    c_mod = cliente_ativo.get("modalidade_pagamento") or "Entrada + Cartão de Crédito"
+    
+    chk_dados = int(cliente_ativo.get("check_dados") or (1 if c_cpf != 'Não informado' else 0))
+    chk_comercial = int(cliente_ativo.get("check_comercial") or 1)
+    chk_financeiro = int(cliente_ativo.get("check_financeiro") or 0)
+    chk_contrato = int(cliente_ativo.get("check_contrato") or 0)
+    potencial = cliente_ativo.get("potencial_cliente") or "Morno"
+
+    saldo_financiar = max(c_p_venda - c_entrada, 0)
+    valor_por_parcela = round(saldo_financiar / c_parc) if c_parc > 0 else 0
+
+    linhas_parcelas = ""
+    hoje = date.today()
+    for i in range(1, c_parc + 1):
+        dt_parc = (hoje + timedelta(days=30 * i)).strftime("%d/%m/%Y")
+        linhas_parcelas += f"""
+        <tr class="border-b border-slate-800 text-xs hover:bg-slate-800/40">
+            <td class="py-2.5 px-3 text-center text-slate-400 font-mono">{i}</td>
+            <td class="py-2.5 px-3 text-slate-300">{dt_parc}</td>
+            <td class="py-2.5 px-3 font-bold text-amber-400 text-right">R$ {valor_por_parcela:,.2f}</td>
+            <td class="py-2.5 px-3 text-slate-300">{c_mod}</td>
+            <td class="py-2.5 px-3 text-center text-slate-500">—</td>
+            <td class="py-2.5 px-3 text-center text-slate-500">—</td>
+            <td class="py-2.5 px-3 text-center text-slate-500">—</td>
+            <td class="py-2.5 px-3 text-slate-400">Parcela regular do projeto</td>
+            <td class="py-2.5 px-3 text-center"><button class="text-amber-400 hover:underline">📄</button></td>
+        </tr>
+        """
+
+    if not linhas_parcelas:
+        linhas_parcelas = "<tr><td colspan='9' class='py-4 text-center text-xs text-slate-500'>Nenhuma parcela gerada.</td></tr>"
+
+    leads_geral_html = ""
+    options_leads = "<option value='0'>📂 Selecionar outra pasta...</option>"
+    for h in leads:
+        h_d = dict(h)
+        pv = round(float(h_d.get("preco_venda") or 0))
+        adendo = round(float(h_d.get("adendo_valor") or 0))
+        pv_total = pv + adendo
+        st = h_d.get("status") or "Em Negociação"
+        
+        sel = "selected" if h_d.get("id") == c_id else ""
+        options_leads += f"<option value='{h_d['id']}' {sel}>Pasta P{h_d['id']:05d} - {h_d.get('cliente_nome','')} ({h_d.get('cliente_ambiente','')})</option>"
+
+        leads_geral_html += f"""
+        <tr class="border-b border-slate-800 text-xs hover:bg-slate-800/40">
+            <td class="py-3 px-4 font-mono font-bold text-amber-400">P{h_d['id']:05d}</td>
+            <td class="py-3 px-4 text-white font-bold">{h_d.get('cliente_nome','')}<span class="block text-[11px] text-slate-400 font-normal">CPF: {h_d.get('cliente_cpf') or 'Pendente'}</span></td>
+            <td class="py-3 px-4 text-slate-300">{h_d.get('cliente_ambiente','')}</td>
+            <td class="py-3 px-4 text-amber-400 font-bold text-right">R$ {pv_total:,.2f}</td>
+            <td class="py-3 px-4 text-center"><span class="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-950 text-amber-300 border border-amber-500/30">{st}</span></td>
+            <td class="py-3 px-4 text-center">
+                <form action="/selecionar-cliente-trabalho" method="post" class="inline">
+                    <input type="hidden" name="orcamento_id" value="{h_d['id']}">
+                    <button type="submit" class="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded text-xs shadow-sm">
+                        📂 Abrir Pasta / Negociar
+                    </button>
+                </form>
+            </td>
+        </tr>
+        """
+
+    if not leads_geral_html:
+        leads_geral_html = "<tr><td colspan='6' class='py-8 text-center text-xs text-slate-500'>Nenhum cliente cadastrado ainda. Use a aba 'Dados do Cliente & CEP' ou 'Novo Orçamento'.</td></tr>"
+
+    def cor_bolinha(val):
+        if val == 2: return "bg-emerald-500 shadow-emerald-500/50 shadow-md", "✓ Concluído"
+        if val == 1: return "bg-amber-400 shadow-amber-400/50 shadow-md", "⚡ Em Análise"
+        return "bg-rose-500 shadow-rose-500/50 shadow-md", "✕ Pendente"
+
+    cor_d, txt_d = cor_bolinha(chk_dados)
+    cor_c, txt_c = cor_bolinha(chk_comercial)
+    cor_f, txt_f = cor_bolinha(chk_financeiro)
+    cor_con, txt_con = cor_bolinha(chk_contrato)
+
+    return f"""<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MVI Gestão - Contrato P{c_id:05d}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .tree-item {{ transition: all 0.2s; cursor: pointer; }}
+        .tree-item:hover {{ background-color: #1e293b; color: #f59e0b; }}
+        .tree-item.active {{ background: linear-gradient(135deg, #f59e0b, #d97706); color: #0f172a; font-weight: bold; }}
+        .tab-content {{ display: none; }}
+        .tab-content.active {{ display: block; }}
+        .btn-dot {{ transition: all 0.15s; }}
+        .btn-dot:hover {{ transform: scale(1.15); }}
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans min-h-screen">
+    
+    <!-- HEADER SUPERIOR MVI -->
+    <header class="bg-slate-900 border-b border-slate-800 px-6 py-3 flex flex-wrap items-center justify-between shadow-lg">
+        <div class="flex items-center space-x-6">
+            <div class="flex items-center space-x-2 cursor-pointer" onclick="mudarAba('aba-geral')">
+                <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 text-slate-950 font-black flex items-center justify-center text-sm shadow">MVI</div>
+                <span class="font-bold text-base tracking-wide text-white">{empresa['nome_empresa']}</span>
+            </div>
+            <nav class="flex items-center space-x-3 text-xs font-semibold">
+                <button onclick="mudarAba('aba-geral')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">📂 Todas as Pastas</button>
+                <a href="/solicitar-orcamento" target="_blank" class="px-3 py-1.5 rounded-lg bg-amber-950 text-amber-300 hover:bg-amber-900 border border-amber-500/40">🔗 Simulador Público</a>
+                <a href="/exportar-csv" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">📊 Relatório CSV</a>
+            </nav>
+        </div>
+
+        <div class="flex items-center space-x-4 text-xs">
+            <form action="/selecionar-cliente-trabalho" method="post" class="flex items-center gap-1">
+                <select name="orcamento_id" onchange="this.form.submit()" class="px-3 py-1.5 rounded-xl bg-slate-950 text-amber-300 font-semibold border border-slate-700 focus:border-amber-500">
+                    {options_leads}
+                </select>
+            </form>
+            <span class="bg-amber-500 text-slate-950 px-2.5 py-0.5 rounded-full font-bold">{met['aprovados']} Fechados</span>
+            <span class="text-slate-300 font-semibold">{CURRENT_SESSION['user_nome']}</span>
+            <a href="/" class="bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-xl text-slate-300 border border-slate-700">Sair</a>
+        </div>
+    </header>
+
+    <!-- CORPO PRINCIPAL COM ARQUITETURA DE 3 COLUNAS -->
+    <div class="max-w-7xl mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-5">
+        
+        <!-- COLUNA 1: MENU LATERAL COM TODAS AS ABAS -->
+        <div class="lg:col-span-3 bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-xl space-y-4 text-xs">
+            <div>
+                <h3 class="font-bold text-white flex items-center justify-between pb-2 border-b border-slate-800">
+                    <span>📁 Pasta P{c_id:05d}</span>
+                    <span class="text-[10px] bg-amber-950 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full">Ativa</span>
+                </h3>
+                <ul class="mt-2 space-y-1">
+                    <li><button onclick="mudarAba('aba-resumo')" id="btn-aba-resumo" class="tree-item active w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-white font-semibold">📋 1. Resumo Financeiro</button></li>
+                    <li><button onclick="mudarAba('aba-cliente')" id="btn-aba-cliente" class="tree-item w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-slate-300 font-medium">👤 2. Dados do Cliente & CEP</button></li>
+                    <li><button onclick="mudarAba('aba-mesa')" id="btn-aba-mesa" class="tree-item w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-slate-300 font-medium">💼 3. Mesa de Negociação</button></li>
+                    <li><button onclick="mudarAba('aba-promob')" id="btn-aba-promob" class="tree-item w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-slate-300 font-medium">🚀 4. Integrador Promob</button></li>
+                    <li><a href="/minuta-contrato/{c_id}" target="_blank" class="tree-item flex items-center gap-2 p-2.5 rounded-xl text-amber-400 font-bold hover:bg-slate-800">📜 5. Minuta do Contrato</a></li>
+                    <li><a href="/assinar/{c_id}" target="_blank" class="tree-item flex items-center gap-2 p-2.5 rounded-xl text-emerald-400 font-bold hover:bg-slate-800">✍️ 6. Assinatura (2 Vias)</a></li>
+                </ul>
+            </div>
+
+            <div>
+                <div class="flex justify-between items-center pb-1 border-b border-slate-800 font-bold text-white">
+                    <span>🏠 Ambientes</span>
+                    <button onclick="mudarAba('aba-cliente')" class="text-[11px] text-amber-400 hover:underline font-bold">➕ Novo</button>
+                </div>
+                <ul class="mt-2 space-y-1 text-slate-400">
+                    <li class="p-2 bg-slate-950 rounded-xl border border-slate-800 flex justify-between items-center">
+                        <span class="text-white font-medium">📦 {c_amb}</span>
+                        <span class="font-bold text-amber-400">R$ {c_p_venda:,.2f}</span>
+                    </li>
+                </ul>
+            </div>
+
+            <div>
+                <div class="flex justify-between items-center pb-1 border-b border-slate-800 font-bold text-white">
+                    <span>⭐ Orçamentos</span>
+                    <span class="text-[11px] text-emerald-400 font-bold">Ativo #1</span>
+                </div>
+                <p class="mt-1 text-slate-500 text-[11px]">Proposta de Fechamento Principal</p>
+            </div>
+        </div>
+
+        <!-- COLUNA 2: PAINEL CENTRAL DINÂMICO QUE ABRE TODAS AS TELAS -->
+        <div class="lg:col-span-6 space-y-4">
+            
+            <!-- ABA 1: RESUMO FINANCEIRO (DEFAULT) -->
+            <div id="aba-resumo" class="tab-content active space-y-4">
+                <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3">
+                    <div class="text-center pb-2 border-b border-slate-800">
+                        <h2 class="text-xs font-bold text-amber-400 uppercase tracking-wide">CONTRATO IT{c_id:05d} vendido em: {c_data_venda} por {CURRENT_SESSION['user_nome']}</h2>
+                    </div>
+
+                    <div class="flex flex-wrap gap-2 justify-between items-center">
+                        <div class="flex gap-2">
+                            <a href="/minuta-contrato/{c_id}" target="_blank" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-xs font-bold text-slate-200">🖨️ Imprimir Contrato</a>
+                            <a href="/assinar/{c_id}" target="_blank" class="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold rounded-xl text-xs shadow-lg">✍️ Assinatura Digital</a>
+                        </div>
+                        <span class="text-[11px] text-slate-500 font-semibold">MVI Enterprise</span>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3 text-xs pt-2">
+                        <div><span class="text-slate-500 block text-[11px]">Cliente:</span><span class="font-bold text-white text-sm">{c_nome}</span></div>
+                        <div><span class="text-slate-500 block text-[11px]">CPF / CNPJ:</span><span class="font-bold text-slate-300">{c_cpf}</span></div>
+                        <div><span class="text-slate-500 block text-[11px]">Prazo de Entrega:</span><span class="font-bold text-slate-300">{c_prazo}</span></div>
+                        <div><span class="text-slate-500 block text-[11px]">Telefone:</span><span class="font-bold text-slate-300">{c_tel}</span></div>
+                    </div>
+                </div>
+
+                <!-- TABELA DE ENTRADA -->
+                <div class="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+                    <div class="bg-slate-850 px-4 py-2.5 border-b border-slate-800 text-xs font-bold text-amber-400 text-center uppercase tracking-wide">ENTRADA (20% MÍNIMO)</div>
+                    <table class="w-full text-left text-xs border-collapse">
+                        <thead class="bg-slate-950/60 border-b border-slate-800 text-slate-400 font-semibold">
+                            <tr>
+                                <th class="py-2.5 px-3 text-center">#</th>
+                                <th class="py-2.5 px-3">Data Entrada</th>
+                                <th class="py-2.5 px-3 text-right">Valor</th>
+                                <th class="py-2.5 px-3">Tipo de Cobrança</th>
+                                <th class="py-2.5 px-3 text-center">Banco</th>
+                                <th class="py-2.5 px-3 text-center">Agência</th>
+                                <th class="py-2.5 px-3 text-center">Conta</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr class="border-b border-slate-800/60">
+                                <td class="py-2.5 px-3 text-center text-slate-500">1</td>
+                                <td class="py-2.5 px-3 text-slate-300">{hoje.strftime('%d/%m/%Y')}</td>
+                                <td class="py-2.5 px-3 font-bold text-emerald-400 text-right">R$ {c_entrada:,.2f}</td>
+                                <td class="py-2.5 px-3 text-amber-300 font-semibold">{c_mod}</td>
+                                <td class="py-2.5 px-3 text-center text-slate-500">—</td>
+                                <td class="py-2.5 px-3 text-center text-slate-500">—</td>
+                                <td class="py-2.5 px-3 text-center text-slate-500">—</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- CRONOGRAMA DE PARCELAS -->
+                <div class="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+                    <div class="bg-slate-850 px-4 py-2.5 border-b border-slate-800 text-xs font-bold text-amber-400 text-center uppercase tracking-wide">CRONOGRAMA DE PARCELAS</div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs border-collapse">
+                            <thead class="bg-slate-950/60 border-b border-slate-800 text-slate-400 font-semibold">
+                                <tr>
+                                    <th class="py-2.5 px-3 text-center">#</th>
+                                    <th class="py-2.5 px-3">Data Parcelas</th>
+                                    <th class="py-2.5 px-3 text-right">Valor</th>
+                                    <th class="py-2.5 px-3">Tipo de Cobrança</th>
+                                    <th class="py-2.5 px-3 text-center">Bco</th>
+                                    <th class="py-2.5 px-3 text-center">Ag</th>
+                                    <th class="py-2.5 px-3 text-center">Conta</th>
+                                    <th class="py-2.5 px-3">Observação</th>
+                                    <th class="py-2.5 px-3 text-center">Ação</th>
+                                </tr>
+                            </thead>
+                            <tbody>{linhas_parcelas}</tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ABA 2: DADOS DO CLIENTE & BUSCA DE CEP -->
+            <div id="aba-cliente" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
+                <h3 class="font-bold text-amber-400 uppercase pb-1 border-b border-slate-800">👤 Ficha Cadastral do Cliente & Endereços</h3>
+                <form action="/salvar-dados-completos-cliente" method="post" class="space-y-3">
+                    <input type="hidden" name="orcamento_id" value="{c_id}">
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div class="sm:col-span-2">
+                            <label class="block text-slate-400 mb-1">Nome Completo</label>
+                            <input type="text" name="cliente_nome" value="{c_nome if c_nome != 'Nenhum cliente cadastrado' else ''}" required placeholder="Nome do Cliente" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold">
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 mb-1">CPF</label>
+                            <input type="text" name="cliente_cpf" value="{c_cpf if c_cpf != 'Não informado' else ''}" placeholder="000.000.000-00" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 mb-1">RG</label>
+                            <input type="text" name="cliente_rg" value="{c_rg if c_rg != '—' else ''}" placeholder="RG" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 mb-1">Telefone Principal</label>
+                            <input type="text" name="cliente_telefone" value="{c_tel if c_tel != '—' else ''}" placeholder="WhatsApp" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 mb-1">E-mail</label>
+                            <input type="email" name="cliente_email" value="{c_email}" placeholder="E-mail" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                        </div>
+                    </div>
+
+                    <div class="border-t border-slate-800 pt-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div class="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-2">
+                            <label class="font-bold text-amber-400 block">📬 Endereço Postal</label>
+                            <div class="flex gap-2">
+                                <input type="text" id="cep_postal" name="cliente_cep_postal" value="{c_cep_post}" placeholder="CEP" class="w-1/2 p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                                <button type="button" onclick="buscarCep('postal')" class="w-1/2 px-2 py-1 bg-amber-500 font-bold text-slate-950 rounded-xl">🔍 Buscar CEP</button>
+                            </div>
+                            <textarea id="end_postal" name="cliente_endereco_postal" rows="2" placeholder="Rua, Número, Bairro, Cidade - UF" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">{c_end_post}</textarea>
+                        </div>
+                        <div class="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-2">
+                            <label class="font-bold text-slate-300 block">🚚 Endereço da Obra</label>
+                            <div class="flex gap-2">
+                                <input type="text" id="cep_entrega" name="cliente_cep_entrega" value="{c_cep_ent}" placeholder="CEP Obra" class="w-1/2 p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                                <button type="button" onclick="buscarCep('entrega')" class="w-1/2 px-2 py-1 bg-amber-500 font-bold text-slate-950 rounded-xl">🔍 Buscar CEP</button>
+                            </div>
+                            <textarea id="end_entrega" name="cliente_endereco_entrega" rows="2" placeholder="Endereço da Instalação..." class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">{c_end_ent}</textarea>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-lg">💾 Salvar Dados do Cliente</button>
+                </form>
+            </div>
+
+            <!-- ABA 3: MESA DE NEGOCIAÇÃO E FECHAMENTO COM TODAS AS OPÇÕES E OLHO -->
+            <div id="aba-mesa" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
+                <div class="flex justify-between items-center pb-1 border-b border-slate-800">
+                    <h3 class="font-bold text-amber-400 uppercase">💼 Mesa de Negociação & Fechamento Financeiro</h3>
+                    <input type="hidden" id="preco_bruto_base" value="{c_p_bruto if c_p_bruto > 0 else c_p_venda}">
+                </div>
+
+                <form id="form_mesa_negociacao" action="/salvar-negociacao-mesa" method="post" class="space-y-4" onkeydown="impedirEnterSubmit(event)">
+                    <input type="hidden" name="orcamento_id" value="{c_id}">
+
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div>
+                            <label class="block text-slate-400 mb-1 font-semibold">Valor Venda (R$)</label>
+                            <input type="number" step="1" name="preco_venda" id="preco_venda_input" value="{c_p_venda}" required oninput="calcularDescontoPorValorVenda()" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-amber-400 text-sm focus:border-amber-500">
+                        </div>
+
+                        <div>
+                            <label class="block text-slate-400 mb-1 font-semibold">Desconto (%)</label>
+                            <div class="flex gap-1.5">
+                                <input type="number" step="0.1" name="desconto_pct" id="desconto_pct_input" value="{c_desc_pct}" oninput="calcularValorVendaPorDesconto()" class="w-2/3 p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-white">
+                                <button type="button" onclick="calcularValorVendaPorDesconto()" class="w-1/3 px-2 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-[11px]">
+                                    ⚡ Simular
+                                </button>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-slate-400 mb-1 font-semibold">Entrada (R$)</label>
+                            <input type="number" step="100" name="entrada_valor" id="entrada_valor_input" value="{c_entrada}" required oninput="recalcularLucroEMesa()" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-emerald-400 text-sm">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-slate-400 mb-1 font-semibold">Forma de Pagamento</label>
+                            <select name="forma_opcao" id="forma_opcao_select" onchange="atualizarFormaPagamento()" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-semibold text-white">
+                                <option value="Entrada PIX + 3 à Vista" {"selected" if "3 à Vista" in c_mod or "PIX + 3" in c_mod else ""}>Entrada PIX + 3 à Vista (PIX/TED)</option>
+                                <option value="Entrada + Cartão de Crédito" {"selected" if "Cartão" in c_mod and "3 à Vista" not in c_mod else ""}>Entrada + Cartão de Crédito</option>
+                                <option value="Entrada + Boleto Bancário" {"selected" if "Boleto" in c_mod else ""}>Entrada + Boleto Bancário</option>
+                                <option value="PIX Integral à Vista" {"selected" if "PIX Integral" in c_mod else ""}>PIX Integral à Vista (5% OFF)</option>
+                            </select>
+                            <input type="hidden" name="modalidade_pagamento" id="modalidade_pagamento_hidden" value="{c_mod}">
+                        </div>
+
+                        <div id="box_parcelas_dinamico">
+                            <label class="block text-slate-400 mb-1 font-semibold" id="label_vezes">Quantidade de Parcelas</label>
+                            <select name="num_parcelas" id="num_parcelas_select" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-white">
+                                <!-- Preenchido dinamicamente via JS -->
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="p-4 bg-slate-950 border border-emerald-500/30 rounded-2xl flex justify-between items-center">
+                        <div>
+                            <span class="font-bold text-slate-400 block text-xs uppercase">Lucro Líquido da Operação:</span>
+                            <span id="valor_lucro_operacao" data-real="R$ {c_lucro:,.2f}" class="font-black text-emerald-400 text-lg">R$ {c_lucro:,.2f}</span>
+                        </div>
+                        <button type="button" onclick="alternarOlhoLucro()" id="btn_olho_lucro" title="Ocultar / Revelar Lucro" class="p-2 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-xl text-slate-300 text-sm font-bold shadow">
+                            👁️
+                        </button>
+                    </div>
+
+                    <button type="submit" class="w-full py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-xs shadow-lg">
+                        💾 Atualizar Negociação & Salvar
+                    </button>
+                </form>
+            </div>
+
+            <!-- ABA 4: PROMOB INTEGRADOR -->
+            <div id="aba-promob" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
+                <h3 class="font-bold text-amber-400 uppercase pb-1 border-b border-slate-800">🚀 Importação Direta de Arquivo Promob</h3>
+                <form action="/importar-promob" method="post" enctype="multipart/form-data" class="space-y-3">
+                    <input type="text" name="cliente_nome" value="{c_nome if c_nome != 'Nenhum cliente cadastrado' else ''}" placeholder="Nome do Cliente" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold">
+                    <input type="text" name="cliente_telefone" value="{c_tel if c_tel != '—' else ''}" placeholder="WhatsApp" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                    <input type="text" name="cliente_ambiente" value="{c_amb}" placeholder="Ambiente" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                    <div class="p-4 bg-slate-950 border border-slate-800 rounded-2xl">
+                        <label class="block font-bold text-amber-400 mb-1">Selecione o arquivo exportado (.xml, .csv, .txt, .cut):</label>
+                        <input type="file" name="arquivo_promob" accept=".xml,.csv,.txt,.cut" required class="w-full text-slate-400 file:bg-amber-500 file:border-0 file:rounded-xl file:px-3 file:py-1 file:font-bold">
+                    </div>
+                    <button type="submit" class="w-full py-3.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-lg">⚡ Processar Peças & Gerar Orçamento</button>
+                </form>
+            </div>
+
+            <!-- ABA 5: CARTEIRA GERAL DE CLIENTES -->
+            <div id="aba-geral" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl space-y-3">
+                <div class="bg-slate-850 px-5 py-3 border-b border-slate-800 flex justify-between items-center">
+                    <h3 class="font-bold text-xs uppercase text-amber-400 tracking-wide">📂 Carteira Geral de Contratos e Negociações</h3>
+                    <button onclick="mudarAba('aba-cliente')" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs shadow-sm">
+                        ➕ Novo Cadastro
+                    </button>
+                </div>
+                <div class="overflow-x-auto p-2">
+                    <table class="w-full text-left text-xs border-collapse">
+                        <thead class="bg-slate-950 border-b border-slate-800 text-slate-400 font-semibold uppercase">
+                            <tr>
+                                <th class="py-3 px-4">Pasta</th>
+                                <th class="py-3 px-4">Cliente / Contratante</th>
+                                <th class="py-3 px-4">Ambientes</th>
+                                <th class="py-3 px-4 text-right">Valor Venda</th>
+                                <th class="py-3 px-4 text-center">Status</th>
+                                <th class="py-3 px-4 text-center">Ação</th>
+                            </tr>
+                        </thead>
+                        <tbody>{leads_geral_html}</tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- COLUNA 3: RESUMO DA VENDA & CHECKLIST CLICÁVEL -->
+        <div class="lg:col-span-3 space-y-4">
+            
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3 text-xs">
+                <h3 class="font-bold text-amber-400 pb-1 border-b border-slate-800 uppercase tracking-wide">Resumo da Venda</h3>
+                
+                <div class="space-y-1.5 text-slate-400">
+                    <div class="flex justify-between"><span>Responsável:</span> <span class="font-semibold text-white">{CURRENT_SESSION['user_nome']}</span></div>
+                    <div class="flex justify-between"><span>Orçamento:</span> <span class="font-semibold text-white">#1</span></div>
+                    <div class="flex justify-between"><span>Tipo de Venda:</span> <span class="font-semibold text-white">Normal</span></div>
+                </div>
+
+                <div class="pt-2 border-t border-slate-800 space-y-1">
+                    <div class="flex justify-between items-center"><span class="text-slate-400 font-semibold">Valor da Venda:</span> <span class="font-bold text-amber-400 text-sm">R$ {c_p_venda:,.2f}</span></div>
+                    <div class="flex justify-between items-center"><span class="text-slate-400 font-semibold">Valor da Entrada:</span> <span class="font-bold text-emerald-400 text-sm">R$ {c_entrada:,.2f}</span></div>
+                    <div class="flex justify-between items-center"><span class="text-slate-500">Opção de Pagto:</span> <span class="font-semibold text-slate-300">{c_mod}</span></div>
+                    <div class="flex justify-between items-center"><span class="text-slate-500">Parcelas:</span> <span class="font-semibold text-slate-300">1 + {c_parc}x</span></div>
+                </div>
+
+                <div class="pt-2 border-t border-slate-800">
+                    <span class="text-[11px] font-bold text-slate-400 block mb-1">Ambientes Vendidos</span>
+                    <div class="flex justify-between text-[11px] font-medium text-slate-300 bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                        <span>{c_amb}</span>
+                        <span class="font-bold text-amber-400">R$ {c_p_venda:,.2f}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CHECK LIST & POTENCIAL DO CLIENTE COM BOTÕES CLICÁVEIS -->
+            <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3.5 text-xs">
+                <div class="flex justify-between items-center pb-1 border-b border-slate-800">
+                    <h3 class="font-bold text-white uppercase tracking-wide">Qualificação & Check List</h3>
+                    <span class="text-[10px] text-slate-500">Clique para mudar</span>
+                </div>
+                
+                <!-- SELETOR DE POTENCIAL DO CLIENTE (TERMÔMETRO DE VENDAS) -->
+                <div class="bg-slate-950 p-3 rounded-2xl border border-slate-800 space-y-1.5">
+                    <span class="text-[11px] font-bold text-amber-400 block uppercase">Potencial do Cliente:</span>
+                    <div class="grid grid-cols-3 gap-1.5 text-center font-bold text-[10px]">
+                        <button type="button" onclick="alterarPotencial('Quente')" class="p-1.5 rounded-lg border {'bg-rose-950 border-rose-500 text-rose-300' if potencial == 'Quente' else 'bg-slate-900 border-slate-800 text-slate-400'}">🔥 Quente</button>
+                        <button type="button" onclick="alterarPotencial('Morno')" class="p-1.5 rounded-lg border {'bg-amber-950 border-amber-500 text-amber-300' if potencial == 'Morno' else 'bg-slate-900 border-slate-800 text-slate-400'}">⚡ Morno</button>
+                        <button type="button" onclick="alterarPotencial('Frio')" class="p-1.5 rounded-lg border {'bg-sky-950 border-sky-500 text-sky-300' if potencial == 'Frio' else 'bg-slate-900 border-slate-800 text-slate-400'}">❄️ Frio</button>
+                    </div>
+                </div>
+
+                <!-- BOLINHAS DO CHECKLIST CLICÁVEIS (VERDE/AMARELO/VERMELHO) -->
+                <ul class="space-y-2.5">
+                    <li class="flex justify-between items-center p-1.5 bg-slate-950 rounded-xl border border-slate-800">
+                        <span class="font-medium text-slate-300">Dados do Cliente:</span>
+                        <button type="button" onclick="toggleCheckItem('check_dados')" title="Clique para alterar status" class="flex items-center gap-1.5 btn-dot">
+                            <span class="w-3.5 h-3.5 rounded-full {cor_d}"></span>
+                            <span class="text-[10px] text-slate-400 font-semibold">{txt_d}</span>
+                        </button>
+                    </li>
+
+                    <li class="flex justify-between items-center p-1.5 bg-slate-950 rounded-xl border border-slate-800">
+                        <span class="font-medium text-slate-300">Aprovação Comercial:</span>
+                        <button type="button" onclick="toggleCheckItem('check_comercial')" title="Clique para alterar status" class="flex items-center gap-1.5 btn-dot">
+                            <span class="w-3.5 h-3.5 rounded-full {cor_c}"></span>
+                            <span class="text-[10px] text-slate-400 font-semibold">{txt_c}</span>
+                        </button>
+                    </li>
+
+                    <li class="flex justify-between items-center p-1.5 bg-slate-950 rounded-xl border border-slate-800">
+                        <span class="font-medium text-slate-300">Aprovação Financeira:</span>
+                        <button type="button" onclick="toggleCheckItem('check_financeiro')" title="Clique para alterar status" class="flex items-center gap-1.5 btn-dot">
+                            <span class="w-3.5 h-3.5 rounded-full {cor_f}"></span>
+                            <span class="text-[10px] text-slate-400 font-semibold">{txt_f}</span>
+                        </button>
+                    </li>
+
+                    <li class="flex justify-between items-center p-1.5 bg-slate-950 rounded-xl border border-slate-800">
+                        <span class="font-medium text-slate-300">Assinatura do Contrato:</span>
+                        <button type="button" onclick="toggleCheckItem('check_contrato')" title="Clique para alterar status" class="flex items-center gap-1.5 btn-dot">
+                            <span class="w-3.5 h-3.5 rounded-full {cor_con}"></span>
+                            <span class="text-[10px] text-slate-400 font-semibold">{txt_con}</span>
+                        </button>
+                    </li>
+                </ul>
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- RODAPÉ ERP -->
+    <footer class="text-center py-4 text-[11px] text-slate-500">
+        Copyright © 2026 - MVI Sistemas de Marcenaria Sob Medida. Todos os direitos reservados.
+    </footer>
+
+    <!-- JAVASCRIPT DE CONTROLE DAS ABAS, SIMULAÇÃO E OLHO -->
+    <script>
+        var parcelasSalvas = {c_parc};
+        var idOrcamentoAtivo = {c_id};
+
+        function mudarAba(abaId) {{
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.querySelectorAll('.tree-item').forEach(b => b.classList.remove('active'));
+            
+            var targetAba = document.getElementById(abaId);
+            var targetBtn = document.getElementById('btn-' + abaId);
+            
+            if (targetAba) targetAba.classList.add('active');
+            if (targetBtn) targetBtn.classList.add('active');
+            window.scrollTo({{ top: 0, behavior: 'smooth' }});
+        }}
+
+        function toggleCheckItem(campo) {{
+            if (idOrcamentoAtivo === 0) {{
+                alert("Selecione um cliente para alterar o check list.");
+                return;
+            }}
+            fetch('/atualizar-checklist-item?orcamento_id=' + idOrcamentoAtivo + '&campo=' + campo, {{ method: 'POST' }})
+                .then(() => window.location.reload());
+        }}
+
+        function alterarPotencial(valor) {{
+            if (idOrcamentoAtivo === 0) {{
+                alert("Selecione um cliente para classificar o potencial.");
+                return;
+            }}
+            fetch('/atualizar-potencial-cliente?orcamento_id=' + idOrcamentoAtivo + '&potencial=' + encodeURIComponent(valor), {{ method: 'POST' }})
+                .then(() => window.location.reload());
+        }}
+
+        function impedirEnterSubmit(event) {{
+            if (event.key === "Enter" || event.keyCode === 13) {{
+                event.preventDefault();
+                recalcularLucroEMesa();
+                return false;
+            }}
+        }}
+
+        function calcularDescontoPorValorVenda() {{
+            var precoBruto = parseFloat(document.getElementById('preco_bruto_base').value) || 0;
+            var precoVendaManual = parseFloat(document.getElementById('preco_venda_input').value) || 0;
+
+            if (precoBruto > 0 && precoVendaManual > 0) {{
+                var desc = ((precoBruto - precoVendaManual) / precoBruto) * 100.0;
+                desc = Math.max(desc, 0);
+                document.getElementById('desconto_pct_input').value = desc.toFixed(1);
+            }}
+            recalcularLucroEMesa();
+        }}
+
+        function calcularValorVendaPorDesconto() {{
+            var precoBruto = parseFloat(document.getElementById('preco_bruto_base').value) || 0;
+            var descPct = parseFloat(document.getElementById('desconto_pct_input').value) || 0;
+
+            if (precoBruto > 0) {{
+                var precoFinal = Math.round(precoBruto * (1.0 - (descPct / 100.0)));
+                document.getElementById('preco_venda_input').value = precoFinal;
+            }}
+            recalcularLucroEMesa();
+        }}
+
+        function atualizarFormaPagamento() {{
+            var opcao = document.getElementById('forma_opcao_select').value;
+            var boxParc = document.getElementById('box_parcelas_dinamico');
+            var selectParc = document.getElementById('num_parcelas_select');
+            var hiddenMod = document.getElementById('modalidade_pagamento_hidden');
+
+            var valorSelecionadoAnterior = selectParc.value || parcelasSalvas;
+            selectParc.innerHTML = "";
+
+            if (opcao === "Entrada PIX + 3 à Vista") {{
+                boxParc.style.display = "block";
+                selectParc.innerHTML = `
+                    <option value="1">1x (À Vista)</option>
+                    <option value="2">2x (30/60 dias)</option>
+                    <option value="3">3x (30/60/90 dias)</option>
+                `;
+                hiddenMod.value = "Entrada PIX + 3 à Vista";
+            }} else if (opcao === "Entrada + Cartão de Crédito") {{
+                boxParc.style.display = "block";
+                for (var i = 1; i <= 12; i++) {{
+                    selectParc.innerHTML += `<option value="` + i + `">` + i + `x no Cartão</option>`;
+                }}
+                hiddenMod.value = "Entrada + Cartão de Crédito";
+            }} else if (opcao === "Entrada + Boleto Bancário") {{
+                boxParc.style.display = "block";
+                for (var i = 1; i <= 24; i++) {{
+                    selectParc.innerHTML += `<option value="` + i + `">` + i + `x no Boleto</option>`;
+                }}
+                hiddenMod.value = "Entrada + Boleto Bancário";
+            }} else {{
+                boxParc.style.display = "none";
+                selectParc.innerHTML = `<option value="1" selected>1x (Integral)</option>`;
+                hiddenMod.value = "PIX Integral à Vista (5% OFF)";
+            }}
+
+            if (valorSelecionadoAnterior) {{
+                selectParc.value = valorSelecionadoAnterior;
+            }}
+
+            recalcularLucroEMesa();
+        }}
+
+        function recalcularLucroEMesa() {{
+            var precoVenda = parseFloat(document.getElementById('preco_venda_input').value) || 0;
+            var custoEstimado = precoVenda * 0.50;
+            var impostoComissao = precoVenda * 0.10;
+            var lucroFinal = Math.max(precoVenda - (custoEstimado + impostoComissao), 0);
+
+            var elem = document.getElementById('valor_lucro_operacao');
+            var lucroFormatado = "R$ " + lucroFinal.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
+            elem.setAttribute('data-real', lucroFormatado);
+
+            if (lucroVisivel) {{
+                elem.innerText = lucroFormatado;
+            }}
+        }}
+
+        var lucroVisivel = true;
+        function alternarOlhoLucro() {{
+            var elem = document.getElementById('valor_lucro_operacao');
+            var btn = document.getElementById('btn_olho_lucro');
+            if (!elem) return;
+
+            lucroVisivel = !lucroVisivel;
+            if (lucroVisivel) {{
+                elem.innerText = elem.getAttribute('data-real');
+                btn.innerText = "👁️";
+                elem.style.filter = "none";
+            }} else {{
+                elem.innerText = "••••••••";
+                btn.innerText = "🙈";
+                elem.style.filter = "blur(4px)";
+            }}
+        }}
+
+        function buscarCep(tipo) {{
+            var cepInput = document.getElementById(tipo === 'postal' ? 'cep_postal' : 'cep_entrega');
+            var endText = document.getElementById(tipo === 'postal' ? 'end_postal' : 'end_entrega');
+            var cep = cepInput.value.replace(/\\D/g, '');
+
+            if (cep.length !== 8) {{
+                alert("Por favor, digite um CEP válido com 8 dígitos.");
+                return;
+            }}
+
+            endText.value = "Buscando endereço nos Correios...";
+
+            fetch('https://viacep.com.br/ws/' + cep + '/json/')
+                .then(res => res.json())
+                .then(dados => {{
+                    if (dados.erro) {{
+                        alert("CEP não encontrado!");
+                        endText.value = "";
+                    }} else {{
+                        endText.value = dados.logradouro + ", Nº [DIGITE O NÚMERO], " + (dados.bairro ? dados.bairro + ", " : "") + dados.localidade + " - " + dados.uf;
+                    }}
+                }})
+                .catch(() => {{
+                    alert("Erro ao buscar CEP.");
+                    endText.value = "";
+                }});
+        }}
+
+        window.onload = function() {{
+            atualizarFormaPagamento();
+        }};
     </script>
 </body></html>"""
 
