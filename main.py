@@ -14,7 +14,7 @@ from datetime import datetime, date, timedelta
 from typing import List
 
 app = FastAPI(title="MVI Móveis Planejados - Master SaaS")
-DB_PATH = "mvi_production_v38.db"
+DB_PATH = "mvi_production_v39.db"
 
 # ==============================================================================
 # 1. TRATAMENTO DE ERROS GLOBAL
@@ -1159,22 +1159,22 @@ def render_dashboard_view():
                     <input type="hidden" id="preco_bruto_base" value="{c_p_bruto if c_p_bruto > 0 else c_p_venda}">
                 </div>
 
-                <form action="/salvar-negociacao-mesa" method="post" class="space-y-4">
+                <form id="form_mesa_negociacao" action="/salvar-negociacao-mesa" method="post" class="space-y-4" onkeydown="impedirEnterSubmit(event)">
                     <input type="hidden" name="orcamento_id" value="{c_id}">
 
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <!-- VALOR DE VENDA MANUAL -->
+                        <!-- VALOR DE VENDA MANUAL (CALCULA DESCONTO AUTOMATICAMENTE AO DIGITAR) -->
                         <div>
                             <label class="block text-slate-500 mb-1 font-semibold">Valor Venda (R$)</label>
-                            <input type="number" step="1" name="preco_venda" id="preco_venda_input" value="{c_p_venda}" required class="w-full p-2 bg-slate-50 border border-slate-300 rounded font-bold text-sky-800 text-sm focus:border-sky-500">
+                            <input type="number" step="1" name="preco_venda" id="preco_venda_input" value="{c_p_venda}" required oninput="calcularDescontoPorValorVenda()" class="w-full p-2 bg-slate-50 border border-slate-300 rounded font-bold text-sky-800 text-sm focus:border-sky-500">
                         </div>
 
                         <!-- DESCONTO (%) + BOTÃO DE SIMULAÇÃO -->
                         <div>
                             <label class="block text-slate-500 mb-1 font-semibold">Desconto (%)</label>
                             <div class="flex gap-1.5">
-                                <input type="number" step="0.1" name="desconto_pct" id="desconto_pct_input" value="{c_desc_pct}" class="w-2/3 p-2 bg-slate-50 border border-slate-300 rounded font-bold">
-                                <button type="button" onclick="simularDesconto()" class="w-1/3 px-2 py-1 bg-amber-500 hover:bg-amber-400 text-slate-900 font-bold rounded text-[11px]" title="Atualizar valor com desconto">
+                                <input type="number" step="0.1" name="desconto_pct" id="desconto_pct_input" value="{c_desc_pct}" oninput="calcularValorVendaPorDesconto()" class="w-2/3 p-2 bg-slate-50 border border-slate-300 rounded font-bold">
+                                <button type="button" onclick="calcularValorVendaPorDesconto()" class="w-1/3 px-2 py-1 bg-amber-500 hover:bg-amber-400 text-slate-900 font-bold rounded text-[11px]" title="Atualizar simulação de desconto">
                                     ⚡ Simular
                                 </button>
                             </div>
@@ -1183,11 +1183,11 @@ def render_dashboard_view():
                         <!-- VALOR DE ENTRADA -->
                         <div>
                             <label class="block text-slate-500 mb-1 font-semibold">Entrada (R$)</label>
-                            <input type="number" step="100" name="entrada_valor" id="entrada_valor_input" value="{c_entrada}" required class="w-full p-2 bg-slate-50 border border-slate-300 rounded font-bold text-emerald-700 text-sm">
+                            <input type="number" step="100" name="entrada_valor" id="entrada_valor_input" value="{c_entrada}" required oninput="recalcularLucroEMesa()" class="w-full p-2 bg-slate-50 border border-slate-300 rounded font-bold text-emerald-700 text-sm">
                         </div>
                     </div>
 
-                    <!-- FORMA DE PAGAMENTO COM SELEÇÃO DE PARCELAS EMBUTIDA (1X A 12X E 1X A 24X) -->
+                    <!-- FORMA DE PAGAMENTO COM SELEÇÃO DE PARCELAS EMBUTIDA -->
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                             <label class="block text-slate-500 mb-1 font-semibold">Forma de Pagamento</label>
@@ -1203,7 +1203,7 @@ def render_dashboard_view():
                         <div id="box_parcelas_dinamico">
                             <label class="block text-slate-500 mb-1 font-semibold" id="label_vezes">Quantidade de Parcelas</label>
                             <select name="num_parcelas" id="num_parcelas_select" onchange="atualizarFormaPagamento()" class="w-full p-2 bg-slate-50 border border-slate-300 rounded font-bold text-slate-800">
-                                <!-- Preenchido via JavaScript -->
+                                <!-- Preenchido dinamicamente via JS -->
                             </select>
                         </div>
                     </div>
@@ -1324,6 +1324,40 @@ def render_dashboard_view():
             if (targetBtn) targetBtn.classList.add('active');
         }}
 
+        // IMPEDE QUE O ENTER ENVIE O FORMULÁRIO E TRAVE O SISTEMA
+        function impedirEnterSubmit(event) {{
+            if (event.key === "Enter" || event.keyCode === 13) {{
+                event.preventDefault();
+                recalcularLucroEMesa();
+                return false;
+            }}
+        }}
+
+        // CALCULA O DESCONTO (%) CONFORME VOCÊ DIGITA O VALOR DE VENDA MANUAL
+        function calcularDescontoPorValorVenda() {{
+            var precoBruto = parseFloat(document.getElementById('preco_bruto_base').value) || 0;
+            var precoVendaManual = parseFloat(document.getElementById('preco_venda_input').value) || 0;
+
+            if (precoBruto > 0 && precoVendaManual > 0) {{
+                var desc = ((precoBruto - precoVendaManual) / precoBruto) * 100.0;
+                desc = Math.max(desc, 0);
+                document.getElementById('desconto_pct_input').value = desc.toFixed(1);
+            }}
+            recalcularLucroEMesa();
+        }}
+
+        // CALCULA O VALOR DE VENDA CONFORME VOCÊ DIGITA O DESCONTO (%)
+        function calcularValorVendaPorDesconto() {{
+            var precoBruto = parseFloat(document.getElementById('preco_bruto_base').value) || 0;
+            var descPct = parseFloat(document.getElementById('desconto_pct_input').value) || 0;
+
+            if (precoBruto > 0) {{
+                var precoFinal = Math.round(precoBruto * (1.0 - (descPct / 100.0)));
+                document.getElementById('preco_venda_input').value = precoFinal;
+            }}
+            recalcularLucroEMesa();
+        }}
+
         // ATUALIZA AS OPÇÕES DE PARCELAS CONFORME A MODALIDADE ESCOLHIDA
         function atualizarFormaPagamento() {{
             var opcao = document.getElementById('forma_opcao_select').value;
@@ -1359,16 +1393,23 @@ def render_dashboard_view():
                 selectParc.innerHTML = `<option value="1" selected>1x (Integral)</option>`;
                 hiddenMod.value = "PIX Integral à Vista (5% OFF)";
             }}
+
+            recalcularLucroEMesa();
         }}
 
-        // BOTÃO DE SIMULAR DESCONTO
-        function simularDesconto() {{
-            var precoBruto = parseFloat(document.getElementById('preco_bruto_base').value) || 0;
-            var descPct = parseFloat(document.getElementById('desconto_pct_input').value) || 0;
-            
-            if (precoBruto > 0) {{
-                var precoFinal = Math.round(precoBruto * (1.0 - (descPct / 100.0)));
-                document.getElementById('preco_venda_input').value = precoFinal;
+        // RECALCULA O LUCRO LÍQUIDO EM TEMPO REAL NA TELA
+        function recalcularLucroEMesa() {{
+            var precoVenda = parseFloat(document.getElementById('preco_venda_input').value) || 0;
+            var custoEstimado = precoVenda * 0.50; // Custo base estimado
+            var impostoComissao = precoVenda * 0.10;
+            var lucroFinal = Math.max(precoVenda - (custoEstimado + impostoComissao), 0);
+
+            var elem = document.getElementById('valor_lucro_operacao');
+            var lucroFormatado = "R$ " + lucroFinal.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
+            elem.setAttribute('data-real', lucroFormatado);
+
+            if (lucroVisivel) {{
+                elem.innerText = lucroFormatado;
             }}
         }}
 
@@ -1516,7 +1557,7 @@ def salvar_negociacao_mesa(
 
     precisa_aprov = (desconto_pct > 3.0 and CURRENT_SESSION["user_perfil"] == "vendedor")
     desconto_autorizado = 0 if precisa_aprov else 1
-    status = "Aguardando Liberação de Desconto" if precisa_aprov else "Negociação Salva / Aguardando Fechamento"
+    status = "Aguardando Liberação de Desconto" if precisa_aprov else "Em Negociação"
 
     cursor.execute("""
         UPDATE orcamentos SET
@@ -1693,7 +1734,7 @@ def salvar_dados_completos_cliente_route(
                 desconto_autorizado, status, preco_bruto, preco_venda, lucro_liquido, forma_pagamento, entrada_valor,
                 num_parcelas, prazo_entrega, data_entrega_prevista
             ) VALUES (
-                1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Projeto Sob Medida', ?, ?, 1, 'Contrato Pronto para Assinatura',
+                1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Projeto Sob Medida', ?, ?, 1, 'Em Negociação',
                 ?, ?, ?, ?, ?, ?, '45 dias úteis', ?
             )
         """, (
@@ -1721,8 +1762,7 @@ def salvar_dados_completos_cliente_route(
                     cliente_nascimento = ?, cliente_pais = ?, cliente_cidade = ?, cliente_email = ?,
                     cliente_telefone = ?, cliente_telefone_2 = ?, cliente_cep_postal = ?, cliente_endereco_postal = ?,
                     cliente_cep_entrega = ?, cliente_endereco_entrega = ?, descricao_manual = ?, desconto_pct = ?,
-                    status = 'Contrato Pronto para Assinatura', preco_venda = ?, lucro_liquido = ?,
-                    forma_pagamento = ?, entrada_valor = ?, num_parcelas = ?
+                    preco_venda = ?, lucro_liquido = ?, forma_pagamento = ?, entrada_valor = ?, num_parcelas = ?
                 WHERE id = ?
             """, (
                 cliente_nome, cliente_cpf, cliente_rg, cliente_rg_emissor,
