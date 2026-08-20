@@ -36,6 +36,25 @@ async def global_exception_handler(request: Request, exc: Exception):
 # ==============================================================================
 # 2. BANCO DE DADOS & SESSÃO
 # ==============================================================================
+def parse_moeda(valor_str) -> float:
+    if isinstance(valor_str, (int, float)):
+        return float(valor_str)
+    if not valor_str:
+        return 0.0
+    s = str(valor_str).strip().replace("R$", "").replace(" ", "")
+    if "." in s and "," in s:
+        s = s.replace(".", "").replace(",", ".")
+    elif "," in s:
+        s = s.replace(",", ".")
+    try:
+        return float(s)
+    except Exception:
+        return 0.0
+
+def fmt_br(val: float) -> str:
+    return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -247,7 +266,6 @@ def calcular_engenharia(
 ):
     empresa = get_empresa_dados(CURRENT_SESSION.get("empresa_id", 1))
     
-    # 1. Base líquida de custo calibrada para fechar Cozinha em R$ 12.000
     tabela_base_liquida = {
         "Cozinha": 3800.0,
         "Lavanderia": 1200.0,
@@ -305,14 +323,9 @@ def calcular_engenharia(
         })
         desc_promob_auto.append(f"{amb}: Caixaria {esp_caixa} ({cor_caixa}), portas {acabamento_porta} ({cor_porta}), ferragens {marca_ferr}.")
 
-    # 15% de montagem sobre a base líquida
     custo_montagem = soma_base_liquida * 0.15
-
-    # Frete fixo
     custo_frete = 180.0
-
-    # Markup de +150% (multiplicador 2.50) + ferragens + frete
-    preco_venda = int(round(((soma_base_liquida + custo_montagem) * 2.50) + total_ferragens + custo_frete))
+    preco_venda = round(((soma_base_liquida + custo_montagem) * 2.50) + total_ferragens + custo_frete)
     preco_bruto = preco_venda
 
     total_materiais = round(soma_base_liquida + total_ferragens)
@@ -413,7 +426,7 @@ def render_form_captacao(empresa):
                 </div>
                 <div>
                     <label class="block text-amber-400 font-bold mb-1">📐 Metragem Total do Imóvel (m²)</label>
-                    <input type="number" step="any" min="5" name="area_m2_total" value="45.0" required placeholder="Ex: 45" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold">
+                    <input type="text" name="area_m2_total" value="45" required placeholder="Ex: 45" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold">
                 </div>
                 <div>
                     <label class="block text-slate-300 font-semibold mb-1">📍 Cidade / Bairro da Obra</label>
@@ -584,7 +597,6 @@ def render_pre_orcamento_agendamento(
     pv_redondo = int(round(preco_venda))
     desconto_vista_5 = int(round(pv_redondo * 0.95))
     
-    # Formatação com ponto para milhar no padrão brasileiro
     pv_fmt = f"{pv_redondo:,}".replace(",", ".")
     desconto_fmt = f"{desconto_vista_5:,}".replace(",", ".")
     
@@ -711,11 +723,11 @@ def render_dashboard_view():
     c_prazo = cliente_ativo.get("prazo_entrega") or "25 dias úteis"
     c_amb = cliente_ativo.get("cliente_ambiente") or "Cozinha Planejada"
     
-    c_p_bruto = round(float(cliente_ativo.get("preco_bruto") or cliente_ativo.get("preco_venda") or 0))
-    c_p_venda = round(float(cliente_ativo.get("preco_venda") or 0))
-    c_lucro = round(float(cliente_ativo.get("lucro_liquido") or 0))
+    c_p_bruto = float(cliente_ativo.get("preco_bruto") or cliente_ativo.get("preco_venda") or 0)
+    c_p_venda = float(cliente_ativo.get("preco_venda") or 0)
+    c_lucro = float(cliente_ativo.get("lucro_liquido") or 0)
     c_desc_pct = float(cliente_ativo.get("desconto_pct") or 0)
-    c_entrada = round(float(cliente_ativo.get("entrada_valor") or 0))
+    c_entrada = float(cliente_ativo.get("entrada_valor") or 0)
     c_parc = int(cliente_ativo.get("num_parcelas") or 1)
     c_mod = cliente_ativo.get("modalidade_pagamento") or "Entrada + Cartão de Crédito"
     c_comissao = float(cliente_ativo.get("comissao_valor") or (c_p_venda * (float(empresa.get("comissao_padrao_pct", 4.0)) / 100.0)))
@@ -793,7 +805,7 @@ def render_dashboard_view():
         <tr class="border-b border-slate-800 text-xs hover:bg-slate-800/40">
             <td class="py-2.5 px-3 text-center text-slate-400 font-mono">{i}</td>
             <td class="py-2.5 px-3 text-slate-300">{dt_parc}</td>
-            <td class="py-2.5 px-3 font-bold text-amber-400 text-right">R$ {valor_por_parcela:,.2f}</td>
+            <td class="py-2.5 px-3 font-bold text-amber-400 text-right">R$ {fmt_br(valor_por_parcela)}</td>
             <td class="py-2.5 px-3 text-slate-300">{c_mod}</td>
             <td class="py-2.5 px-3 text-slate-400">Parcela regular do projeto</td>
         </tr>
@@ -809,7 +821,7 @@ def render_dashboard_view():
         <li class="p-2 bg-slate-950 rounded-xl border border-slate-800 flex justify-between items-center group">
             <div>
                 <span class="text-white font-semibold block">📦 {amb_item.get('nome','Ambiente')}</span>
-                <span class="text-[11px] font-bold text-amber-400">R$ {val_amb:,.2f}</span>
+                <span class="text-[11px] font-bold text-amber-400">R$ {fmt_br(val_amb)}</span>
             </div>
         </li>
         """
@@ -829,7 +841,7 @@ def render_dashboard_view():
                     <span class="text-white font-semibold block">⭐ {v_nome}</span>
                     {badge_ativo}
                 </div>
-                <span class="text-[11px] font-bold text-amber-400">R$ {v_val:,.2f}</span>
+                <span class="text-[11px] font-bold text-amber-400">R$ {fmt_br(v_val)}</span>
             </div>
         </li>
         """
@@ -842,8 +854,8 @@ def render_dashboard_view():
 
     for h in leads:
         h_d = dict(h)
-        pv = round(float(h_d.get("preco_venda") or 0))
-        adendo = round(float(h_d.get("adendo_valor") or 0))
+        pv = float(h_d.get("preco_venda") or 0)
+        adendo = float(h_d.get("adendo_valor") or 0)
         pv_total = pv + adendo
         st = h_d.get("status") or "Novo Lead"
         sel = "selected" if h_d.get("id") == c_id else ""
@@ -866,7 +878,7 @@ def render_dashboard_view():
             <td class="py-3 px-4 font-mono font-bold text-amber-400">P{h_d['id']:05d}</td>
             <td class="py-3 px-4 text-white font-bold">{h_d.get('cliente_nome','')}<span class="block text-[11px] text-slate-400 font-normal">Vendedor: {h_d.get('vendedor_responsavel','')}</span></td>
             <td class="py-3 px-4 text-slate-300">{h_d.get('cliente_ambiente','')}</td>
-            <td class="py-3 px-4 text-amber-400 font-bold text-right">R$ {pv_total:,.2f}</td>
+            <td class="py-3 px-4 text-amber-400 font-bold text-right">R$ {fmt_br(pv_total)}</td>
             <td class="py-3 px-4 text-center"><span class="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-950 text-amber-300 border border-amber-500/30">{st}</span></td>
             <td class="py-3 px-4 text-center">
                 <form action="/selecionar-cliente-trabalho" method="post" class="inline">
@@ -892,7 +904,7 @@ def render_dashboard_view():
             <td class="py-3 px-3 text-slate-300 max-w-[200px] truncate" title="{h_d.get('cliente_ambiente','')}">
                 {h_d.get('cliente_ambiente','')}
             </td>
-            <td class="py-3 px-3 text-amber-400 font-bold text-right">R$ {pv_total:,.2f}</td>
+            <td class="py-3 px-3 text-amber-400 font-bold text-right">R$ {fmt_br(pv_total)}</td>
             <td class="py-3 px-3 text-center">
                 <div class="flex items-center justify-center gap-1">
                     {f'''<a href="{p_data}" target="_blank" download="{p_nm}" class="px-2 py-1 bg-amber-500/20 hover:bg-amber-500/40 text-amber-300 border border-amber-500/40 rounded text-[11px] font-bold" title="Baixar Planta">📐 Planta</a>''' if p_data else '<span class="text-slate-600 text-[11px]">—</span>'}
@@ -1042,7 +1054,7 @@ def render_dashboard_view():
                     </div>
                 </div>
 
-                <!-- ARQUIVOS E ANEXOS DO LEAD (PLANTA / INSPIRAÇÃO) -->
+                <!-- ARQUIVOS E ANEXOS DO LEAD -->
                 {anexos_html}
 
                 <!-- CRONOGRAMA DE PARCELAS -->
@@ -1126,7 +1138,7 @@ def render_dashboard_view():
                 </form>
             </div>
 
-            <!-- ABA 3: MESA DE NEGOCIAÇÃO -->
+            <!-- ABA 3: MESA DE NEGOCIAÇÃO (ACEITA PONTOS E VÍRGULAS) -->
             <div id="aba-mesa" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
                 <div class="flex justify-between items-center pb-1 border-b border-slate-800">
                     <h3 class="font-bold text-amber-400 uppercase">💼 Mesa de Negociação & Fechamento</h3>
@@ -1139,18 +1151,18 @@ def render_dashboard_view():
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div>
                             <label class="block text-slate-400 mb-1 font-semibold">Valor Venda (R$)</label>
-                            <input type="number" step="1" name="preco_venda" id="preco_venda_input" value="{c_p_venda}" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-amber-400 text-sm">
+                            <input type="text" name="preco_venda" id="preco_venda_input" value="{fmt_br(c_p_venda)}" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-amber-400 text-sm">
                         </div>
 
                         <div>
                             <label class="block text-slate-400 mb-1 font-semibold">Desconto (%)</label>
-                            <input type="number" step="0.1" name="desconto_pct" id="desconto_pct_input" value="{c_desc_pct}" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-white">
+                            <input type="text" name="desconto_pct" id="desconto_pct_input" value="{c_desc_pct}" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-white">
                             <span class="text-[10px] text-slate-500 mt-0.5 block">Teto sem autorização: {empresa.get('desconto_max_vendedor', 3.0)}%</span>
                         </div>
 
                         <div>
                             <label class="block text-slate-400 mb-1 font-semibold">Entrada (R$)</label>
-                            <input type="number" step="100" name="entrada_valor" id="entrada_valor_input" value="{c_entrada}" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-emerald-400 text-sm">
+                            <input type="text" name="entrada_valor" id="entrada_valor_input" value="{fmt_br(c_entrada)}" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-emerald-400 text-sm">
                         </div>
                     </div>
 
@@ -1172,7 +1184,7 @@ def render_dashboard_view():
                     {f'''<div class="p-4 bg-slate-950 border border-emerald-500/30 rounded-2xl flex justify-between items-center">
                         <div>
                             <span class="font-bold text-slate-400 block text-xs uppercase">Lucro Líquido da Empresa (Restrito ADM):</span>
-                            <span class="font-black text-emerald-400 text-lg">R$ {c_lucro:,.2f}</span>
+                            <span class="font-black text-emerald-400 text-lg">R$ {fmt_br(c_lucro)}</span>
                         </div>
                     </div>''' if pode_ver_lucro else f'''<div class="p-3 bg-slate-950/60 border border-slate-800 rounded-xl text-center text-slate-500 text-[11px]">
                         🔒 Lucro e custos internos protegidos por política de privacidade da empresa.
@@ -1241,11 +1253,11 @@ def render_dashboard_view():
                     </div>
                     <div>
                         <label class="block text-slate-400 mb-1 font-semibold">Teto Máx. Desconto Vendedor (%)</label>
-                        <input type="number" step="0.5" name="desconto_max_vendedor" value="{empresa.get('desconto_max_vendedor', 3.0)}" class="w-full p-2.5 bg-slate-950 border border-amber-500/50 rounded-xl text-amber-300 font-bold">
+                        <input type="text" name="desconto_max_vendedor" value="{empresa.get('desconto_max_vendedor', 3.0)}" class="w-full p-2.5 bg-slate-950 border border-amber-500/50 rounded-xl text-amber-300 font-bold">
                     </div>
                     <div>
                         <label class="block text-slate-400 mb-1 font-semibold">Comissão Padrão da Equipe (%)</label>
-                        <input type="number" step="0.5" name="comissao_padrao_pct" value="{empresa.get('comissao_padrao_pct', 4.0)}" class="w-full p-2.5 bg-slate-950 border border-emerald-500/50 rounded-xl text-emerald-300 font-bold">
+                        <input type="text" name="comissao_padrao_pct" value="{empresa.get('comissao_padrao_pct', 4.0)}" class="w-full p-2.5 bg-slate-950 border border-emerald-500/50 rounded-xl text-emerald-300 font-bold">
                     </div>
                     <button type="submit" class="sm:col-span-2 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-lg mt-2">
                         💾 Salvar Parâmetros
@@ -1261,9 +1273,9 @@ def render_dashboard_view():
                 <h3 class="font-bold text-amber-400 pb-1 border-b border-slate-800 uppercase tracking-wide">Resumo da Venda</h3>
                 <div class="space-y-1 text-slate-400">
                     <div class="flex justify-between"><span>Vendedor:</span> <span class="font-semibold text-white">{c_vendedor}</span></div>
-                    <div class="flex justify-between"><span>Comissão:</span> <span class="font-bold text-emerald-400">R$ {c_comissao:,.2f}</span></div>
-                    <div class="flex justify-between items-center pt-1"><span class="text-slate-400 font-semibold">Valor Venda:</span> <span class="font-bold text-amber-400 text-sm">R$ {c_p_venda:,.2f}</span></div>
-                    <div class="flex justify-between items-center"><span class="text-slate-400 font-semibold">Entrada:</span> <span class="font-bold text-emerald-400 text-sm">R$ {c_entrada:,.2f}</span></div>
+                    <div class="flex justify-between"><span>Comissão:</span> <span class="font-bold text-emerald-400">R$ {fmt_br(c_comissao)}</span></div>
+                    <div class="flex justify-between items-center pt-1"><span class="text-slate-400 font-semibold">Valor Venda:</span> <span class="font-bold text-amber-400 text-sm">R$ {fmt_br(c_p_venda)}</span></div>
+                    <div class="flex justify-between items-center"><span class="text-slate-400 font-semibold">Entrada:</span> <span class="font-bold text-emerald-400 text-sm">R$ {fmt_br(c_entrada)}</span></div>
                 </div>
             </div>
 
@@ -1355,7 +1367,7 @@ def captacao_route(slug: str = "mvi"):
 async def submit_lead_route(
     nome: str = Form(...),
     whatsapp: str = Form(...),
-    area_m2_total: float = Form(45.0),
+    area_m2_total: str = Form("45"),
     cidade: str = Form(...),
     amb_cozinha: int = Form(0),
     amb_lavanderia: int = Form(0),
@@ -1376,6 +1388,10 @@ async def submit_lead_route(
     planta: UploadFile = File(None),
     inspiracao: UploadFile = File(None)
 ):
+    area_num = parse_moeda(area_m2_total)
+    if area_num <= 0:
+        area_num = 45.0
+
     ambientes_selecionados = []
     if amb_cozinha: ambientes_selecionados.append("Cozinha")
     if amb_lavanderia: ambientes_selecionados.append("Lavanderia")
@@ -1391,7 +1407,7 @@ async def submit_lead_route(
 
     ambientes_str = " + ".join(ambientes_selecionados)
     empresa = get_empresa_dados(1)
-    calc = calcular_engenharia(ambientes_selecionados, area_m2_total, espessura_caixa, cor_caixa, espessura_porta, cor_porta, acabamento_porta, espessura_tamponamento, marca_ferragens)
+    calc = calcular_engenharia(ambientes_selecionados, area_num, espessura_caixa, cor_caixa, espessura_porta, cor_porta, acabamento_porta, espessura_tamponamento, marca_ferragens)
 
     planta_b64, planta_nome = "", ""
     if planta and planta.filename:
@@ -1444,11 +1460,45 @@ async def submit_lead_route(
     conn.close()
 
     return render_pre_orcamento_agendamento(
-        empresa, novo_id, nome, whatsapp, cidade, area_m2_total,
+        empresa, novo_id, nome, whatsapp, cidade, area_num,
         calc["preco_venda"], espessura_caixa, cor_caixa,
         espessura_porta, cor_porta, acabamento_porta, marca_ferragens, espessura_tamponamento,
         ambientes_str
     )
+
+@app.post("/salvar-negociacao-mesa", response_class=HTMLResponse)
+def salvar_negociacao_mesa_route(
+    orcamento_id: int = Form(...),
+    preco_venda: str = Form("0"),
+    desconto_pct: str = Form("0"),
+    entrada_valor: str = Form("0"),
+    forma_opcao: str = Form("Entrada + Cartão de Crédito"),
+    num_parcelas: int = Form(1)
+):
+    pv_num = parse_moeda(preco_venda)
+    desc_num = parse_moeda(desconto_pct)
+    ent_num = parse_moeda(entrada_valor)
+    
+    empresa = get_empresa_dados(1)
+    comissao_num = round(pv_num * (float(empresa.get("comissao_padrao_pct", 4.0)) / 100.0), 2)
+    lucro_estimado = round(pv_num * 0.35, 2)
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE orcamentos SET
+            preco_venda = ?,
+            desconto_pct = ?,
+            entrada_valor = ?,
+            modalidade_pagamento = ?,
+            num_parcelas = ?,
+            comissao_valor = ?,
+            lucro_liquido = ?
+        WHERE id = ?
+    """, (pv_num, desc_num, ent_num, forma_opcao, num_parcelas, comissao_num, lucro_estimado, orcamento_id))
+    conn.commit()
+    conn.close()
+    return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.post("/recusar-lead", response_class=HTMLResponse)
 def recusar_lead_route(orcamento_id: int = Form(...)):
@@ -1527,8 +1577,8 @@ def update_empresa(
     nome_empresa: str = Form("MVI Móveis Planejados"),
     cnpj: str = Form(""),
     telefone: str = Form(""),
-    desconto_max_vendedor: float = Form(3.0),
-    comissao_padrao_pct: float = Form(4.0)
+    desconto_max_vendedor: str = Form("3.0"),
+    comissao_padrao_pct: str = Form("4.0")
 ):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -1540,7 +1590,7 @@ def update_empresa(
             desconto_max_vendedor = ?,
             comissao_padrao_pct = ?
         WHERE id = 1
-    """, (nome_empresa.strip(), cnpj.strip(), telefone.strip(), desconto_max_vendedor, comissao_padrao_pct))
+    """, (nome_empresa.strip(), cnpj.strip(), telefone.strip(), parse_moeda(desconto_max_vendedor), parse_moeda(comissao_padrao_pct)))
     conn.commit()
     conn.close()
     return RedirectResponse(url="/painel-get", status_code=303)
@@ -1564,7 +1614,7 @@ def minuta_contrato_route(orcamento_id: int):
         <p class="mt-4"><b>CONTRATADA:</b> {empresa['nome_empresa']} (CNPJ: {empresa['cnpj']})</p>
         <p><b>CONTRATANTE:</b> {orc['cliente_nome']} (Tel: {orc['cliente_telefone']})</p>
         <p><b>OBJETO:</b> Fabricação e instalação de móveis sob medida para: <b>{orc['cliente_ambiente']}</b>.</p>
-        <p><b>VALOR TOTAL:</b> R$ {pv_total:,.2f} em {orc['modalidade_pagamento']}.</p>
+        <p><b>VALOR TOTAL:</b> R$ {fmt_br(pv_total)} em {orc['modalidade_pagamento']}.</p>
         <p><b>PRAZO:</b> {orc['prazo_entrega']}. <b>GARANTIA:</b> {orc['prazo_garantia']}.</p>
         <div class="mt-12 text-center"><button onclick="window.print()" class="px-4 py-2 bg-amber-500 text-slate-950 font-bold rounded">🖨️ Imprimir / Salvar PDF</button></div>
     </body></html>"""
