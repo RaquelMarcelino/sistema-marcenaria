@@ -60,7 +60,7 @@ def init_db():
             email TEXT PRIMARY KEY,
             senha TEXT,
             nome TEXT,
-            perfil TEXT, -- 'adm', 'gerente', 'vendedor', 'financeiro', 'liberacao'
+            perfil TEXT,
             empresa_id INTEGER,
             token_primeiro_acesso TEXT DEFAULT '',
             primeiro_acesso_concluido INTEGER DEFAULT 1,
@@ -133,7 +133,9 @@ def init_db():
             valor_recebido REAL DEFAULT 0,
             tipo_agendamento TEXT DEFAULT 'Agendamento na Loja',
             preferencia_horario TEXT DEFAULT 'Tarde (14h às 18h)',
-            imagens_json TEXT DEFAULT '[]',
+            imagens_json TEXT DEFAULT '{}',
+            arquivo_planta TEXT DEFAULT '',
+            arquivo_inspiracao TEXT DEFAULT '',
             ambientes_json TEXT DEFAULT '[]',
             versoes_orcamentos_json TEXT DEFAULT '[]',
             versao_ativa_id INTEGER DEFAULT 1,
@@ -144,7 +146,13 @@ def init_db():
             assinatura_img TEXT DEFAULT ''
         )
     """)
-    conn.commit()
+
+    # Migrações seguras caso o banco já exista
+    for col in ["arquivo_planta TEXT DEFAULT ''", "arquivo_inspiracao TEXT DEFAULT ''", "imagens_json TEXT DEFAULT '{}'"]:
+        try:
+            cursor.execute(f"ALTER TABLE orcamentos ADD COLUMN {col}")
+        except Exception:
+            pass
 
     cursor.execute("SELECT id FROM empresas WHERE id = 1")
     if not cursor.fetchone():
@@ -164,6 +172,7 @@ def init_db():
         cursor.execute("INSERT OR REPLACE INTO usuarios VALUES ('liberacao@mvi.com', '123456', 'Equipe de Liberação & Fábrica', 'liberacao', 1, '', 1, 1)")
         conn.commit()
 
+    conn.commit()
     conn.close()
 
 init_db()
@@ -313,67 +322,6 @@ def calcular_engenharia(
         "desc_promob": "\n".join(desc_promob_auto)
     }
 
-def processar_arquivo_promob(conteudo_texto: str, nome_arquivo: str):
-    items = []
-    precos = json.loads(get_empresa_dados(1).get("precos_json") or "{}")
-    mdf_preco = float(precos.get("mdf_m2", 65.0))
-    dob_preco = float(precos.get("dobradica", 18.50))
-    corr_preco = float(precos.get("corredica", 38.00))
-
-    ext = nome_arquivo.lower()
-    
-    if ext.endswith(".xml") or "<" in conteudo_texto[:100]:
-        try:
-            root = ET.fromstring(conteudo_texto)
-            for el in root.iter():
-                tag = el.tag.lower()
-                if tag in ["item", "peca", "piece", "component", "componente", "panel", "modulo", "entity", "itembudget"]:
-                    nome = (el.attrib.get("DESCRIPTION") or el.attrib.get("NOME") or el.attrib.get("NAME") or el.attrib.get("DESCRICAO") or "Peça Promob").strip()
-                    larg = float(el.attrib.get("WIDTH") or el.attrib.get("LARGURA") or el.attrib.get("LARG") or 0)
-                    alt = float(el.attrib.get("HEIGHT") or el.attrib.get("ALTURA") or el.attrib.get("ALT") or 0)
-                    qtd = int(float(el.attrib.get("QUANTITY") or el.attrib.get("QUANTIDADE") or el.attrib.get("QTD") or 1))
-                    
-                    if larg > 0 and alt > 0:
-                        area = (larg / 1000.0) * (alt / 1000.0)
-                        items.append({"nome": nome[:40], "dimensoes": f"{int(larg)}x{int(alt)}mm", "qtd": qtd, "valor": area * mdf_preco * 1.35 * qtd})
-        except Exception:
-            pass
-
-    if not items:
-        linhas = conteudo_texto.splitlines()
-        for l in linhas:
-            limpa = l.replace(";", "\t").replace(",", "\t").replace("|", "\t")
-            partes = [p.strip() for p in limpa.split("\t") if p.strip()]
-            if len(partes) >= 3:
-                try:
-                    nome_p = partes[0]
-                    d1 = float(partes[1].lower().replace("mm", "").replace("cm", "").replace(" ", ""))
-                    d2 = float(partes[2].lower().replace("mm", "").replace("cm", "").replace(" ", ""))
-                    q_p = int(partes[3]) if len(partes) >= 4 and partes[3].isdigit() else 1
-                    if d1 > 0 and d2 > 0:
-                        area_m2 = (d1 / 1000.0) * (d2 / 1000.0)
-                        items.append({"nome": nome_p[:40], "dimensoes": f"{int(d1)}x{int(d2)}mm", "qtd": q_p, "valor": area_m2 * mdf_preco * 1.35 * q_p})
-                except Exception:
-                    continue
-
-    if not items:
-        items = [
-            {"nome": "Módulo de Caixaria Promob 800mm", "dimensoes": "800x720mm", "qtd": 4, "valor": 4 * 1.25 * mdf_preco},
-            {"nome": "Portas / Frentes MDF Promob", "dimensoes": "395x700mm", "qtd": 8, "valor": 8 * 0.58 * mdf_preco},
-            {"nome": "Dobradiças Slowmotion Blum/Hettich", "dimensoes": "Ø35mm", "qtd": 16, "valor": 16 * dob_preco * 2.8},
-            {"nome": "Corrediças Telescópicas Ocultas", "dimensoes": "450mm", "qtd": 6, "valor": 6 * corr_preco * 3.2}
-        ]
-
-    total_mat = sum(i["valor"] for i in items)
-    dias = max(int(math.ceil(len(items) * 0.3)), 4)
-    custo_mo = dias * 180.0
-    custo_frete = max(len(items) * 35.0, 600.0)
-    preco_bruto = round((total_mat + custo_mo + custo_frete) * 2.2)
-    preco_venda = preco_bruto
-    lucro = round(preco_venda - (total_mat + custo_mo + custo_frete + (preco_venda * 0.10)))
-
-    return {"items": items, "total_mat": total_mat, "custo_mo": custo_mo, "custo_frete": custo_frete, "preco_bruto": preco_bruto, "preco_venda": preco_venda, "lucro": lucro}
-
 # ==============================================================================
 # 4. FUNÇÕES DE RENDERIZAÇÃO
 # ==============================================================================
@@ -432,7 +380,6 @@ def render_form_captacao(empresa):
     <noscript><img height="1" width="1" style="display:none"
     src="https://www.facebook.com/tr?id={META_PIXEL_ID}&ev=PageView&noscript=1"
     /></noscript>
-    <!-- End Meta Pixel Code -->
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-between font-sans">
     <header class="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center justify-between">
@@ -600,8 +547,8 @@ def render_form_captacao(empresa):
 
             <div class="grid sm:grid-cols-2 gap-3 text-xs">
                 <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1">
-                    <label class="font-bold text-amber-400 block">📐 Planta Baixa do Imóvel</label>
-                    <input type="file" name="planta" required class="w-full text-slate-400 file:bg-amber-500 file:border-0 file:rounded-xl file:px-3 file:py-1 file:font-bold text-xs">
+                    <label class="font-bold text-amber-400 block">📐 Planta Baixa do Imóvel (PDF ou Imagem)</label>
+                    <input type="file" name="planta" class="w-full text-slate-400 file:bg-amber-500 file:border-0 file:rounded-xl file:px-3 file:py-1 file:font-bold text-xs">
                 </div>
                 <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1">
                     <label class="font-bold text-slate-300 block">🖼️ Foto de Inspiração / Referência</label>
@@ -631,7 +578,6 @@ def render_pre_orcamento_agendamento(
     <title>{empresa['nome_empresa']} - Pré-Orçamento</title>
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Meta Pixel - Disparo de Conversão Lead com Valor da Venda -->
     <script>
     !function(f,b,e,v,n,t,s)
     {{if(f.fbq)return;n=f.fbq=function(){{n.callMethod?
@@ -674,46 +620,6 @@ def render_pre_orcamento_agendamento(
             </a>
         </div>
     </div>
-</body></html>"""
-
-def render_convite_gerado(nome, email, perfil, telefone, link, senha_temp):
-    return f"""<!DOCTYPE html>
-<html lang="pt-br"><head><title>Acesso Criado</title><script src="https://cdn.tailwindcss.com"></script></head>
-<body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4 font-sans">
-    <div class="max-w-md w-full bg-slate-900 border border-amber-500/40 rounded-3xl p-8 shadow-2xl space-y-4 text-center">
-        <span class="text-4xl">🔐</span>
-        <h2 class="text-xl font-bold text-white">Credenciais Geradas</h2>
-        <p class="text-xs text-slate-400">Envie o link ou a senha provisória para o funcionário:</p>
-        
-        <div class="bg-slate-950 p-4 rounded-2xl border border-slate-800 text-left text-xs space-y-2 font-mono">
-            <p><span class="text-slate-500">Nome:</span> <b class="text-white">{nome}</b></p>
-            <p><span class="text-slate-500">E-mail:</span> <b class="text-amber-400">{email}</b></p>
-            <p><span class="text-slate-500">Perfil:</span> <b class="text-emerald-400 uppercase">{perfil}</b></p>
-            <p><span class="text-slate-500">Senha Provisória:</span> <b class="text-rose-400">{senha_temp}</b></p>
-        </div>
-
-        <div class="p-3 bg-slate-950 rounded-xl border border-slate-800 text-left">
-            <span class="text-[10px] text-slate-500 block uppercase font-bold mb-1">Link de Primeiro Acesso:</span>
-            <input type="text" readonly value="{link}" onclick="this.select();" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-amber-300 font-mono">
-        </div>
-
-        <a href="/painel-get" class="inline-block w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs">Voltar ao Painel</a>
-    </div>
-</body></html>"""
-
-def render_tela_nova_senha(user, token):
-    return f"""<!DOCTYPE html>
-<html lang="pt-br">
-<head><title>Nova Senha - MVI</title><script src="https://cdn.tailwindcss.com"></script></head>
-<body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4 font-sans">
-    <form action="/salvar-nova-senha" method="post" class="bg-slate-900 border border-amber-500/40 p-8 rounded-3xl space-y-4 max-w-sm w-full shadow-2xl">
-        <h1 class="text-lg font-bold text-white text-center">Ativar Acesso & Definir Nova Senha</h1>
-        <p class="text-xs text-slate-400 text-center">Olá <b>{user['nome']}</b> ({user['perfil']})</p>
-        <input type="hidden" name="token" value="{token}">
-        <input type="password" name="nova_senha" required placeholder="Nova Senha Pessoal" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs">
-        <input type="password" name="confirma_senha" required placeholder="Confirme sua Nova Senha" class="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs">
-        <button type="submit" class="w-full py-3 bg-amber-500 font-bold text-slate-950 rounded-xl text-xs">Salvar Senha e Entrar</button>
-    </form>
 </body></html>"""
 
 # ==============================================================================
@@ -767,7 +673,6 @@ def render_dashboard_view():
 
     c_prazo = cliente_ativo.get("prazo_entrega") or "25 dias úteis"
     c_amb = cliente_ativo.get("cliente_ambiente") or "Cozinha Planejada"
-    c_data_venda = cliente_ativo.get("criado_em") or datetime.now().strftime("%d/%m/%Y")
     
     c_p_bruto = round(float(cliente_ativo.get("preco_bruto") or cliente_ativo.get("preco_venda") or 0))
     c_p_venda = round(float(cliente_ativo.get("preco_venda") or 0))
@@ -782,6 +687,45 @@ def render_dashboard_view():
     chk_comercial = int(cliente_ativo.get("check_comercial") or 1)
     chk_financeiro = int(cliente_ativo.get("check_financeiro") or 0)
     chk_contrato = int(cliente_ativo.get("check_contrato") or 0)
+
+    # Recupera imagens e arquivos salvos
+    c_imagens = {}
+    try:
+        c_imagens = json.loads(cliente_ativo.get("imagens_json") or "{}")
+    except Exception:
+        c_imagens = {}
+        
+    planta_data = c_imagens.get("planta") or cliente_ativo.get("arquivo_planta") or ""
+    planta_nome = c_imagens.get("planta_nome") or "Planta Baixa"
+    insp_data = c_imagens.get("inspiracao") or cliente_ativo.get("arquivo_inspiracao") or ""
+    insp_nome = c_imagens.get("inspiracao_nome") or "Foto Inspiração"
+
+    tel_lead_limpo = c_tel.replace("-","").replace(" ","").replace("(","").replace(")","")
+
+    anexos_html = f"""
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3">
+        <h3 class="font-bold text-amber-400 text-xs uppercase tracking-wide flex items-center justify-between pb-1 border-b border-slate-800">
+            <span>📁 Arquivos & Anexos do Lead</span>
+            <span class="text-[10px] text-slate-400 font-normal">Planta & Referências</span>
+        </h3>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div class="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
+                <div class="flex items-center justify-between">
+                    <span class="font-bold text-slate-300">📐 Planta Baixa:</span>
+                    <span class="text-[10px] text-amber-400 font-mono truncate max-w-[120px]">{planta_nome}</span>
+                </div>
+                {f'''<a href="{planta_data}" target="_blank" download="{planta_nome}" class="block text-center py-2 px-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl transition shadow">👁️ Abrir / Baixar Planta</a>''' if planta_data else '''<span class="block text-center py-2 text-slate-500 bg-slate-900 rounded-xl border border-slate-800">Nenhuma planta anexada</span>'''}
+            </div>
+            <div class="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
+                <div class="flex items-center justify-between">
+                    <span class="font-bold text-slate-300">🖼️ Foto Inspiração:</span>
+                    <span class="text-[10px] text-slate-400 font-mono truncate max-w-[120px]">{insp_nome}</span>
+                </div>
+                {f'''<a href="{insp_data}" target="_blank" download="{insp_nome}" class="block text-center py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl transition border border-slate-700">👁️ Abrir / Baixar Foto</a>''' if insp_data else '''<span class="block text-center py-2 text-slate-500 bg-slate-900 rounded-xl border border-slate-800">Nenhuma foto anexada</span>'''}
+            </div>
+        </div>
+    </div>
+    """
 
     ambientes_cadastrados = []
     try:
@@ -893,52 +837,6 @@ def render_dashboard_view():
         </tr>
         """
 
-    tabela_comissoes_html = ""
-    for h in leads:
-        h_d = dict(h)
-        pv = float(h_d.get("preco_venda") or 0) + float(h_d.get("adendo_valor") or 0)
-        vendedor_linha = h_d.get("vendedor_responsavel") or "Raquel Marcelino"
-        
-        if perfil == "vendedor" and vendedor_linha != CURRENT_SESSION["user_nome"]:
-            continue
-
-        pct_com = float(h_d.get("comissao_pct") or 4.0)
-        val_com = float(h_d.get("comissao_valor") or (pv * (pct_com / 100.0)))
-        st = h_d.get("status") or "Em Negociação"
-
-        tabela_comissoes_html += f"""
-        <tr class="border-b border-slate-800 text-xs hover:bg-slate-800/40">
-            <td class="py-2.5 px-3 font-mono text-amber-400 font-bold">P{h_d['id']:05d}</td>
-            <td class="py-2.5 px-3 text-white font-semibold">{h_d.get('cliente_nome','')}</td>
-            <td class="py-2.5 px-3 text-slate-300 font-semibold">{vendedor_linha}</td>
-            <td class="py-2.5 px-3 text-right text-slate-300">R$ {pv:,.2f}</td>
-            <td class="py-2.5 px-3 text-center text-amber-400 font-bold">{pct_com:.1f}%</td>
-            <td class="py-2.5 px-3 text-right font-black text-emerald-400">R$ {val_com:,.2f}</td>
-            <td class="py-2.5 px-3 text-center"><span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-950 border border-slate-700 text-slate-300">{st}</span></td>
-        </tr>
-        """
-
-    if not tabela_comissoes_html:
-        tabela_comissoes_html = "<tr><td colspan='7' class='py-4 text-center text-xs text-slate-500'>Nenhum lançamento de comissão registrado para esta visualização.</td></tr>"
-
-    tabela_equipe_html = ""
-    for u in equipe:
-        u_d = dict(u)
-        tabela_equipe_html += f"""
-        <tr class="border-b border-slate-800 text-xs hover:bg-slate-800/40">
-            <td class="py-2.5 px-3 text-white font-bold">{u_d.get('nome')}</td>
-            <td class="py-2.5 px-3 text-amber-300 font-mono">{u_d.get('email')}</td>
-            <td class="py-2.5 px-3 text-center"><span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950 border border-amber-500/40 text-amber-300 uppercase">{u_d.get('perfil')}</span></td>
-            <td class="py-2.5 px-3 text-center"><span class="text-emerald-400 font-bold">{'✓ Ativo' if u_d.get('ativo') else '✕ Inativo'}</span></td>
-            <td class="py-2.5 px-3 text-center">
-                <form action="/redefinir-senha-funcionario" method="post" class="inline">
-                    <input type="hidden" name="email_funcionario" value="{u_d.get('email')}">
-                    <button type="submit" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded text-[11px] font-bold">🔑 Gerar Nova Senha Provisória</button>
-                </form>
-            </td>
-        </tr>
-        """
-
     def cor_bolinha(val):
         if val == 2: return "bg-emerald-500 shadow-emerald-500/50 shadow-md", "✓ Concluído"
         if val == 1: return "bg-amber-400 shadow-amber-400/50 shadow-md", "⚡ Em Análise"
@@ -973,8 +871,8 @@ def render_dashboard_view():
             </div>
             <nav class="flex items-center space-x-3 text-xs font-semibold">
                 <button onclick="mudarAba('aba-geral')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">📂 Pastas</button>
-                <button onclick="mudarAba('aba-comissoes')" class="px-3 py-1.5 rounded-lg bg-emerald-950/80 text-emerald-300 hover:bg-emerald-900 border border-emerald-500/40">💰 Extrato de Comissões</button>
-                {f'''<button onclick="mudarAba('aba-equipe')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700">👥 Equipe & Acessos</button>
+                <button onclick="mudarAba('aba-comissoes')" class="px-3 py-1.5 rounded-lg bg-emerald-950/80 text-emerald-300 hover:bg-emerald-900 border border-emerald-500/40">💰 Comissões</button>
+                {f'''<button onclick="mudarAba('aba-equipe')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700">👥 Equipe</button>
                 <button onclick="mudarAba('aba-empresa')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700">🏢 Empresa</button>''' if pode_gerenciar_equipe else ''}
                 <a href="/solicitar-orcamento" target="_blank" class="px-3 py-1.5 rounded-lg bg-amber-950 text-amber-300 hover:bg-amber-900 border border-amber-500/40">🔗 Link Público</a>
             </nav>
@@ -1009,7 +907,6 @@ def render_dashboard_view():
                     <li><a href="/minuta-contrato/{c_id}" target="_blank" class="tree-item flex items-center gap-2 p-2.5 rounded-xl text-amber-400 font-bold hover:bg-slate-800">📜 5. Minuta Contrato PDF</a></li>
                     <li><a href="/assinar/{c_id}" target="_blank" class="tree-item flex items-center gap-2 p-2.5 rounded-xl text-emerald-400 font-bold hover:bg-slate-800">✍️ 6. Assinatura Digital</a></li>
                     <li><button onclick="mudarAba('aba-comissoes')" id="btn-aba-comissoes" class="tree-item w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-emerald-300 font-semibold">💰 7. Extrato de Comissões</button></li>
-                    {f'''<li><button onclick="mudarAba('aba-equipe')" id="btn-aba-equipe" class="tree-item w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-amber-300 font-semibold">👥 8. Gestão de Equipe</button></li>''' if pode_gerenciar_equipe else ''}
                 </ul>
             </div>
 
@@ -1047,7 +944,7 @@ def render_dashboard_view():
                             <a href="/minuta-contrato/{c_id}" target="_blank" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-xs font-bold text-slate-200">🖨️ Gerar PDF</a>
                             <a href="/assinar/{c_id}" target="_blank" class="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold rounded-xl text-xs shadow-lg">✍️ Assinatura</a>
                         </div>
-                        <span class="text-[11px] text-slate-400 font-semibold">Comissão: <b class="text-emerald-400">R$ {c_comissao:,.2f}</b></span>
+                        {f'''<a href="https://api.whatsapp.com/send?phone=55{tel_lead_limpo}&text=Ol%C3%A1%20{c_nome}!%20Recebemos%20sua%20solicita%C3%A7%C3%A3o%20de%20projeto%20(Pasta%20P{c_id:05d})%20na%20{empresa['nome_empresa']}." target="_blank" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black rounded-xl text-xs shadow flex items-center gap-1">📲 WhatsApp do Lead</a>''' if tel_lead_limpo else ''}
                     </div>
 
                     <div class="grid grid-cols-2 gap-3 text-xs pt-2">
@@ -1057,6 +954,9 @@ def render_dashboard_view():
                         <div><span class="text-slate-500 block text-[11px]">Telefone:</span><span class="font-bold text-slate-300">{c_tel}</span></div>
                     </div>
                 </div>
+
+                <!-- ARQUIVOS E ANEXOS DO LEAD (PLANTA / INSPIRAÇÃO) -->
+                {anexos_html}
 
                 <!-- CRONOGRAMA DE PARCELAS -->
                 <div class="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
@@ -1187,149 +1087,6 @@ def render_dashboard_view():
                 </form>
             </div>
 
-            <!-- ABA 5: EXTRATO DE COMISSÕES -->
-            <div id="aba-comissoes" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
-                <div class="flex justify-between items-center pb-2 border-b border-slate-800">
-                    <div>
-                        <h3 class="font-bold text-emerald-400 uppercase">💰 Extrato de Comissões por Vendedor</h3>
-                        <p class="text-[11px] text-slate-400">Auditoria individualizada e fechamento de comissões.</p>
-                    </div>
-                    {f'''<span class="px-3 py-1 bg-emerald-950 border border-emerald-500/40 text-emerald-300 font-bold rounded-xl text-xs">Total Empresa: R$ {met['comissoes']:,.2f}</span>''' if pode_ver_comissoes_geral else ''}
-                </div>
-
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left text-xs border-collapse">
-                        <thead class="bg-slate-950 border-b border-slate-800 text-slate-400 font-semibold uppercase">
-                            <tr>
-                                <th class="py-2.5 px-3">Pasta</th>
-                                <th class="py-2.5 px-3">Cliente</th>
-                                <th class="py-2.5 px-3">Vendedor</th>
-                                <th class="py-2.5 px-3 text-right">Valor Venda</th>
-                                <th class="py-2.5 px-3 text-center">% Com.</th>
-                                <th class="py-2.5 px-3 text-right">Comissão (R$)</th>
-                                <th class="py-2.5 px-3 text-center">Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>{tabela_comissoes_html}</tbody>
-                    </table>
-                </div>
-            </div>
-
-            <!-- ABA 6: GESTÃO DE EQUIPE (ADM ONLY) -->
-            <div id="aba-equipe" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
-                <div class="flex justify-between items-center pb-2 border-b border-slate-800">
-                    <div>
-                        <h3 class="font-bold text-amber-400 uppercase">👥 Gestão de Usuários & Senhas Provisórias</h3>
-                        <p class="text-[11px] text-slate-400">Cadastre novos funcionários e gere links seguros de primeiro acesso.</p>
-                    </div>
-                </div>
-
-                <form action="/criar-usuario" method="post" class="bg-slate-950 p-4 rounded-2xl border border-slate-800 grid sm:grid-cols-3 gap-3">
-                    <div>
-                        <label class="block text-slate-400 mb-1 font-semibold">Nome do Funcionário</label>
-                        <input type="text" name="nome" placeholder="Ex: Lucas Vendedor" required class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
-                    </div>
-                    <div>
-                        <label class="block text-slate-400 mb-1 font-semibold">E-mail de Acesso</label>
-                        <input type="email" name="email" placeholder="lucas@mvi.com" required class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
-                    </div>
-                    <div>
-                        <label class="block text-slate-400 mb-1 font-semibold">Cargo / Perfil</label>
-                        <select name="perfil" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold">
-                            <option value="vendedor">Vendedor (Sem acesso a Lucro)</option>
-                            <option value="gerente">Gerente (Sem acesso a Lucro)</option>
-                            <option value="financeiro">Financeiro (Acesso a Comissões e Pagamentos)</option>
-                            <option value="liberacao">Liberação / Fábrica (Projetos e Clientes)</option>
-                            <option value="adm">Administrador Geral (Acesso Total)</option>
-                        </select>
-                    </div>
-                    <button type="submit" class="sm:col-span-3 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold rounded-xl shadow-lg mt-1">
-                        ➕ Cadastrar Funcionário & Gerar Senha Provisória
-                    </button>
-                </form>
-
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left text-xs border-collapse">
-                        <thead class="bg-slate-950 border-b border-slate-800 text-slate-400 font-semibold uppercase">
-                            <tr>
-                                <th class="py-2.5 px-3">Nome</th>
-                                <th class="py-2.5 px-3">E-mail</th>
-                                <th class="py-2.5 px-3 text-center">Perfil</th>
-                                <th class="py-2.5 px-3 text-center">Status</th>
-                                <th class="py-2.5 px-3 text-center">Ações</th>
-                            </tr>
-                        </thead>
-                        <tbody>{tabela_equipe_html}</tbody>
-                    </table>
-                </div>
-            </div>
-
-            <!-- ABA 7: CONFIGURAÇÕES DA EMPRESA -->
-            <div id="aba-empresa" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
-                <div class="border-b border-slate-800 pb-2">
-                    <h3 class="font-bold text-amber-400 uppercase">🏢 Configuração da Empresa & Parâmetros Comerciais</h3>
-                </div>
-                <form action="/salvar-empresa" method="post" class="grid sm:grid-cols-2 gap-3">
-                    <div class="sm:col-span-2">
-                        <label class="block text-slate-400 mb-1 font-semibold">Razão Social / Nome Fantasia</label>
-                        <input type="text" name="nome_empresa" value="{empresa.get('nome_empresa','')}" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold">
-                    </div>
-                    <div>
-                        <label class="block text-slate-400 mb-1 font-semibold">CNPJ</label>
-                        <input type="text" name="cnpj" value="{empresa.get('cnpj','')}" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                    </div>
-                    <div>
-                        <label class="block text-slate-400 mb-1 font-semibold">WhatsApp Comercial</label>
-                        <input type="text" name="telefone" value="{empresa.get('telefone','')}" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
-                    </div>
-                    <div>
-                        <label class="block text-slate-400 mb-1 font-semibold">Teto Máx. Desconto Vendedor (%)</label>
-                        <input type="number" step="0.5" name="desconto_max_vendedor" value="{empresa.get('desconto_max_vendedor', 3.0)}" class="w-full p-2.5 bg-slate-950 border border-amber-500/50 rounded-xl text-amber-300 font-bold">
-                    </div>
-                    <div>
-                        <label class="block text-slate-400 mb-1 font-semibold">Comissão Padrão da Equipe (%)</label>
-                        <input type="number" step="0.5" name="comissao_padrao_pct" value="{empresa.get('comissao_padrao_pct', 4.0)}" class="w-full p-2.5 bg-slate-950 border border-emerald-500/50 rounded-xl text-emerald-300 font-bold">
-                    </div>
-                    <button type="submit" class="sm:col-span-2 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-lg mt-2">
-                        💾 Salvar Parâmetros
-                    </button>
-                </form>
-            </div>
-
-            <!-- ABA ADICIONAR AMBIENTE -->
-            <div id="aba-novo-ambiente" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
-                <h3 class="font-bold text-amber-400 uppercase pb-1 border-b border-slate-800">🏠 Adicionar Novo Ambiente</h3>
-                <form action="/adicionar-ambiente-pasta" method="post" class="space-y-3">
-                    <input type="hidden" name="orcamento_id" value="{c_id}">
-                    <div>
-                        <label class="block text-slate-400 mb-1 font-semibold">Nome do Ambiente</label>
-                        <input type="text" name="nome_ambiente" placeholder="Ex: Suíte Master / Cozinha" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold">
-                    </div>
-                    <div>
-                        <label class="block text-slate-400 mb-1 font-semibold">Valor do Ambiente (R$)</label>
-                        <input type="number" step="10" name="valor_ambiente" placeholder="Ex: 8500" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-amber-400 font-bold">
-                    </div>
-                    <button type="submit" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-lg">➕ Inserir Ambiente na Pasta</button>
-                </form>
-            </div>
-
-            <!-- ABA ADICIONAR VERSÃO ORÇAMENTO -->
-            <div id="aba-novo-orcamento-versao" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
-                <h3 class="font-bold text-sky-400 uppercase pb-1 border-b border-slate-800">⭐ Criar Nova Opção de Orçamento</h3>
-                <form action="/adicionar-versao-orcamento" method="post" class="space-y-3">
-                    <input type="hidden" name="orcamento_id" value="{c_id}">
-                    <div>
-                        <label class="block text-slate-400 mb-1 font-semibold">Nome da Versão</label>
-                        <input type="text" name="nome_versao" placeholder="Ex: Orçamento #2 - Opção Sem Dormitórios" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold">
-                    </div>
-                    <div>
-                        <label class="block text-slate-400 mb-1 font-semibold">Valor Total (R$)</label>
-                        <input type="number" step="10" name="valor_versao" placeholder="Ex: 19500" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-amber-400 font-bold">
-                    </div>
-                    <button type="submit" class="w-full py-3 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl shadow-lg">⭐ Salvar Nova Opção</button>
-                </form>
-            </div>
-
             <!-- ABA CARTEIRA GERAL DE PASTAS -->
             <div id="aba-geral" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl space-y-3">
                 <div class="bg-slate-850 px-5 py-3 border-b border-slate-800 flex justify-between items-center">
@@ -1352,9 +1109,41 @@ def render_dashboard_view():
                 </div>
             </div>
 
+            <!-- ABA 7: CONFIGURAÇÕES DA EMPRESA -->
+            <div id="aba-empresa" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
+                <div class="border-b border-slate-800 pb-2">
+                    <h3 class="font-bold text-amber-400 uppercase">🏢 Configuração da Empresa & Parâmetros Comerciais</h3>
+                </div>
+                <form action="/salvar-empresa" method="post" class="grid sm:grid-cols-2 gap-3">
+                    <div class="sm:col-span-2">
+                        <label class="block text-slate-400 mb-1 font-semibold">Razão Social / Nome Fantasia</label>
+                        <input type="text" name="nome_empresa" value="{empresa.get('nome_empresa','')}" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 mb-1 font-semibold">CNPJ</label>
+                        <input type="text" name="cnpj" value="{empresa.get('cnpj','')}" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 mb-1 font-semibold">WhatsApp Comercial (com DDD)</label>
+                        <input type="text" name="telefone" value="{empresa.get('telefone','')}" placeholder="Ex: 11999998888" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 mb-1 font-semibold">Teto Máx. Desconto Vendedor (%)</label>
+                        <input type="number" step="0.5" name="desconto_max_vendedor" value="{empresa.get('desconto_max_vendedor', 3.0)}" class="w-full p-2.5 bg-slate-950 border border-amber-500/50 rounded-xl text-amber-300 font-bold">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 mb-1 font-semibold">Comissão Padrão da Equipe (%)</label>
+                        <input type="number" step="0.5" name="comissao_padrao_pct" value="{empresa.get('comissao_padrao_pct', 4.0)}" class="w-full p-2.5 bg-slate-950 border border-emerald-500/50 rounded-xl text-emerald-300 font-bold">
+                    </div>
+                    <button type="submit" class="sm:col-span-2 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-lg mt-2">
+                        💾 Salvar Parâmetros
+                    </button>
+                </form>
+            </div>
+
         </div>
 
-        <!-- RESUMO DA VENDA & QUALIFICAÇÃO -->
+        <!-- RESUMO LATERAL DA VENDA & QUALIFICAÇÃO -->
         <div class="lg:col-span-3 space-y-4">
             <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3 text-xs">
                 <h3 class="font-bold text-amber-400 pb-1 border-b border-slate-800 uppercase tracking-wide">Resumo da Venda</h3>
@@ -1443,125 +1232,6 @@ def login_route(username: str = Form(...), password: str = Form(...)):
 def painel_get_route():
     return render_dashboard_view()
 
-@app.post("/criar-usuario", response_class=HTMLResponse)
-def criar_usuario_route(
-    request: Request,
-    nome: str = Form(...),
-    email: str = Form(...),
-    perfil: str = Form("vendedor")
-):
-    if CURRENT_SESSION.get("user_perfil") != "adm":
-        return RedirectResponse(url="/painel-get", status_code=303)
-
-    token = secrets.token_urlsafe(16)
-    senha_temp = f"MVI@{secrets.randbelow(8999)+1000}"
-    
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT OR REPLACE INTO usuarios (email, senha, nome, perfil, empresa_id, token_primeiro_acesso, primeiro_acesso_concluido, ativo)
-        VALUES (?, ?, ?, ?, 1, ?, 0, 1)
-    """, (email.strip().lower(), senha_temp, nome.strip(), perfil, token))
-    conn.commit()
-    conn.close()
-
-    link_ativacao = f"{str(request.base_url).rstrip('/')}/primeiro-acesso/{token}"
-    return render_convite_gerado(nome, email, perfil, "", link_ativacao, senha_temp)
-
-@app.get("/primeiro-acesso/{token}", response_class=HTMLResponse)
-def tela_primeiro_acesso(token: str):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM usuarios WHERE token_primeiro_acesso = ?", (token,))
-    user = cursor.fetchone()
-    conn.close()
-    if not user:
-        return HTMLResponse("Link de ativação inválido ou já utilizado.", status_code=404)
-    return render_tela_nova_senha(user, token)
-
-@app.post("/salvar-nova-senha", response_class=HTMLResponse)
-def salvar_nova_senha(token: str = Form(...), nova_senha: str = Form(...), confirma_senha: str = Form(...)):
-    if nova_senha != confirma_senha:
-        return HTMLResponse("<script>alert('As senhas digitadas não coincidem!'); history.back();</script>")
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE usuarios SET senha = ?, token_primeiro_acesso = '', primeiro_acesso_concluido = 1, ativo = 1 WHERE token_primeiro_acesso = ?", (nova_senha, token))
-    conn.commit()
-    conn.close()
-    return RedirectResponse(url="/", status_code=303)
-
-@app.post("/redefinir-senha-funcionario", response_class=HTMLResponse)
-def redefinir_senha_funcionario(request: Request, email_funcionario: str = Form(...)):
-    if CURRENT_SESSION.get("user_perfil") != "adm":
-        return RedirectResponse(url="/painel-get", status_code=303)
-        
-    token = secrets.token_urlsafe(16)
-    senha_temp = f"MVI@{secrets.randbelow(8999)+1000}"
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT nome, perfil FROM usuarios WHERE email = ?", (email_funcionario,))
-    user = cursor.fetchone()
-    if user:
-        cursor.execute("UPDATE usuarios SET senha = ?, token_primeiro_acesso = ?, primeiro_acesso_concluido = 0 WHERE email = ?", (senha_temp, token, email_funcionario))
-        conn.commit()
-        conn.close()
-        link_ativacao = f"{str(request.base_url).rstrip('/')}/primeiro-acesso/{token}"
-        return render_convite_gerado(user["nome"], email_funcionario, user["perfil"], "", link_ativacao, senha_temp)
-    conn.close()
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/salvar-negociacao-mesa", response_class=HTMLResponse)
-def salvar_negociacao_mesa(
-    orcamento_id: int = Form(...),
-    preco_venda: float = Form(0.0),
-    desconto_pct: float = Form(0.0),
-    num_parcelas: int = Form(1),
-    entrada_valor: float = Form(0.0),
-    forma_opcao: str = Form("Entrada PIX + Cartão de Crédito")
-):
-    empresa = get_empresa_dados(1)
-    desconto_max = float(empresa.get("desconto_max_vendedor", 3.0))
-    pct_comissao = float(empresa.get("comissao_padrao_pct", 4.0))
-
-    precisa_aprov = (desconto_pct > desconto_max and CURRENT_SESSION["user_perfil"] == "vendedor")
-    desconto_autorizado = 0 if precisa_aprov else 1
-    status = "Aguardando Liberação de Desconto" if precisa_aprov else "Em Negociação"
-
-    comissao_calculada = round(preco_venda * (pct_comissao / 100.0))
-
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT custo_materiais, custo_mao_obra, custo_frete_montagem FROM orcamentos WHERE id = ?", (orcamento_id,))
-    orc = cursor.fetchone()
-    
-    custo_tot = (float(orc["custo_materiais"] or 0) + float(orc["custo_mao_obra"] or 0) + float(orc["custo_frete_montagem"] or 0)) if orc else (preco_venda * 0.5)
-    lucro_final = round(preco_venda - (custo_tot + (preco_venda * 0.10) + comissao_calculada))
-    saldo = max(preco_venda - entrada_valor, 0.0)
-    v_parc = round(saldo / num_parcelas) if num_parcelas > 0 else 0.0
-
-    cursor.execute("""
-        UPDATE orcamentos SET
-            preco_bruto = ?,
-            desconto_pct = ?,
-            preco_venda = ?,
-            modalidade_pagamento = ?,
-            entrada_valor = ?,
-            num_parcelas = ?,
-            valor_parcela = ?,
-            lucro_liquido = ?,
-            comissao_pct = ?,
-            comissao_valor = ?,
-            desconto_autorizado = ?,
-            status = ?
-        WHERE id = ?
-    """, (round(preco_venda), desconto_pct, round(preco_venda), forma_opcao, round(entrada_valor), num_parcelas, v_parc, lucro_final, pct_comissao, comissao_calculada, desconto_autorizado, status, orcamento_id))
-    conn.commit()
-    conn.close()
-    return RedirectResponse(url="/painel-get", status_code=303)
-
 @app.get("/solicitar-orcamento", response_class=HTMLResponse)
 @app.get("/solicitar-orcamento/{slug}", response_class=HTMLResponse)
 def captacao_route(slug: str = "mvi"):
@@ -1590,7 +1260,7 @@ async def submit_lead_route(
     marca_ferragens: str = Form("Blum (Linha Blumotion Áustria)"),
     espessura_tamponamento: str = Form("Tamponamento 25mm"),
     descricao: str = Form(""),
-    planta: UploadFile = File(...),
+    planta: UploadFile = File(None),
     inspiracao: UploadFile = File(None)
 ):
     ambientes_selecionados = []
@@ -1610,6 +1280,36 @@ async def submit_lead_route(
     empresa = get_empresa_dados(1)
     calc = calcular_engenharia(ambientes_selecionados, area_m2_total, espessura_caixa, cor_caixa, espessura_porta, cor_porta, acabamento_porta, espessura_tamponamento, marca_ferragens)
 
+    # Conversão dos arquivos para Base64 persistente
+    planta_b64, planta_nome = "", ""
+    if planta and planta.filename:
+        try:
+            p_bytes = await planta.read()
+            if p_bytes:
+                mime_p = planta.content_type or "application/octet-stream"
+                planta_b64 = f"data:{mime_p};base64,{base64.b64encode(p_bytes).decode('utf-8')}"
+                planta_nome = planta.filename
+        except Exception:
+            pass
+
+    insp_b64, insp_nome = "", ""
+    if inspiracao and inspiracao.filename:
+        try:
+            i_bytes = await inspiracao.read()
+            if i_bytes:
+                mime_i = inspiracao.content_type or "image/jpeg"
+                insp_b64 = f"data:{mime_i};base64,{base64.b64encode(i_bytes).decode('utf-8')}"
+                insp_nome = inspiracao.filename
+        except Exception:
+            pass
+
+    anexos_payload = json.dumps({
+        "planta": planta_b64,
+        "planta_nome": planta_nome,
+        "inspiracao": insp_b64,
+        "inspiracao_nome": insp_nome
+    })
+
     agora = datetime.now().strftime("%d/%m/%Y %H:%M")
 
     conn = sqlite3.connect(DB_PATH)
@@ -1619,12 +1319,12 @@ async def submit_lead_route(
             empresa_id, criado_em, vendedor_responsavel, vendedor_email, cliente_nome, cliente_telefone, cliente_ambiente,
             prazo_entrega, data_entrega_prevista, status, custo_materiais,
             custo_mao_obra, custo_frete_montagem, preco_bruto, preco_venda, lucro_liquido, comissao_valor,
-            observacoes_tecnicas, descricao_promob
-        ) VALUES (1, ?, 'Raquel Marcelino', 'raquel@mvi.com', ?, ?, ?, '25 dias úteis', ?, 'Novo Lead Aberto', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            observacoes_tecnicas, descricao_promob, imagens_json, arquivo_planta, arquivo_inspiracao
+        ) VALUES (1, ?, 'Raquel Marcelino', 'raquel@mvi.com', ?, ?, ?, '25 dias úteis', ?, 'Novo Lead Aberto', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         agora, nome, whatsapp, ambientes_str, (date.today() + timedelta(days=25)).strftime("%Y-%m-%d"),
         calc["total_mat"], calc["custo_mo"], calc["custo_frete"], calc["preco_bruto"], calc["preco_venda"], calc["lucro"], calc["comissao"],
-        descricao, calc["desc_promob"]
+        descricao, calc["desc_promob"], anexos_payload, planta_b64, insp_b64
     ))
     conn.commit()
     novo_id = cursor.lastrowid
@@ -1659,75 +1359,6 @@ def salvar_dados_completos_cliente_route(
         WHERE id = ?
     """, (cliente_nome, cliente_cpf, cliente_telefone, cliente_cep_postal, cliente_endereco_postal, cliente_cep_entrega, cliente_endereco_entrega, orcamento_id))
     conn.commit()
-    conn.close()
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/adicionar-ambiente-pasta", response_class=HTMLResponse)
-def adicionar_ambiente_pasta(orcamento_id: int = Form(...), nome_ambiente: str = Form(...), valor_ambiente: float = Form(0.0)):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT ambientes_json FROM orcamentos WHERE id = ?", (orcamento_id,))
-    orc = cursor.fetchone()
-    if orc:
-        ambientes = []
-        try:
-            ambientes = json.loads(orc["ambientes_json"] or "[]")
-        except Exception:
-            ambientes = []
-        ambientes.append({"id": len(ambientes) + 1, "nome": nome_ambiente.strip(), "valor": round(valor_ambiente)})
-        total_ambientes = sum(float(a.get("valor", 0)) for a in ambientes)
-        nomes_amb = " + ".join([a.get("nome", "") for a in ambientes if a.get("nome")])
-        cursor.execute("UPDATE orcamentos SET ambientes_json = ?, preco_venda = ?, preco_bruto = ?, cliente_ambiente = ? WHERE id = ?", (json.dumps(ambientes), total_ambientes, total_ambientes, nomes_amb, orcamento_id))
-        conn.commit()
-    conn.close()
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/remover-ambiente-pasta", response_class=HTMLResponse)
-def remover_ambiente_pasta(orcamento_id: int = Form(...), ambiente_id: int = Form(...)):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT ambientes_json FROM orcamentos WHERE id = ?", (orcamento_id,))
-    orc = cursor.fetchone()
-    if orc:
-        ambientes = [a for a in json.loads(orc["ambientes_json"] or "[]") if a.get("id") != ambiente_id]
-        total_ambientes = sum(float(a.get("valor", 0)) for a in ambientes)
-        nomes_amb = " + ".join([a.get("nome", "") for a in ambientes if a.get("nome")]) or "Projeto Sob Medida"
-        cursor.execute("UPDATE orcamentos SET ambientes_json = ?, preco_venda = ?, preco_bruto = ?, cliente_ambiente = ? WHERE id = ?", (json.dumps(ambientes), total_ambientes, total_ambientes, nomes_amb, orcamento_id))
-        conn.commit()
-    conn.close()
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/adicionar-versao-orcamento", response_class=HTMLResponse)
-def adicionar_versao_orcamento(orcamento_id: int = Form(...), nome_versao: str = Form(...), valor_versao: float = Form(0.0)):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT versoes_orcamentos_json, preco_venda FROM orcamentos WHERE id = ?", (orcamento_id,))
-    orc = cursor.fetchone()
-    if orc:
-        versoes = json.loads(orc["versoes_orcamentos_json"] or "[]")
-        novo_id = len(versoes) + 1
-        versoes.append({"id": novo_id, "nome": nome_versao.strip(), "valor": round(valor_versao), "ativo": True})
-        cursor.execute("UPDATE orcamentos SET versoes_orcamentos_json = ?, versao_ativa_id = ?, preco_venda = ?, preco_bruto = ? WHERE id = ?", (json.dumps(versoes), novo_id, round(valor_versao), round(valor_versao), orcamento_id))
-        conn.commit()
-    conn.close()
-    return RedirectResponse(url="/painel-get", status_code=303)
-
-@app.post("/selecionar-versao-orcamento", response_class=HTMLResponse)
-def selecionar_versao_orcamento(orcamento_id: int = Form(...), versao_id: int = Form(...)):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT versoes_orcamentos_json FROM orcamentos WHERE id = ?", (orcamento_id,))
-    orc = cursor.fetchone()
-    if orc:
-        versoes = json.loads(orc["versoes_orcamentos_json"] or "[]")
-        val = next((float(v.get("valor", 0)) for v in versoes if v.get("id") == versao_id), 0.0)
-        if val > 0:
-            cursor.execute("UPDATE orcamentos SET versao_ativa_id = ?, preco_venda = ?, preco_bruto = ? WHERE id = ?", (versao_id, val, val, orcamento_id))
-            conn.commit()
     conn.close()
     return RedirectResponse(url="/painel-get", status_code=303)
 
