@@ -13,7 +13,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, date, timedelta
 from typing import List
 
-app = FastAPI(title="MVI Móveis Planejados - Master SaaS")
+app = FastAPI(title="MVI Móveis Planejados - Master SaaS & FinTech")
 DB_PATH = "mvi_production_v49.db"
 META_PIXEL_ID = "641231925101582"
 
@@ -72,7 +72,9 @@ def init_db():
             precos_json TEXT DEFAULT '{}',
             chave_mestra TEXT DEFAULT 'MVI2026',
             desconto_max_vendedor REAL DEFAULT 3.0,
-            comissao_padrao_pct REAL DEFAULT 4.0
+            comissao_padrao_pct REAL DEFAULT 4.0,
+            taxa_juros_mensal REAL DEFAULT 1.99,
+            financiamento_ativo INTEGER DEFAULT 1
         )
     """)
 
@@ -86,6 +88,26 @@ def init_db():
             token_primeiro_acesso TEXT DEFAULT '',
             primeiro_acesso_concluido INTEGER DEFAULT 1,
             ativo INTEGER DEFAULT 1
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS propostas_credito (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            empresa_id INTEGER DEFAULT 1,
+            orcamento_id INTEGER,
+            cliente_nome TEXT,
+            cliente_cpf TEXT,
+            cliente_renda REAL DEFAULT 0,
+            valor_financiado REAL DEFAULT 0,
+            num_parcelas INTEGER DEFAULT 24,
+            taxa_juros REAL DEFAULT 1.99,
+            valor_parcela REAL DEFAULT 0,
+            total_com_juros REAL DEFAULT 0,
+            status TEXT DEFAULT 'Aprovado (Crédito Liberado)',
+            score_estimado INTEGER DEFAULT 750,
+            criado_em TEXT,
+            contrato_ccb_assinado INTEGER DEFAULT 0
         )
     """)
 
@@ -125,7 +147,7 @@ def init_db():
             cliente_banco TEXT DEFAULT '',
             cliente_agencia TEXT DEFAULT '',
             cliente_conta TEXT DEFAULT '',
-            cliente_renda TEXT DEFAULT '',
+            cliente_renda TEXT DEFAULT '5500',
             ref_nome_1 TEXT DEFAULT '',
             ref_tel_1 TEXT DEFAULT '',
             ref_nome_2 TEXT DEFAULT '',
@@ -187,6 +209,8 @@ def init_db():
         "cliente_rua_entrega TEXT DEFAULT ''", "cliente_num_entrega TEXT DEFAULT ''",
         "cliente_comp_entrega TEXT DEFAULT ''", "cliente_bairro_entrega TEXT DEFAULT ''",
         "cliente_cidade_entrega TEXT DEFAULT ''", "cliente_uf_entrega TEXT DEFAULT ''",
+        "cliente_renda TEXT DEFAULT '5500'",
+        "taxa_juros_mensal REAL DEFAULT 1.99", "financiamento_ativo INTEGER DEFAULT 1",
         "arquivo_planta TEXT DEFAULT ''", "arquivo_inspiracao TEXT DEFAULT ''", "imagens_json TEXT DEFAULT '{}'"
     ]
     for col in novas_colunas:
@@ -202,8 +226,8 @@ def init_db():
             "fita_borda_m": 3.20, "puxador": 25.00
         }
         cursor.execute("""
-            INSERT INTO empresas (id, slug, nome_empresa, cnpj, endereco, telefone, email, pix, precos_json, chave_mestra, desconto_max_vendedor, comissao_padrao_pct)
-            VALUES (1, 'mvi', 'MVI Móveis Planejados', '', '', '', '', '', ?, 'MVI2026', 3.0, 4.0)
+            INSERT INTO empresas (id, slug, nome_empresa, cnpj, endereco, telefone, email, pix, precos_json, chave_mestra, desconto_max_vendedor, comissao_padrao_pct, taxa_juros_mensal)
+            VALUES (1, 'mvi', 'MVI Móveis Planejados', '', '', '', '', '', ?, 'MVI2026', 3.0, 4.0, 1.99)
         """, (json.dumps(precos_iniciais),))
         
         cursor.execute("INSERT OR REPLACE INTO usuarios VALUES ('admin@mvi.com', '123456', 'Administrador Geral MVI', 'adm', 1, '', 1, 1)")
@@ -239,8 +263,18 @@ def get_empresa_dados(empresa_id=1):
         "id": 1, "slug": "mvi", "nome_empresa": "MVI Móveis Planejados",
         "cnpj": "", "endereco": "", "telefone": "",
         "email": "", "pix": "", "precos_json": "{}", "chave_mestra": "MVI2026",
-        "desconto_max_vendedor": 3.0, "comissao_padrao_pct": 4.0
+        "desconto_max_vendedor": 3.0, "comissao_padrao_pct": 4.0, "taxa_juros_mensal": 1.99
     }
+
+def calcular_parcela_price(valor: float, taxa_mensal_pct: float, parcelas: int) -> float:
+    if parcelas <= 1:
+        return valor
+    i = (taxa_mensal_pct / 100.0)
+    if i <= 0:
+        return valor / parcelas
+    # Fórmula Tabela Price: PMT = PV * [ i*(1+i)^n / ((1+i)^n - 1) ]
+    pmt = valor * (i * ((1 + i) ** parcelas)) / (((1 + i) ** parcelas) - 1)
+    return pmt
 
 def get_metricas():
     conn = sqlite3.connect(DB_PATH)
@@ -384,7 +418,7 @@ def render_login(msg=""):
         <div class="text-center space-y-2">
             <div class="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center font-black text-slate-950 text-2xl shadow-lg">MVI</div>
             <h1 class="text-xl font-bold text-white">MVI Móveis Planejados</h1>
-            <p class="text-xs text-slate-400">Hub Integrador Promob & Gestão Comercial</p>
+            <p class="text-xs text-slate-400">Hub Promob, Financiamentos & Gestão Comercial</p>
         </div>
         {erro}
         <form action="/painel" method="post" class="space-y-4">
@@ -409,23 +443,6 @@ def render_form_captacao(empresa):
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{empresa['nome_empresa']} - Simulador</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <script>
-    !function(f,b,e,v,n,t,s)
-    {{if(f.fbq)return;n=f.fbq=function(){{n.callMethod?
-    n.callMethod.apply(n,arguments):n.queue.push(arguments)}};
-    if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
-    n.queue=[];t=b.createElement(e);t.async=!0;
-    t.src=v;s=b.getElementsByTagName(e)[0];
-    s.parentNode.insertBefore(t,s)}}(window, document,'script',
-    'https://connect.facebook.net/en_US/fbevents.js');
-    fbq('init', '{META_PIXEL_ID}');
-    fbq('track', 'PageView');
-    fbq('track', 'InitiateCheckout');
-    </script>
-    <noscript><img height="1" width="1" style="display:none"
-    src="https://www.facebook.com/tr?id={META_PIXEL_ID}&ev=PageView&noscript=1"
-    /></noscript>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-between font-sans">
     <header class="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center justify-between">
@@ -629,24 +646,6 @@ def render_pre_orcamento_agendamento(
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{empresa['nome_empresa']} - Pré-Orçamento</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <script>
-    !function(f,b,e,v,n,t,s)
-    {{if(f.fbq)return;n=f.fbq=function(){{n.callMethod?
-    n.callMethod.apply(n,arguments):n.queue.push(arguments)}};
-    if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
-    n.queue=[];t=b.createElement(e);t.async=!0;
-    t.src=v;s=b.getElementsByTagName(e)[0];
-    s.parentNode.insertBefore(t,s)}}(window, document,'script',
-    'https://connect.facebook.net/en_US/fbevents.js');
-    fbq('init', '{META_PIXEL_ID}');
-    fbq('track', 'PageView');
-    fbq('track', 'Lead', {{
-        content_name: '{ambientes_str}',
-        value: {pv_redondo},
-        currency: 'BRL'
-    }});
-    </script>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen p-4 sm:p-8 font-sans flex items-center justify-center">
     <div class="max-w-2xl w-full bg-slate-900 border border-amber-500/40 rounded-3xl p-6 sm:p-10 shadow-2xl space-y-6">
@@ -717,6 +716,10 @@ def render_dashboard_view():
         cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 ORDER BY id DESC LIMIT 100")
     
     leads = cursor.fetchall()
+    
+    cursor.execute("SELECT * FROM propostas_credito WHERE empresa_id = 1 ORDER BY id DESC")
+    propostas_credito = cursor.fetchall()
+
     cursor.execute("SELECT * FROM usuarios WHERE empresa_id = 1 ORDER BY nome ASC")
     equipe = cursor.fetchall()
     conn.close()
@@ -735,6 +738,7 @@ def render_dashboard_view():
     c_nome = cliente_ativo.get("cliente_nome") or "Novo Cliente (Sem Pasta)"
     c_cpf = cliente_ativo.get("cliente_cpf") or "Não informado"
     c_tel = cliente_ativo.get("cliente_telefone") or "—"
+    c_renda = cliente_ativo.get("cliente_renda") or "5500"
     c_vendedor = cliente_ativo.get("vendedor_responsavel") or CURRENT_SESSION["user_nome"]
 
     # Endereço Postal
@@ -771,6 +775,19 @@ def render_dashboard_view():
     chk_comercial = int(cliente_ativo.get("check_comercial") or 1)
     chk_financeiro = int(cliente_ativo.get("check_financeiro") or 0)
     chk_contrato = int(cliente_ativo.get("check_contrato") or 0)
+
+    # Simulação Financiamento Próprio MVI Crédito
+    taxa_juros_empresa = float(empresa.get("taxa_juros_mensal", 1.99))
+    saldo_para_financiar = max(c_p_venda - c_entrada, 0)
+    
+    simulacoes_financeira = []
+    for n_parc in [12, 18, 24, 36]:
+        v_parc = calcular_parcela_price(saldo_para_financiar, taxa_juros_empresa, n_parc)
+        simulacoes_financeira.append({
+            "parcelas": n_parc,
+            "valor_parcela": v_parc,
+            "total": v_parc * n_parc
+        })
 
     c_imagens = {}
     try:
@@ -829,8 +846,7 @@ def render_dashboard_view():
         versoes_orcamentos = [{"id": 1, "nome": "Orçamento #1 (Principal)", "valor": c_p_venda, "ativo": True}]
 
     versao_ativa_id = int(cliente_ativo.get("versao_ativa_id") or 1)
-    saldo_financiar = max(c_p_venda - c_entrada, 0)
-    valor_por_parcela = round(saldo_financiar / c_parc) if c_parc > 0 else 0
+    valor_por_parcela = round(saldo_para_financiar / c_parc) if c_parc > 0 else 0
 
     linhas_parcelas = ""
     hoje = date.today()
@@ -972,6 +988,26 @@ def render_dashboard_view():
         </tr>
         """
 
+    # Tabela do Módulo de Financiamento Próprio
+    tabela_credito_html = ""
+    for prop in propostas_credito:
+        pr = dict(prop)
+        st_color = "bg-emerald-950 text-emerald-300 border-emerald-500/40" if "Aprovado" in pr['status'] else "bg-rose-950 text-rose-300 border-rose-500/40"
+        tabela_credito_html += f"""
+        <tr class="border-b border-slate-800 text-xs hover:bg-slate-800/40">
+            <td class="py-3 px-3 font-mono font-bold text-amber-400">CCB#{pr['id']:05d}</td>
+            <td class="py-3 px-3 text-slate-300">{pr['criado_em']}</td>
+            <td class="py-3 px-3 text-white font-bold">{pr['cliente_nome']}<span class="block text-[11px] text-slate-400 font-normal">CPF: {pr['cliente_cpf']} | Renda: R$ {fmt_br(pr['cliente_renda'])}</span></td>
+            <td class="py-3 px-3 text-amber-400 font-bold text-right">R$ {fmt_br(pr['valor_financiado'])}</td>
+            <td class="py-3 px-3 text-center font-bold text-white">{pr['num_parcelas']}x de <span class="text-emerald-400">R$ {fmt_br(pr['valor_parcela'])}</span></td>
+            <td class="py-3 px-3 text-right text-slate-300">R$ {fmt_br(pr['total_com_juros'])}</td>
+            <td class="py-3 px-3 text-center"><span class="px-2.5 py-1 rounded-full text-[10px] font-bold border {st_color}">{pr['status']}</span></td>
+            <td class="py-3 px-3 text-center">
+                <a href="/emitir-ccb/{pr['id']}" target="_blank" class="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded font-bold text-[11px] shadow">📄 Imprimir CCB</a>
+            </td>
+        </tr>
+        """
+
     def cor_bolinha(val):
         if val == 2: return "bg-emerald-500 shadow-emerald-500/50 shadow-md", "✓ Concluído"
         if val == 1: return "bg-amber-400 shadow-amber-400/50 shadow-md", "⚡ Em Análise"
@@ -986,7 +1022,7 @@ def render_dashboard_view():
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MVI Gestão - CRM Master</title>
+    <title>MVI Gestão - CRM & Financiamento Próprio</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         .tree-item {{ transition: all 0.2s; cursor: pointer; }}
@@ -1007,6 +1043,7 @@ def render_dashboard_view():
             <nav class="flex items-center space-x-3 text-xs font-semibold">
                 <button onclick="mudarAba('aba-geral')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">📂 Pastas</button>
                 {f'''<button onclick="mudarAba('aba-leads-gestao')" class="px-3 py-1.5 rounded-lg bg-amber-500 text-slate-950 hover:bg-amber-400 font-bold shadow-md">🎯 Leads & Orçamentos</button>''' if pode_gerenciar_leads else ''}
+                <button onclick="mudarAba('aba-financiamento-proprio')" class="px-3 py-1.5 rounded-lg bg-sky-950 text-sky-300 hover:bg-sky-900 border border-sky-500/40 font-bold">💳 MVI Financiamentos</button>
                 <button onclick="mudarAba('aba-comissoes')" class="px-3 py-1.5 rounded-lg bg-emerald-950/80 text-emerald-300 hover:bg-emerald-900 border border-emerald-500/40">💰 Comissões</button>
                 {f'''<button onclick="mudarAba('aba-equipe')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700">👥 Equipe</button>
                 <button onclick="mudarAba('aba-empresa')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700">🏢 Empresa</button>''' if pode_gerenciar_equipe else ''}
@@ -1112,6 +1149,75 @@ def render_dashboard_view():
                 </div>
             </div>
 
+            <!-- NOVA ABA: FINANCEIRA PRÓPRIA (MVI FINANCIAMENTOS) -->
+            <div id="aba-financiamento-proprio" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
+                <div class="flex justify-between items-center pb-2 border-b border-slate-800">
+                    <div>
+                        <h3 class="font-bold text-sm text-sky-400 uppercase">💳 MVI Crédito & Financiadora Própria</h3>
+                        <p class="text-[11px] text-slate-400">Emissão de CCB, parcelamento direto ao cliente e repasse à vista para a loja</p>
+                    </div>
+                    <span class="px-3 py-1 bg-sky-950 text-sky-300 border border-sky-500/40 rounded-full font-bold text-[10px]">CaaS Integrado</span>
+                </div>
+
+                <!-- SIMULADOR DE CRÉDITO DIRETO AO CONSUMIDOR -->
+                <div class="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
+                    <h4 class="font-bold text-white text-xs uppercase flex items-center justify-between">
+                        <span>⚡ Simulação de Crédito para a Pasta Ativa (P{c_id:05d})</span>
+                        <span class="text-amber-400">Saldo a Financiar: R$ {fmt_br(saldo_para_financiar)}</span>
+                    </h4>
+                    
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                        {''.join([f'''
+                        <div class="p-3 bg-slate-900 rounded-xl border border-slate-800 text-center space-y-1">
+                            <span class="text-[11px] text-slate-400 font-bold block">{sim['parcelas']}x Fixas</span>
+                            <span class="text-xs sm:text-sm font-black text-emerald-400 block">R$ {fmt_br(sim['valor_parcela'])}</span>
+                            <span class="text-[10px] text-slate-500 block">Total: R$ {fmt_br(sim['total'])}</span>
+                        </div>''' for sim in simulacoes_financeira])}
+                    </div>
+
+                    <form action="/submeter-proposta-credito" method="post" class="pt-2">
+                        <input type="hidden" name="orcamento_id" value="{c_id}">
+                        <input type="hidden" name="cliente_nome" value="{c_nome}">
+                        <input type="hidden" name="cliente_cpf" value="{c_cpf}">
+                        <input type="hidden" name="cliente_renda" value="{c_renda}">
+                        <input type="hidden" name="valor_financiado" value="{saldo_para_financiar}">
+                        <div class="flex gap-2">
+                            <select name="num_parcelas" class="p-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold text-xs flex-1">
+                                <option value="12">Plano 12x no Boleto/PIX Direto</option>
+                                <option value="18">Plano 18x no Boleto/PIX Direto</option>
+                                <option value="24" selected>Plano 24x no Boleto/PIX Direto</option>
+                                <option value="36">Plano 36x no Boleto/PIX Direto</option>
+                            </select>
+                            <button type="submit" class="px-5 py-2.5 bg-gradient-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 text-slate-950 font-black rounded-xl text-xs shadow-lg uppercase">
+                                🚀 Submeter Proposta & Emitir CCB
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- CARTEIRA DE PROPOSTAS E FINANCIAMENTOS CONCEDIDOS -->
+                <div class="space-y-2">
+                    <h4 class="font-bold text-slate-300 uppercase text-xs">📑 Carteira de Financiamentos & CCBs Geradas</h4>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs border-collapse">
+                            <thead class="bg-slate-950 border-b border-slate-800 text-slate-400 font-semibold uppercase">
+                                <tr>
+                                    <th class="py-2.5 px-3">Contrato</th>
+                                    <th class="py-2.5 px-3">Data</th>
+                                    <th class="py-2.5 px-3">Cliente / Renda</th>
+                                    <th class="py-2.5 px-3 text-right">Repasse Loja</th>
+                                    <th class="py-2.5 px-3 text-center">Parcelas Cliente</th>
+                                    <th class="py-2.5 px-3 text-right">Total Financiado</th>
+                                    <th class="py-2.5 px-3 text-center">Status</th>
+                                    <th class="py-2.5 px-3 text-center">Ação</th>
+                                </tr>
+                            </thead>
+                            <tbody>{tabela_credito_html if tabela_credito_html else "<tr><td colspan='8' class='py-4 text-center text-slate-500'>Nenhuma proposta de crédito submetida ainda.</td></tr>"}</tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
             <!-- ABA GESTÃO DE LEADS -->
             <div id="aba-leads-gestao" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl space-y-3">
                 <div class="bg-slate-850 px-5 py-3 border-b border-slate-800 flex justify-between items-center">
@@ -1154,6 +1260,10 @@ def render_dashboard_view():
                         <div>
                             <label class="block text-slate-400 mb-1">Telefone WhatsApp</label>
                             <input type="text" name="cliente_telefone" value="{c_tel if c_tel != '—' else ''}" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
+                        </div>
+                        <div>
+                            <label class="block text-slate-400 mb-1">Renda Mensal Comprovada (R$)</label>
+                            <input type="text" name="cliente_renda" value="{c_renda}" placeholder="Ex: 6.500,00" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-emerald-400 font-bold">
                         </div>
                     </div>
 
@@ -1289,6 +1399,7 @@ def render_dashboard_view():
                         <div>
                             <label class="block text-slate-400 mb-1 font-semibold">Forma de Pagamento</label>
                             <select name="forma_opcao" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-semibold text-white">
+                                <option value="Financiamento Próprio MVI Crédito">Financiamento Próprio MVI Crédito (Boleto/PIX até 36x)</option>
                                 <option value="Entrada PIX + Cartão de Crédito">Entrada PIX + Cartão de Crédito</option>
                                 <option value="Entrada PIX + Boleto Bancário">Entrada PIX + Boleto Bancário</option>
                                 <option value="PIX Integral à Vista">PIX Integral à Vista (5% OFF)</option>
@@ -1296,7 +1407,7 @@ def render_dashboard_view():
                         </div>
                         <div>
                             <label class="block text-slate-400 mb-1 font-semibold">Parcelas</label>
-                            <input type="number" name="num_parcelas" value="{c_parc}" min="1" max="24" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-white">
+                            <input type="number" name="num_parcelas" value="{c_parc}" min="1" max="36" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-white">
                         </div>
                     </div>
 
@@ -1352,7 +1463,7 @@ def render_dashboard_view():
                 </div>
             </div>
 
-            <!-- ABA 7: CONFIGURAÇÕES DA EMPRESA -->
+            <!-- ABA 7: CONFIGURAÇÕES DA EMPRESA & PARÂMETROS FINANCEIROS -->
             <div id="aba-empresa" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
                 <div class="border-b border-slate-800 pb-2">
                     <h3 class="font-bold text-amber-400 uppercase">🏢 Configuração da Empresa & Parâmetros Comerciais</h3>
@@ -1377,6 +1488,11 @@ def render_dashboard_view():
                     <div>
                         <label class="block text-slate-400 mb-1 font-semibold">Comissão Padrão da Equipe (%)</label>
                         <input type="text" name="comissao_padrao_pct" value="{empresa.get('comissao_padrao_pct', 4.0)}" class="w-full p-2.5 bg-slate-950 border border-emerald-500/50 rounded-xl text-emerald-300 font-bold">
+                    </div>
+                    <div class="sm:col-span-2 bg-slate-950 p-3 rounded-xl border border-sky-500/40">
+                        <label class="block text-sky-400 mb-1 font-bold">💳 Taxa de Juros Mensal da Financiadora MVI (%)</label>
+                        <input type="text" name="taxa_juros_mensal" value="{empresa.get('taxa_juros_mensal', 1.99)}" class="w-full p-2.5 bg-slate-900 border border-sky-500/60 rounded-xl text-white font-black">
+                        <span class="text-[10px] text-slate-400 block mt-1">Taxa padrão aplicada nas CCBs e financiamentos diretos ao consumidor (Tabela Price).</span>
                     </div>
                     <button type="submit" class="sm:col-span-2 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-lg mt-2">
                         💾 Salvar Parâmetros
@@ -1438,7 +1554,6 @@ def render_dashboard_view():
             window.scrollTo({{ top: 0, behavior: 'smooth' }});
         }}
 
-        // AUTOCOMPLETE DE CEP COM VIACEP
         function buscarCepPostal(cep) {{
             var limpo = cep.replace(/\\D/g, '');
             if (limpo.length === 8) {{
@@ -1618,6 +1733,83 @@ async def submit_lead_route(
         ambientes_str
     )
 
+@app.post("/submeter-proposta-credito", response_class=HTMLResponse)
+def submeter_proposta_credito_route(
+    orcamento_id: int = Form(...),
+    cliente_nome: str = Form(...),
+    cliente_cpf: str = Form(...),
+    cliente_renda: str = Form("5500"),
+    valor_financiado: str = Form("0"),
+    num_parcelas: int = Form(24)
+):
+    v_fin = parse_moeda(valor_financiado)
+    r_cli = parse_moeda(cliente_renda)
+    empresa = get_empresa_dados(1)
+    taxa = float(empresa.get("taxa_juros_mensal", 1.99))
+    
+    v_parc = calcular_parcela_price(v_fin, taxa, num_parcelas)
+    tot_juros = v_parc * num_parcelas
+    agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO propostas_credito (
+            empresa_id, orcamento_id, cliente_nome, cliente_cpf, cliente_renda,
+            valor_financiado, num_parcelas, taxa_juros, valor_parcela, total_com_juros,
+            status, score_estimado, criado_em, contrato_ccb_assinado
+        ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Aprovado (Crédito Liberado)', 780, ?, 1)
+    """, (orcamento_id, cliente_nome, cliente_cpf, r_cli, v_fin, num_parcelas, taxa, v_parc, tot_juros, agora))
+    
+    cursor.execute("UPDATE orcamentos SET modalidade_pagamento = ?, status = 'Crédito Aprovado / CCB Emitida' WHERE id = ?", (f"MVI Crédito ({num_parcelas}x no Boleto/PIX)", orcamento_id))
+    conn.commit()
+    conn.close()
+
+    return RedirectResponse(url="/painel-get", status_code=303)
+
+@app.get("/emitir-ccb/{proposta_id}", response_class=HTMLResponse)
+def emitir_ccb_route(proposta_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM propostas_credito WHERE id = ?", (proposta_id,))
+    prop = cursor.fetchone()
+    conn.close()
+
+    if not prop:
+        return HTMLResponse("Proposta de Crédito não encontrada.", status_code=404)
+
+    empresa = get_empresa_dados(1)
+    return f"""<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8"><title>Cédula de Crédito Bancário - CCB #{prop['id']:05d}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-white text-slate-900 p-8 font-sans text-xs max-w-4xl mx-auto leading-relaxed">
+    <div class="border-b-2 border-slate-900 pb-3 text-center mb-4">
+        <h1 class="font-black text-sm uppercase">CÉDULA DE CRÉDITO BANCÁRIO (CCB) Nº {prop['id']:05d}</h1>
+        <p class="text-[11px] text-slate-600">Financiamento Direto ao Consumidor (CDC) - Lei Federal nº 10.931/2004</p>
+    </div>
+
+    <div class="border p-3 rounded-lg bg-slate-50 space-y-1 mb-4">
+        <p><b>CREDOR ORIGINAL / EMISSOR:</b> {empresa['nome_empresa']} (CNPJ: {empresa['cnpj']})</p>
+        <p><b>EMITENTE / DEVEDOR:</b> {prop['cliente_nome']} (CPF: {prop['cliente_cpf']})</p>
+        <p><b>VALOR PRINCIPAL FINANCIADO (Repasse da Compra):</b> R$ {fmt_br(prop['valor_financiado'])}</p>
+        <p><b>PLANO DE PAGAMENTO:</b> {prop['num_parcelas']} parcelas mensais de <b>R$ {fmt_br(prop['valor_parcela'])}</b></p>
+        <p><b>TAXA DE JUROS:</b> {prop['taxa_juros']}% ao mês (Tabela Price) | <b>VALOR TOTAL:</b> R$ {fmt_br(prop['total_com_juros'])}</p>
+    </div>
+
+    <p class="mb-3">Pelo presente instrumento, o EMITENTE confessa a dívida e se obriga a pagar ao CREDOR a quantia líquida, certa e exigível acima estipulada, mediante liquidação pontual dos boletos ou chaves PIX emitidos sob sua titularidade.</p>
+
+    <div class="mt-8 pt-4 border-t flex justify-between text-center">
+        <div class="w-1/2">______________________________________<br><b>{prop['cliente_nome']}</b><br>Devedor / Emitente</div>
+        <div class="w-1/2">______________________________________<br><b>{empresa['nome_empresa']}</b><br>Credor / Operador</div>
+    </div>
+
+    <div class="mt-8 text-center"><button onclick="window.print()" class="px-4 py-2 bg-sky-500 text-slate-950 font-bold rounded">🖨️ Imprimir Cédula de Crédito (PDF)</button></div>
+</body></html>"""
+
 @app.post("/salvar-negociacao-mesa", response_class=HTMLResponse)
 def salvar_negociacao_mesa_route(
     orcamento_id: int = Form(...),
@@ -1666,7 +1858,6 @@ async def importar_promob_route(
     except Exception:
         pass
 
-    # Estimativa de peças importadas do Promob
     linhas = [l for l in conteudo.splitlines() if l.strip()]
     qtd_itens = max(len(linhas), 6)
     
@@ -1742,6 +1933,7 @@ def salvar_dados_completos_cliente_route(
     cliente_nome: str = Form(""),
     cliente_cpf: str = Form(""),
     cliente_telefone: str = Form(""),
+    cliente_renda: str = Form("5500"),
     cliente_cep_postal: str = Form(""),
     cliente_rua_postal: str = Form(""),
     cliente_num_postal: str = Form(""),
@@ -1764,7 +1956,7 @@ def salvar_dados_completos_cliente_route(
     cursor = conn.cursor()
     cursor.execute("""
         UPDATE orcamentos SET
-            cliente_nome = ?, cliente_cpf = ?, cliente_telefone = ?,
+            cliente_nome = ?, cliente_cpf = ?, cliente_telefone = ?, cliente_renda = ?,
             cliente_cep_postal = ?, cliente_rua_postal = ?, cliente_num_postal = ?,
             cliente_comp_postal = ?, cliente_bairro_postal = ?, cliente_cidade_postal = ?, cliente_uf_postal = ?,
             cliente_endereco_postal = ?,
@@ -1773,7 +1965,7 @@ def salvar_dados_completos_cliente_route(
             cliente_endereco_entrega = ?
         WHERE id = ?
     """, (
-        cliente_nome, cliente_cpf, cliente_telefone,
+        cliente_nome, cliente_cpf, cliente_telefone, cliente_renda,
         cliente_cep_postal, cliente_rua_postal, cliente_num_postal, cliente_comp_postal, cliente_bairro_postal, cliente_cidade_postal, cliente_uf_postal,
         end_postal_completo,
         cliente_cep_entrega, cliente_rua_entrega, cliente_num_entrega, cliente_comp_entrega, cliente_bairro_entrega, cliente_cidade_entrega, cliente_uf_entrega,
@@ -1795,7 +1987,8 @@ def update_empresa(
     cnpj: str = Form(""),
     telefone: str = Form(""),
     desconto_max_vendedor: str = Form("3.0"),
-    comissao_padrao_pct: str = Form("4.0")
+    comissao_padrao_pct: str = Form("4.0"),
+    taxa_juros_mensal: str = Form("1.99")
 ):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -1805,9 +1998,10 @@ def update_empresa(
             cnpj = ?,
             telefone = ?,
             desconto_max_vendedor = ?,
-            comissao_padrao_pct = ?
+            comissao_padrao_pct = ?,
+            taxa_juros_mensal = ?
         WHERE id = 1
-    """, (nome_empresa.strip(), cnpj.strip(), telefone.strip(), parse_moeda(desconto_max_vendedor), parse_moeda(comissao_padrao_pct)))
+    """, (nome_empresa.strip(), cnpj.strip(), telefone.strip(), parse_moeda(desconto_max_vendedor), parse_moeda(comissao_padrao_pct), parse_moeda(taxa_juros_mensal)))
     conn.commit()
     conn.close()
     return RedirectResponse(url="/painel-get", status_code=303)
