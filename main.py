@@ -45,7 +45,7 @@ def parse_moeda(valor_str) -> float:
     s = str(valor_str).strip().replace("R$", "").replace(" ", "")
     if "." in s and "," not in s:
         partes = s.split(".")
-        if len(partes[-1]) == 3:  # Ex: 5.000 ou 18.500 vira 5000 / 18500
+        if len(partes[-1]) == 3:
             s = s.replace(".", "")
     elif "." in s and "," in s:
         s = s.replace(".", "").replace(",", ".")
@@ -808,7 +808,9 @@ def render_dashboard_view():
     chk_financeiro = int(cliente_ativo.get("check_financeiro") or 0)
     chk_contrato = int(cliente_ativo.get("check_contrato") or 0)
 
-    # Simulação Financiamento Próprio MVI Crédito
+    # Base Bruta sem desconto (para cálculo dinâmico da Mesa)
+    preco_base_sem_desconto = c_p_bruto if c_p_bruto > 0 else (c_p_venda / (1.0 - (c_desc_pct / 100.0)) if c_desc_pct < 100 and c_desc_pct > 0 else c_p_venda)
+
     taxa_juros_empresa = float(empresa.get("taxa_juros_mensal", 1.99))
     saldo_para_financiar = max(c_p_venda - c_entrada, 0.0)
 
@@ -1452,7 +1454,7 @@ def render_dashboard_view():
                 </form>
             </div>
 
-            <!-- ABA 3: MESA DE NEGOCIAÇÃO COM SALVAMENTO AJAX (SEM SAIR DA TELA AO APERTAR ENTER) -->
+            <!-- ABA 3: MESA DE NEGOCIAÇÃO COM CÁLCULO DE DESCONTO EM TEMPO REAL -->
             <div id="aba-mesa" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
                 <div class="flex justify-between items-center pb-1 border-b border-slate-800">
                     <h3 class="font-bold text-amber-400 uppercase">💼 Mesa de Negociação & Fechamento</h3>
@@ -1461,29 +1463,30 @@ def render_dashboard_view():
 
                 <form id="form_mesa_negociacao" onsubmit="salvarMesaAjax(event)" class="space-y-4">
                     <input type="hidden" name="orcamento_id" id="mesa_orcamento_id" value="{c_id}">
+                    <input type="hidden" id="mesa_preco_base" value="{preco_base_sem_desconto}">
 
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div>
                             <label class="block text-slate-400 mb-1 font-semibold">Valor Venda (R$)</label>
-                            <input type="text" name="preco_venda" id="preco_venda_input" value="{fmt_br(c_p_venda)}" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-amber-400 text-sm">
+                            <input type="text" name="preco_venda" id="preco_venda_input" oninput="aoMudarValorVenda()" value="{fmt_br(c_p_venda)}" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-amber-400 text-sm">
                         </div>
 
                         <div>
                             <label class="block text-slate-400 mb-1 font-semibold">Desconto (%)</label>
-                            <input type="text" name="desconto_pct" id="desconto_pct_input" value="{c_desc_pct}" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-white">
+                            <input type="text" name="desconto_pct" id="desconto_pct_input" oninput="aplicarDescontoEmTempoReal(this.value)" value="{c_desc_pct}" class="w-full p-2.5 bg-slate-950 border border-amber-500/60 rounded-xl font-bold text-amber-300">
                             <span class="text-[10px] text-slate-500 mt-0.5 block">Teto sem autorização: {empresa.get('desconto_max_vendedor', 3.0)}%</span>
                         </div>
 
                         <div>
                             <label class="block text-slate-400 mb-1 font-semibold">Entrada (R$)</label>
-                            <input type="text" name="entrada_valor" id="entrada_valor_input" value="{fmt_br(c_entrada)}" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-emerald-400 text-sm">
+                            <input type="text" name="entrada_valor" id="entrada_valor_input" oninput="aoMudarEntradaOuParcela()" value="{fmt_br(c_entrada)}" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-emerald-400 text-sm">
                         </div>
                     </div>
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                             <label class="block text-slate-400 mb-1 font-semibold">Forma de Pagamento</label>
-                            <select name="forma_opcao" id="mesa_forma_opcao" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-semibold text-white">
+                            <select name="forma_opcao" id="mesa_forma_opcao" onchange="aoMudarEntradaOuParcela()" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-semibold text-white">
                                 <option value="Financiamento Próprio MVI Crédito" {'selected' if 'Financiamento' in c_mod or 'MVI Crédito' in c_mod else ''}>Financiamento Próprio MVI Crédito (Boleto/PIX até 36x)</option>
                                 <option value="Entrada PIX + Cartão de Crédito" {'selected' if 'Cartão' in c_mod else ''}>Entrada PIX + Cartão de Crédito</option>
                                 <option value="Entrada PIX + Boleto Bancário" {'selected' if 'Boleto Bancário' in c_mod else ''}>Entrada PIX + Boleto Bancário</option>
@@ -1492,7 +1495,7 @@ def render_dashboard_view():
                         </div>
                         <div>
                             <label class="block text-slate-400 mb-1 font-semibold">Parcelas</label>
-                            <input type="number" name="num_parcelas" id="mesa_num_parcelas" value="{c_parc}" min="1" max="36" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-white">
+                            <input type="number" name="num_parcelas" id="mesa_num_parcelas" oninput="aoMudarEntradaOuParcela()" value="{c_parc}" min="1" max="36" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-white">
                         </div>
                     </div>
 
@@ -1608,7 +1611,7 @@ def render_dashboard_view():
                             </div>
                             <div>
                                 <label class="block text-slate-400 text-[11px] mb-1">Taxa de Juros Mensal Financiamento (%)</label>
-                                <input type="text" name="taxa_juros_mensal" value="{empresa.get('taxa_juros_mensal', 1.99)}" class="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold text-xs">
+                                <input type="text" name="taxa_juros_mensal" value="{empresa.get('taxa_juros_mensal', 1.99)}" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold text-xs">
                             </div>
                         </div>
                     </div>
@@ -1675,25 +1678,62 @@ def render_dashboard_view():
             window.scrollTo({{ top: 0, behavior: 'smooth' }});
         }}
 
-        // SALVAMENTO AUTOMÁTICO VIA AJAX (SEM RECARREGAR A TELA AO APERTAR ENTER)
-        function salvarMesaAjax(event) {{
-            if (event) event.preventDefault();
+        function parseNum(val) {{
+            if (!val) return 0;
+            var s = String(val).replace('R$', '').trim();
+            if (s.includes('.') && !s.includes(',')) {{
+                var parts = s.split('.');
+                if (parts[parts.length - 1].length === 3) s = s.replace(/\\./g, '');
+            }} else if (s.includes('.') && s.includes(',')) {{
+                s = s.replace(/\\./g, '').replace(',', '.');
+            }} else if (s.includes(',')) {{
+                s = s.replace(',', '.');
+            }}
+            return parseFloat(s) || 0;
+        }}
 
+        function fmtNum(val) {{
+            return val.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
+        }}
+
+        // APLICAÇÃO DO DESCONTO EM TEMPO REAL AO DIGITAR
+        function aplicarDescontoEmTempoReal(descVal) {{
+            var descPct = parseNum(descVal);
+            var precoBase = parseFloat(document.getElementById('mesa_preco_base').value) || 18500;
+            
+            if (descPct > 0) {{
+                var valorComDesconto = precoBase * (1.0 - (descPct / 100.0));
+                document.getElementById('preco_venda_input').value = fmtNum(valorComDesconto);
+            }} else {{
+                document.getElementById('preco_venda_input').value = fmtNum(precoBase);
+            }}
+            aoMudarEntradaOuParcela();
+        }}
+
+        function aoMudarValorVenda() {{
+            var pv = parseNum(document.getElementById('preco_venda_input').value);
+            var precoBase = parseFloat(document.getElementById('mesa_preco_base').value) || pv;
+            if (precoBase > 0 && pv < precoBase) {{
+                var desc = ((precoBase - pv) / precoBase) * 100.0;
+                document.getElementById('desconto_pct_input').value = desc.toFixed(1);
+            }} else {{
+                document.getElementById('mesa_preco_base').value = pv;
+                document.getElementById('desconto_pct_input').value = '0';
+            }}
+            aoMudarEntradaOuParcela();
+        }}
+
+        function aoMudarEntradaOuParcela() {{
             var form = document.getElementById('form_mesa_negociacao');
             var formData = new FormData(form);
-
-            var btn = document.getElementById('btn_salvar_mesa');
-            var statusTxt = document.getElementById('status_salvamento_mesa');
-            if (btn) btn.innerText = '⏳ Salvando...';
 
             fetch('/salvar-negociacao-mesa-json', {{
                 method: 'POST',
                 body: formData
             }})
-            .then(response => response.json())
+            .then(r => r.json())
             .then(data => {{
                 if (data.sucesso) {{
-                    // Atualiza a lateral sem sair da aba
                     document.getElementById('painel_valor_venda').innerText = 'R$ ' + data.preco_venda_fmt;
                     document.getElementById('painel_valor_entrada').innerText = 'R$ ' + data.entrada_valor_fmt;
                     document.getElementById('painel_comissao_valor').innerText = 'R$ ' + data.comissao_fmt;
@@ -1701,11 +1741,38 @@ def render_dashboard_view():
                     var lucroElem = document.getElementById('painel_lucro_valor');
                     if (lucroElem) lucroElem.innerText = 'R$ ' + data.lucro_fmt;
 
-                    // Atualiza tabela do cronograma na Aba 1
+                    var tbody = document.getElementById('corpo_tabela_cronograma');
+                    if (tbody) tbody.innerHTML = data.cronograma_html;
+                }}
+            }}).catch(e => console.log('Erro ao atualizar:', e));
+        }}
+
+        function salvarMesaAjax(event) {{
+            if (event) event.preventDefault();
+            var btn = document.getElementById('btn_salvar_mesa');
+            var statusTxt = document.getElementById('status_salvamento_mesa');
+            if (btn) btn.innerText = '⏳ Salvando...';
+
+            var form = document.getElementById('form_mesa_negociacao');
+            var formData = new FormData(form);
+
+            fetch('/salvar-negociacao-mesa-json', {{
+                method: 'POST',
+                body: formData
+            }})
+            .then(r => r.json())
+            .then(data => {{
+                if (data.sucesso) {{
+                    document.getElementById('painel_valor_venda').innerText = 'R$ ' + data.preco_venda_fmt;
+                    document.getElementById('painel_valor_entrada').innerText = 'R$ ' + data.entrada_valor_fmt;
+                    document.getElementById('painel_comissao_valor').innerText = 'R$ ' + data.comissao_fmt;
+                    
+                    var lucroElem = document.getElementById('painel_lucro_valor');
+                    if (lucroElem) lucroElem.innerText = 'R$ ' + data.lucro_fmt;
+
                     var tbody = document.getElementById('corpo_tabela_cronograma');
                     if (tbody) tbody.innerHTML = data.cronograma_html;
 
-                    // Exibe aviso verde de sucesso
                     if (statusTxt) {{
                         statusTxt.innerText = '✓ Proposta Atualizada!';
                         statusTxt.style.opacity = '1';
@@ -1713,7 +1780,6 @@ def render_dashboard_view():
                     }}
                 }}
             }})
-            .catch(error => console.error('Erro ao salvar:', error))
             .finally(() => {{
                 if (btn) btn.innerText = '💾 Atualizar Proposta & Salvar (Enter)';
             }});
@@ -1960,7 +2026,6 @@ def salvar_negociacao_mesa_json(
     conn.commit()
     conn.close()
 
-    # Gera HTML atualizado do cronograma
     hoje = date.today()
     cronograma_html = ""
     if ent_num > 0:
