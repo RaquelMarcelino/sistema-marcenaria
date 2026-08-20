@@ -18,7 +18,6 @@ DB_PATH = "mvi_production_v49.db"
 META_PIXEL_ID = "641231925101582"
 
 
-
 # ==============================================================================
 # 1. TRATAMENTO DE ERROS GLOBAL
 # ==============================================================================
@@ -32,6 +31,7 @@ async def global_exception_handler(request: Request, exc: Exception):
         <a href="/painel-get" style="display:inline-block; margin-top:15px; padding:10px 20px; background:#f59e0b; color:#0f172a; font-weight:bold; border-radius:8px; text-decoration:none;">Voltar ao Painel</a>
     </div>
     """, status_code=500)
+
 
 # ==============================================================================
 # 2. BANCO DE DADOS & SESSÃO
@@ -107,7 +107,7 @@ def init_db():
             prazo_entrega TEXT DEFAULT '25 dias úteis',
             prazo_garantia TEXT DEFAULT '12 (doze) meses',
             data_entrega_prevista TEXT DEFAULT '',
-            status TEXT DEFAULT 'Em Negociação',
+            status TEXT DEFAULT 'Novo Lead',
             potencial_cliente TEXT DEFAULT 'Morno',
             check_dados INTEGER DEFAULT 0,
             check_comercial INTEGER DEFAULT 1,
@@ -149,7 +149,6 @@ def init_db():
         )
     """)
 
-    # Migrações seguras caso o banco já exista
     for col in ["arquivo_planta TEXT DEFAULT ''", "arquivo_inspiracao TEXT DEFAULT ''", "imagens_json TEXT DEFAULT '{}'"]:
         try:
             cursor.execute(f"ALTER TABLE orcamentos ADD COLUMN {col}")
@@ -215,12 +214,12 @@ def get_metricas():
     fat_total, lucro_total, aprovados, comissao_total = 0.0, 0.0, 0, 0.0
     
     for r in rows:
-        st = r["status"] or "Em Negociação"
+        st = r["status"] or "Novo Lead"
         pv = float(r["preco_venda"] or 0) + float(r["adendo_valor"] or 0)
         lucro = float(r["lucro_liquido"] or 0)
         com = float(r["comissao_valor"] or (pv * 0.04))
         
-        if st in ["Aprovado", "Em Produção", "Entregue", "Liberado para Financeiro & Fábrica", "Contrato Assinado Digitalmente", "Desconto Autorizado pela Diretoria"]:
+        if st in ["Aprovado", "Venda Fechada", "Em Produção", "Entregue", "Liberado para Financeiro & Fábrica", "Contrato Assinado Digitalmente"]:
             fat_total += pv
             lucro_total += lucro
             comissao_total += com
@@ -230,6 +229,7 @@ def get_metricas():
     ticket = (fat_total / aprovados) if aprovados > 0 else 0.0
     
     return {"total": total, "aprovados": aprovados, "faturamento": fat_total, "lucro": lucro_total, "ticket": ticket, "taxa": taxa, "comissoes": comissao_total}
+
 
 # ==============================================================================
 # 3. ENGENHARIA & PROMOB
@@ -324,6 +324,7 @@ def calcular_engenharia(
         "desc_promob": "\n".join(desc_promob_auto)
     }
 
+
 # ==============================================================================
 # 4. FUNÇÕES DE RENDERIZAÇÃO
 # ==============================================================================
@@ -356,6 +357,7 @@ def render_login(msg=""):
         </div>
     </div>
 </body></html>"""
+
 
 def render_form_captacao(empresa):
     return f"""<!DOCTYPE html>
@@ -458,6 +460,7 @@ def render_form_captacao(empresa):
                             <option value="0">0</option>
                             <option value="1" selected>1</option>
                             <option value="2">2</option>
+                            <option value="3">3</option>
                         </select>
                     </div>
 
@@ -565,6 +568,7 @@ def render_form_captacao(empresa):
     </main>
 </body></html>"""
 
+
 def render_pre_orcamento_agendamento(
     empresa, orcamento_id, nome, whatsapp, cidade, area_m2, preco_venda,
     esp_caixa, cor_caixa, esp_porta, cor_porta, acab_porta, marca_ferr, esp_tamp, ambientes_str
@@ -617,12 +621,13 @@ def render_pre_orcamento_agendamento(
         </div>
 
         <div class="pt-2">
-<a href="https://wa.me/55{tel_limpo}?text=Ol%C3%A1!%20Simulei%20meu%20projeto%20no%20site%20da%20{empresa['nome_empresa']}%20(Projeto%20%23{orcamento_id:04d})%20e%20gostaria%20de%20atendimento!" target="_blank" class="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold rounded-2xl flex items-center justify-center space-x-2 shadow-lg shadow-emerald-500/20 transition-all text-sm uppercase tracking-wider block">
+            <a href="https://wa.me/55{tel_limpo}?text=Ol%C3%A1!%20Simulei%20meu%20projeto%20no%20site%20da%20{empresa['nome_empresa']}%20(Projeto%20%23{orcamento_id:04d})%20e%20gostaria%20de%20atendimento!" target="_blank" class="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold rounded-2xl flex items-center justify-center space-x-2 shadow-lg shadow-emerald-500/20 transition-all text-sm uppercase tracking-wider block">
                 📲 Enviar Simulação para o WhatsApp da Empresa
-</a>
+            </a>
         </div>
     </div>
 </body></html>"""
+
 
 # ==============================================================================
 # PAINEL GERAL DO COCKPIT
@@ -635,6 +640,7 @@ def render_dashboard_view():
     pode_ver_lucro = (perfil == "adm")
     pode_ver_comissoes_geral = (perfil in ["adm", "gerente", "financeiro"])
     pode_gerenciar_equipe = (perfil == "adm")
+    pode_gerenciar_leads = (perfil in ["adm", "gerente"])
     somente_leitura_fabrica = (perfil == "liberacao")
     
     conn = sqlite3.connect(DB_PATH)
@@ -642,11 +648,11 @@ def render_dashboard_view():
     cursor = conn.cursor()
 
     if perfil == "financeiro":
-        cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 AND status IN ('Aprovado', 'Em Produção', 'Entregue', 'Liberado para Financeiro & Fábrica', 'Contrato Assinado Digitalmente', 'Desconto Autorizado pela Diretoria') ORDER BY id DESC")
+        cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 AND status IN ('Aprovado', 'Venda Fechada', 'Em Produção', 'Entregue', 'Liberado para Financeiro & Fábrica', 'Contrato Assinado Digitalmente') ORDER BY id DESC")
     elif perfil == "vendedor":
         cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 AND (vendedor_email = ? OR vendedor_responsavel = ?) ORDER BY id DESC", (CURRENT_SESSION['user_email'], CURRENT_SESSION['user_nome']))
     else:
-        cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 ORDER BY id DESC LIMIT 50")
+        cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 ORDER BY id DESC LIMIT 100")
     
     leads = cursor.fetchall()
     cursor.execute("SELECT * FROM usuarios WHERE empresa_id = 1 ORDER BY nome ASC")
@@ -702,7 +708,7 @@ def render_dashboard_view():
     insp_data = c_imagens.get("inspiracao") or cliente_ativo.get("arquivo_inspiracao") or ""
     insp_nome = c_imagens.get("inspiracao_nome") or "Foto Inspiração"
 
-    tel_lead_limpo = c_tel.replace("-","").replace(" ","").replace("(","").replace(")","")
+    tel_lead_limpo = (c_tel or "").replace("-","").replace(" ","").replace("(","").replace(")","")
 
     anexos_html = f"""
     <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3">
@@ -716,14 +722,14 @@ def render_dashboard_view():
                     <span class="font-bold text-slate-300">📐 Planta Baixa:</span>
                     <span class="text-[10px] text-amber-400 font-mono truncate max-w-[120px]">{planta_nome}</span>
                 </div>
-                {f'''<a href="{planta_data}" target="_blank" download="{planta_nome}" class="block text-center py-2 px-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl transition shadow">👁️ Abrir / Baixar Planta</a>''' if planta_data else '''<span class="block text-center py-2 text-slate-500 bg-slate-900 rounded-xl border border-slate-800">Nenhuma planta anexada</span>'''}
+                {f'''<a href="{planta_data}" target="_blank" download="{planta_nome}" class="block text-center py-2 px-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl transition shadow">📥 Baixar Planta</a>''' if planta_data else '''<span class="block text-center py-2 text-slate-500 bg-slate-900 rounded-xl border border-slate-800">Nenhuma planta anexada</span>'''}
             </div>
             <div class="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
                 <div class="flex items-center justify-between">
                     <span class="font-bold text-slate-300">🖼️ Foto Inspiração:</span>
                     <span class="text-[10px] text-slate-400 font-mono truncate max-w-[120px]">{insp_nome}</span>
                 </div>
-                {f'''<a href="{insp_data}" target="_blank" download="{insp_nome}" class="block text-center py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl transition border border-slate-700">👁️ Abrir / Baixar Foto</a>''' if insp_data else '''<span class="block text-center py-2 text-slate-500 bg-slate-900 rounded-xl border border-slate-800">Nenhuma foto anexada</span>'''}
+                {f'''<a href="{insp_data}" target="_blank" download="{insp_nome}" class="block text-center py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl transition border border-slate-700">📥 Baixar Foto</a>''' if insp_data else '''<span class="block text-center py-2 text-slate-500 bg-slate-900 rounded-xl border border-slate-800">Nenhuma foto anexada</span>'''}
             </div>
         </div>
     </div>
@@ -777,11 +783,6 @@ def render_dashboard_view():
                 <span class="text-white font-semibold block">📦 {amb_item.get('nome','Ambiente')}</span>
                 <span class="text-[11px] font-bold text-amber-400">R$ {val_amb:,.2f}</span>
             </div>
-            {f'''<form action="/remover-ambiente-pasta" method="post" class="inline opacity-80 group-hover:opacity-100">
-                <input type="hidden" name="orcamento_id" value="{c_id}">
-                <input type="hidden" name="ambiente_id" value="{amb_item.get('id')}">
-                <button type="submit" class="text-rose-400 hover:text-rose-300 text-xs font-bold px-1">✕</button>
-            </form>''' if not somente_leitura_fabrica else ''}
         </li>
         """
 
@@ -802,25 +803,39 @@ def render_dashboard_view():
                 </div>
                 <span class="text-[11px] font-bold text-amber-400">R$ {v_val:,.2f}</span>
             </div>
-            {f'''<form action="/selecionar-versao-orcamento" method="post">
-                <input type="hidden" name="orcamento_id" value="{c_id}">
-                <input type="hidden" name="versao_id" value="{v_id}">
-                <button type="submit" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-[10px] font-bold">Ativar</button>
-            </form>''' if not v_ativo else ''}
         </li>
         """
 
+    # GERAÇÃO DAS TABELAS DE PASTAS E DE GESTÃO DE LEADS
     leads_geral_html = ""
+    tabela_leads_gestao_html = ""
     options_leads = "<option value='0'>📂 Selecionar outra pasta...</option>"
+
+    status_opcoes = ["Novo Lead", "Em Atendimento", "Visita Agendada", "Em Negociação", "Venda Fechada", "Descartado"]
+
     for h in leads:
         h_d = dict(h)
         pv = round(float(h_d.get("preco_venda") or 0))
         adendo = round(float(h_d.get("adendo_valor") or 0))
         pv_total = pv + adendo
-        st = h_d.get("status") or "Em Negociação"
+        st = h_d.get("status") or "Novo Lead"
         sel = "selected" if h_d.get("id") == c_id else ""
         options_leads += f"<option value='{h_d['id']}' {sel}>Pasta P{h_d['id']:05d} - {h_d.get('cliente_nome','')} ({h_d.get('cliente_ambiente','')})</option>"
 
+        # Parse imagens do lead
+        imgs_lead = {}
+        try:
+            imgs_lead = json.loads(h_d.get("imagens_json") or "{}")
+        except Exception:
+            imgs_lead = {}
+        p_data = imgs_lead.get("planta") or h_d.get("arquivo_planta") or ""
+        p_nm = imgs_lead.get("planta_nome") or "Planta"
+        i_data = imgs_lead.get("inspiracao") or h_d.get("arquivo_inspiracao") or ""
+        i_nm = imgs_lead.get("inspiracao_nome") or "Inspiração"
+
+        tel_lead = (h_d.get("cliente_telefone") or "").replace("-","").replace(" ","").replace("(","").replace(")","")
+
+        # Tabela Geral de Pastas
         leads_geral_html += f"""
         <tr class="border-b border-slate-800 text-xs hover:bg-slate-800/40">
             <td class="py-3 px-4 font-mono font-bold text-amber-400">P{h_d['id']:05d}</td>
@@ -832,9 +847,56 @@ def render_dashboard_view():
                 <form action="/selecionar-cliente-trabalho" method="post" class="inline">
                     <input type="hidden" name="orcamento_id" value="{h_d['id']}">
                     <button type="submit" class="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded text-xs shadow-sm">
-                        📂 Abrir Pasta
+                        📂 Abrir
                     </button>
                 </form>
+            </td>
+        </tr>
+        """
+
+        # Tabela Especial de Gestão de Leads com download e exclusão
+        options_status_select = "".join([f"<option value='{op}' {'selected' if op == st else ''}>{op}</option>" for op in status_opcoes])
+        
+        tabela_leads_gestao_html += f"""
+        <tr class="border-b border-slate-800 text-xs hover:bg-slate-800/40">
+            <td class="py-3 px-3 font-mono font-bold text-amber-400">#{h_d['id']:04d}</td>
+            <td class="py-3 px-3 text-slate-400 text-[11px]">{h_d.get('criado_em','—')}</td>
+            <td class="py-3 px-3 text-white font-bold">
+                {h_d.get('cliente_nome','')}
+                <span class="block text-[11px] text-slate-400 font-normal">{h_d.get('cliente_telefone','')}</span>
+            </td>
+            <td class="py-3 px-3 text-slate-300 max-w-[200px] truncate" title="{h_d.get('cliente_ambiente','')}">
+                {h_d.get('cliente_ambiente','')}
+            </td>
+            <td class="py-3 px-3 text-amber-400 font-bold text-right">R$ {pv_total:,.2f}</td>
+            <td class="py-3 px-3 text-center">
+                <div class="flex items-center justify-center gap-1">
+                    {f'''<a href="{p_data}" target="_blank" download="{p_nm}" class="px-2 py-1 bg-amber-500/20 hover:bg-amber-500/40 text-amber-300 border border-amber-500/40 rounded text-[11px] font-bold" title="Baixar Planta">📐 Planta</a>''' if p_data else '<span class="text-slate-600 text-[11px]">—</span>'}
+                    {f'''<a href="{i_data}" target="_blank" download="{i_nm}" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded text-[11px] font-bold" title="Baixar Foto">🖼️ Foto</a>''' if i_data else ''}
+                </div>
+            </td>
+            <td class="py-3 px-3 text-center">
+                <form action="/atualizar-status-lead" method="post" class="inline">
+                    <input type="hidden" name="orcamento_id" value="{h_d['id']}">
+                    <select name="novo_status" onchange="this.form.submit()" class="px-2 py-1 bg-slate-950 border border-slate-700 rounded text-[11px] font-semibold text-amber-300 cursor-pointer">
+                        {options_status_select}
+                    </select>
+                </form>
+            </td>
+            <td class="py-3 px-3 text-center">
+                <div class="flex items-center justify-center gap-1.5">
+                    {f'''<a href="https://api.whatsapp.com/send?phone=55{tel_lead}&text=Ol%C3%A1%20{h_d.get('cliente_nome','')}!%20Recebemos%20sua%20solicita%C3%A7%C3%A3o%20de%20projeto." target="_blank" class="p-1 bg-emerald-600 hover:bg-emerald-500 text-slate-950 rounded font-bold text-xs" title="WhatsApp">📲</a>''' if tel_lead else ''}
+                    
+                    <form action="/selecionar-cliente-trabalho" method="post" class="inline">
+                        <input type="hidden" name="orcamento_id" value="{h_d['id']}">
+                        <button type="submit" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs font-semibold" title="Abrir no Painel">📂</button>
+                    </form>
+
+                    <form action="/excluir-lead" method="post" class="inline" onsubmit="return confirm('Tem certeza que deseja excluir permanentemente o Lead #{h_d['id']:04d}?')">
+                        <input type="hidden" name="orcamento_id" value="{h_d['id']}">
+                        <button type="submit" class="p-1 bg-rose-950/60 hover:bg-rose-900 text-rose-400 border border-rose-800/60 rounded text-xs font-bold" title="Excluir Lead">🗑️</button>
+                    </form>
+                </div>
             </td>
         </tr>
         """
@@ -873,6 +935,7 @@ def render_dashboard_view():
             </div>
             <nav class="flex items-center space-x-3 text-xs font-semibold">
                 <button onclick="mudarAba('aba-geral')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">📂 Pastas</button>
+                {f'''<button onclick="mudarAba('aba-leads-gestao')" class="px-3 py-1.5 rounded-lg bg-amber-500 text-slate-950 hover:bg-amber-400 font-bold shadow-md">🎯 Leads & Orçamentos</button>''' if pode_gerenciar_leads else ''}
                 <button onclick="mudarAba('aba-comissoes')" class="px-3 py-1.5 rounded-lg bg-emerald-950/80 text-emerald-300 hover:bg-emerald-900 border border-emerald-500/40">💰 Comissões</button>
                 {f'''<button onclick="mudarAba('aba-equipe')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700">👥 Equipe</button>
                 <button onclick="mudarAba('aba-empresa')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700">🏢 Empresa</button>''' if pode_gerenciar_equipe else ''}
@@ -916,7 +979,6 @@ def render_dashboard_view():
             <div>
                 <div class="flex justify-between items-center pb-1 border-b border-slate-800 font-bold text-white">
                     <span>🏠 Ambientes</span>
-                    {f'''<button onclick="mudarAba('aba-novo-ambiente')" class="text-[11px] px-2 py-0.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg font-bold">+ Novo</button>''' if not somente_leitura_fabrica else ''}
                 </div>
                 <ul class="mt-2 space-y-1.5 text-slate-400">{lista_ambientes_html}</ul>
             </div>
@@ -925,7 +987,6 @@ def render_dashboard_view():
             <div>
                 <div class="flex justify-between items-center pb-1 border-b border-slate-800 font-bold text-white">
                     <span>⭐ Orçamentos</span>
-                    {f'''<button onclick="mudarAba('aba-novo-orcamento-versao')" class="text-[11px] px-2 py-0.5 bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 rounded-lg font-bold">+ Nova Opção</button>''' if not somente_leitura_fabrica else ''}
                 </div>
                 <ul class="mt-2 space-y-1.5 text-slate-400">{lista_versoes_html}</ul>
             </div>
@@ -977,6 +1038,31 @@ def render_dashboard_view():
                             <tbody>{linhas_parcelas}</tbody>
                         </table>
                     </div>
+                </div>
+            </div>
+
+            <!-- NOVA ABA: GESTÃO COMPLETA DE LEADS E ORÇAMENTOS RECEBIDOS -->
+            <div id="aba-leads-gestao" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl space-y-3">
+                <div class="bg-slate-850 px-5 py-3 border-b border-slate-800 flex justify-between items-center">
+                    <h3 class="font-bold text-xs uppercase text-amber-400 tracking-wide">🎯 Painel de Leads & Orçamentos Recebidos</h3>
+                    <span class="text-[11px] text-slate-400">Classifique, baixe plantas ou exclua</span>
+                </div>
+                <div class="overflow-x-auto p-2">
+                    <table class="w-full text-left text-xs border-collapse">
+                        <thead class="bg-slate-950 border-b border-slate-800 text-slate-400 font-semibold uppercase">
+                            <tr>
+                                <th class="py-3 px-3">ID</th>
+                                <th class="py-3 px-3">Data</th>
+                                <th class="py-3 px-3">Cliente / Contato</th>
+                                <th class="py-3 px-3">Ambientes</th>
+                                <th class="py-3 px-3 text-right">Valor Est.</th>
+                                <th class="py-3 px-3 text-center">Anexos</th>
+                                <th class="py-3 px-3 text-center">Status / Funil</th>
+                                <th class="py-3 px-3 text-center">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>{tabela_leads_gestao_html if tabela_leads_gestao_html else "<tr><td colspan='8' class='py-4 text-center text-slate-500'>Nenhum lead recebido ainda.</td></tr>"}</tbody>
+                    </table>
                 </div>
             </div>
 
@@ -1199,6 +1285,7 @@ def render_dashboard_view():
     </script>
 </body></html>"""
 
+
 # ==============================================================================
 # 5. ROTAS FASTAPI
 # ==============================================================================
@@ -1322,7 +1409,7 @@ async def submit_lead_route(
             prazo_entrega, data_entrega_prevista, status, custo_materiais,
             custo_mao_obra, custo_frete_montagem, preco_bruto, preco_venda, lucro_liquido, comissao_valor,
             observacoes_tecnicas, descricao_promob, imagens_json, arquivo_planta, arquivo_inspiracao
-        ) VALUES (1, ?, 'Raquel Marcelino', 'raquel@mvi.com', ?, ?, ?, '25 dias úteis', ?, 'Novo Lead Aberto', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (1, ?, 'Raquel Marcelino', 'raquel@mvi.com', ?, ?, ?, '25 dias úteis', ?, 'Novo Lead', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         agora, nome, whatsapp, ambientes_str, (date.today() + timedelta(days=25)).strftime("%Y-%m-%d"),
         calc["total_mat"], calc["custo_mo"], calc["custo_frete"], calc["preco_bruto"], calc["preco_venda"], calc["lucro"], calc["comissao"],
@@ -1339,6 +1426,26 @@ async def submit_lead_route(
         espessura_porta, cor_porta, acabamento_porta, marca_ferragens, espessura_tamponamento,
         ambientes_str
     )
+
+@app.post("/atualizar-status-lead", response_class=HTMLResponse)
+def atualizar_status_lead_route(orcamento_id: int = Form(...), novo_status: str = Form(...)):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE orcamentos SET status = ? WHERE id = ?", (novo_status, orcamento_id))
+    conn.commit()
+    conn.close()
+    return RedirectResponse(url="/painel-get", status_code=303)
+
+@app.post("/excluir-lead", response_class=HTMLResponse)
+def excluir_lead_route(orcamento_id: int = Form(...)):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM orcamentos WHERE id = ?", (orcamento_id,))
+    conn.commit()
+    conn.close()
+    if CURRENT_SESSION.get("cliente_ativo_id") == orcamento_id:
+        CURRENT_SESSION["cliente_ativo_id"] = None
+    return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.post("/salvar-dados-completos-cliente", response_class=HTMLResponse)
 def salvar_dados_completos_cliente_route(
