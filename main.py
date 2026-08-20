@@ -5,7 +5,7 @@ def render_pre_orcamento_agendamento(
     pv_redondo = int(round(preco_venda))
     desconto_vista_5 = int(round(pv_redondo * 0.95))
     
-    # Formatação no padrão monetário brasileiro (R$ 12.000)
+    # Formatação com ponto para milhar no padrão brasileiro
     pv_fmt = f"{pv_redondo:,}".replace(",", ".")
     desconto_fmt = f"{desconto_vista_5:,}".replace(",", ".")
     
