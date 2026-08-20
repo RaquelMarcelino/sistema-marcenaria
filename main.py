@@ -45,7 +45,7 @@ def parse_moeda(valor_str) -> float:
     s = str(valor_str).strip().replace("R$", "").replace(" ", "")
     if "." in s and "," not in s:
         partes = s.split(".")
-        if len(partes[-1]) == 3:  # Ex: 5.000 ou 18.500 vira 5000 ou 18500
+        if len(partes[-1]) == 3:  # Ex: 5.000 ou 18.500 vira 5000 / 18500
             s = s.replace(".", "")
     elif "." in s and "," in s:
         s = s.replace(".", "").replace(",", ".")
@@ -812,7 +812,6 @@ def render_dashboard_view():
     taxa_juros_empresa = float(empresa.get("taxa_juros_mensal", 1.99))
     saldo_para_financiar = max(c_p_venda - c_entrada, 0.0)
 
-    # Cálculo da parcela com acréscimo de juros via Tabela Price
     if "Financiamento" in c_mod or "MVI Crédito" in c_mod:
         valor_por_parcela = calcular_parcela_price(saldo_para_financiar, taxa_juros_empresa, c_parc)
     else:
@@ -1214,7 +1213,7 @@ def render_dashboard_view():
                 <!-- ARQUIVOS E ANEXOS DO LEAD -->
                 {anexos_html}
 
-                <!-- CRONOGRAMA DE PARCELAS CORRIGIDO -->
+                <!-- CRONOGRAMA DE PARCELAS -->
                 <div class="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
                     <div class="bg-slate-850 px-4 py-2.5 border-b border-slate-800 text-xs font-bold text-amber-400 text-center uppercase tracking-wide">PLANO DE PAGAMENTO & CRONOGRAMA</div>
                     <div class="overflow-x-auto">
@@ -1228,7 +1227,7 @@ def render_dashboard_view():
                                     <th class="py-2.5 px-3">Status</th>
                                 </tr>
                             </thead>
-                            <tbody>{linhas_parcelas}</tbody>
+                            <tbody id="corpo_tabela_cronograma">{linhas_parcelas}</tbody>
                         </table>
                     </div>
                 </div>
@@ -1453,15 +1452,15 @@ def render_dashboard_view():
                 </form>
             </div>
 
-            <!-- ABA 3: MESA DE NEGOCIAÇÃO -->
+            <!-- ABA 3: MESA DE NEGOCIAÇÃO COM SALVAMENTO AJAX (SEM SAIR DA TELA AO APERTAR ENTER) -->
             <div id="aba-mesa" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
                 <div class="flex justify-between items-center pb-1 border-b border-slate-800">
                     <h3 class="font-bold text-amber-400 uppercase">💼 Mesa de Negociação & Fechamento</h3>
-                    <input type="hidden" id="preco_bruto_base" value="{c_p_bruto if c_p_bruto > 0 else c_p_venda}">
+                    <span id="status_salvamento_mesa" class="text-xs font-bold text-emerald-400 opacity-0 transition-opacity">✓ Atualizado com Sucesso!</span>
                 </div>
 
-                <form id="form_mesa_negociacao" action="/salvar-negociacao-mesa" method="post" class="space-y-4">
-                    <input type="hidden" name="orcamento_id" value="{c_id}">
+                <form id="form_mesa_negociacao" onsubmit="salvarMesaAjax(event)" class="space-y-4">
+                    <input type="hidden" name="orcamento_id" id="mesa_orcamento_id" value="{c_id}">
 
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div>
@@ -1484,7 +1483,7 @@ def render_dashboard_view():
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                             <label class="block text-slate-400 mb-1 font-semibold">Forma de Pagamento</label>
-                            <select name="forma_opcao" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-semibold text-white">
+                            <select name="forma_opcao" id="mesa_forma_opcao" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-semibold text-white">
                                 <option value="Financiamento Próprio MVI Crédito" {'selected' if 'Financiamento' in c_mod or 'MVI Crédito' in c_mod else ''}>Financiamento Próprio MVI Crédito (Boleto/PIX até 36x)</option>
                                 <option value="Entrada PIX + Cartão de Crédito" {'selected' if 'Cartão' in c_mod else ''}>Entrada PIX + Cartão de Crédito</option>
                                 <option value="Entrada PIX + Boleto Bancário" {'selected' if 'Boleto Bancário' in c_mod else ''}>Entrada PIX + Boleto Bancário</option>
@@ -1493,21 +1492,21 @@ def render_dashboard_view():
                         </div>
                         <div>
                             <label class="block text-slate-400 mb-1 font-semibold">Parcelas</label>
-                            <input type="number" name="num_parcelas" value="{c_parc}" min="1" max="36" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-white">
+                            <input type="number" name="num_parcelas" id="mesa_num_parcelas" value="{c_parc}" min="1" max="36" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-white">
                         </div>
                     </div>
 
                     {f'''<div class="p-4 bg-slate-950 border border-emerald-500/30 rounded-2xl flex justify-between items-center">
                         <div>
                             <span class="font-bold text-slate-400 block text-xs uppercase">Lucro Líquido da Empresa (Restrito ADM):</span>
-                            <span class="font-black text-emerald-400 text-lg valor-sigiloso">R$ {fmt_br(c_lucro)}</span>
+                            <span id="painel_lucro_valor" class="font-black text-emerald-400 text-lg valor-sigiloso">R$ {fmt_br(c_lucro)}</span>
                         </div>
                     </div>''' if pode_ver_lucro else f'''<div class="p-3 bg-slate-950/60 border border-slate-800 rounded-xl text-center text-slate-500 text-[11px]">
                         🔒 Lucro e custos internos protegidos por política de privacidade da empresa.
                     </div>'''}
 
-                    <button type="submit" class="w-full py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-xs shadow-lg">
-                        💾 Atualizar Proposta & Salvar
+                    <button type="submit" id="btn_salvar_mesa" class="w-full py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-xs shadow-lg">
+                        💾 Atualizar Proposta & Salvar (Enter)
                     </button>
                 </form>
             </div>
@@ -1609,7 +1608,7 @@ def render_dashboard_view():
                             </div>
                             <div>
                                 <label class="block text-slate-400 text-[11px] mb-1">Taxa de Juros Mensal Financiamento (%)</label>
-                                <input type="text" name="taxa_juros_mensal" value="{empresa.get('taxa_juros_mensal', 1.99)}" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold text-xs">
+                                <input type="text" name="taxa_juros_mensal" value="{empresa.get('taxa_juros_mensal', 1.99)}" class="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold text-xs">
                             </div>
                         </div>
                     </div>
@@ -1630,9 +1629,9 @@ def render_dashboard_view():
                 </div>
                 <div class="space-y-1.5 text-slate-400">
                     <div class="flex justify-between"><span>Vendedor:</span> <span class="font-semibold text-white">{c_vendedor}</span></div>
-                    <div class="flex justify-between"><span>Comissão:</span> <span class="font-bold text-emerald-400 valor-sigiloso">R$ {fmt_br(c_comissao)}</span></div>
-                    <div class="flex justify-between items-center pt-1"><span class="text-slate-400 font-semibold">Valor Venda:</span> <span class="font-bold text-amber-400 text-sm">R$ {fmt_br(c_p_venda)}</span></div>
-                    <div class="flex justify-between items-center"><span class="text-slate-400 font-semibold">Entrada:</span> <span class="font-bold text-emerald-400 text-sm">R$ {fmt_br(c_entrada)}</span></div>
+                    <div class="flex justify-between"><span>Comissão:</span> <span id="painel_comissao_valor" class="font-bold text-emerald-400 valor-sigiloso">R$ {fmt_br(c_comissao)}</span></div>
+                    <div class="flex justify-between items-center pt-1"><span class="text-slate-400 font-semibold">Valor Venda:</span> <span id="painel_valor_venda" class="font-bold text-amber-400 text-sm">R$ {fmt_br(c_p_venda)}</span></div>
+                    <div class="flex justify-between items-center"><span class="text-slate-400 font-semibold">Entrada:</span> <span id="painel_valor_entrada" class="font-bold text-emerald-400 text-sm">R$ {fmt_br(c_entrada)}</span></div>
                 </div>
             </div>
 
@@ -1676,7 +1675,50 @@ def render_dashboard_view():
             window.scrollTo({{ top: 0, behavior: 'smooth' }});
         }}
 
-        // FUNÇÃO DE OCULTAR / MOSTRAR VALORES DE COMISSÃO E LUCRO
+        // SALVAMENTO AUTOMÁTICO VIA AJAX (SEM RECARREGAR A TELA AO APERTAR ENTER)
+        function salvarMesaAjax(event) {{
+            if (event) event.preventDefault();
+
+            var form = document.getElementById('form_mesa_negociacao');
+            var formData = new FormData(form);
+
+            var btn = document.getElementById('btn_salvar_mesa');
+            var statusTxt = document.getElementById('status_salvamento_mesa');
+            if (btn) btn.innerText = '⏳ Salvando...';
+
+            fetch('/salvar-negociacao-mesa-json', {{
+                method: 'POST',
+                body: formData
+            }})
+            .then(response => response.json())
+            .then(data => {{
+                if (data.sucesso) {{
+                    // Atualiza a lateral sem sair da aba
+                    document.getElementById('painel_valor_venda').innerText = 'R$ ' + data.preco_venda_fmt;
+                    document.getElementById('painel_valor_entrada').innerText = 'R$ ' + data.entrada_valor_fmt;
+                    document.getElementById('painel_comissao_valor').innerText = 'R$ ' + data.comissao_fmt;
+                    
+                    var lucroElem = document.getElementById('painel_lucro_valor');
+                    if (lucroElem) lucroElem.innerText = 'R$ ' + data.lucro_fmt;
+
+                    // Atualiza tabela do cronograma na Aba 1
+                    var tbody = document.getElementById('corpo_tabela_cronograma');
+                    if (tbody) tbody.innerHTML = data.cronograma_html;
+
+                    // Exibe aviso verde de sucesso
+                    if (statusTxt) {{
+                        statusTxt.innerText = '✓ Proposta Atualizada!';
+                        statusTxt.style.opacity = '1';
+                        setTimeout(() => {{ statusTxt.style.opacity = '0'; }}, 2500);
+                    }}
+                }}
+            }})
+            .catch(error => console.error('Erro ao salvar:', error))
+            .finally(() => {{
+                if (btn) btn.innerText = '💾 Atualizar Proposta & Salvar (Enter)';
+            }});
+        }}
+
         var sigiloAtivo = false;
         function alternarVisibilidadeSigilo() {{
             sigiloAtivo = !sigiloAtivo;
@@ -1874,6 +1916,93 @@ async def submit_lead_route(
         ambientes_str
     )
 
+@app.post("/salvar-negociacao-mesa-json")
+def salvar_negociacao_mesa_json(
+    orcamento_id: int = Form(...),
+    preco_venda: str = Form("0"),
+    desconto_pct: str = Form("0"),
+    entrada_valor: str = Form("0"),
+    forma_opcao: str = Form("Entrada + Cartão de Crédito"),
+    num_parcelas: int = Form(1)
+):
+    pv_num = parse_moeda(preco_venda)
+    desc_num = parse_moeda(desconto_pct)
+    ent_num = parse_moeda(entrada_valor)
+    n_parc = max(num_parcelas, 1)
+
+    empresa = get_empresa_dados(1)
+    taxa_juros = float(empresa.get("taxa_juros_mensal", 1.99))
+    comissao_num = round(pv_num * (float(empresa.get("comissao_padrao_pct", 4.0)) / 100.0), 2)
+    lucro_estimado = round(pv_num * 0.35, 2)
+
+    saldo_financiar = max(pv_num - ent_num, 0.0)
+
+    if "Financiamento" in forma_opcao or "MVI Crédito" in forma_opcao:
+        valor_parcela = calcular_parcela_price(saldo_financiar, taxa_juros, n_parc)
+    else:
+        valor_parcela = (saldo_financiar / n_parc) if n_parc > 0 else 0.0
+
+    total_com_juros = ent_num + (valor_parcela * n_parc)
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE orcamentos SET
+            preco_venda = ?,
+            desconto_pct = ?,
+            entrada_valor = ?,
+            modalidade_pagamento = ?,
+            num_parcelas = ?,
+            comissao_valor = ?,
+            lucro_liquido = ?
+        WHERE id = ?
+    """, (pv_num, desc_num, ent_num, forma_opcao, n_parc, comissao_num, lucro_estimado, orcamento_id))
+    conn.commit()
+    conn.close()
+
+    # Gera HTML atualizado do cronograma
+    hoje = date.today()
+    cronograma_html = ""
+    if ent_num > 0:
+        cronograma_html += f"""
+        <tr class="border-b border-slate-800 text-xs bg-emerald-950/30 hover:bg-slate-800/40">
+            <td class="py-2.5 px-3 text-center text-emerald-400 font-bold font-mono">Entrada</td>
+            <td class="py-2.5 px-3 text-slate-300">{hoje.strftime("%d/%m/%Y")}</td>
+            <td class="py-2.5 px-3 font-bold text-emerald-400 text-right">R$ {fmt_br(ent_num)}</td>
+            <td class="py-2.5 px-3 text-slate-300">PIX / À Vista (Ato)</td>
+            <td class="py-2.5 px-3 text-emerald-400 font-semibold">✓ Confirmado / Entrada</td>
+        </tr>
+        """
+
+    for i in range(1, n_parc + 1):
+        dt_parc = (hoje + timedelta(days=30 * i)).strftime("%d/%m/%Y")
+        cronograma_html += f"""
+        <tr class="border-b border-slate-800 text-xs hover:bg-slate-800/40">
+            <td class="py-2.5 px-3 text-center text-slate-400 font-mono">{i}ª Parc</td>
+            <td class="py-2.5 px-3 text-slate-300">{dt_parc}</td>
+            <td class="py-2.5 px-3 font-bold text-amber-400 text-right">R$ {fmt_br(valor_parcela)}</td>
+            <td class="py-2.5 px-3 text-slate-300">{forma_opcao}</td>
+            <td class="py-2.5 px-3 text-slate-400">Carnê / Boleto MVI</td>
+        </tr>
+        """
+
+    cronograma_html += f"""
+    <tr class="border-t-2 border-slate-700 text-xs bg-slate-950 font-bold">
+        <td colspan="2" class="py-3 px-3 text-amber-400 uppercase">Total Geral (Entrada + Parcelas):</td>
+        <td class="py-3 px-3 font-black text-amber-400 text-right text-sm">R$ {fmt_br(total_com_juros)}</td>
+        <td colspan="2" class="py-3 px-3 text-slate-400 text-[11px]">Plano {n_parc}x com juros de {taxa_juros}% a.m.</td>
+    </tr>
+    """
+
+    return {
+        "sucesso": True,
+        "preco_venda_fmt": fmt_br(pv_num),
+        "entrada_valor_fmt": fmt_br(ent_num),
+        "comissao_fmt": fmt_br(comissao_num),
+        "lucro_fmt": fmt_br(lucro_estimado),
+        "cronograma_html": cronograma_html
+    }
+
 @app.post("/submeter-proposta-credito", response_class=HTMLResponse)
 def submeter_proposta_credito_route(
     orcamento_id: int = Form(...),
@@ -1960,40 +2089,6 @@ def emitir_ccb_route(proposta_id: int):
         {carne_btn}
     </div>
 </body></html>"""
-
-@app.post("/salvar-negociacao-mesa", response_class=HTMLResponse)
-def salvar_negociacao_mesa_route(
-    orcamento_id: int = Form(...),
-    preco_venda: str = Form("0"),
-    desconto_pct: str = Form("0"),
-    entrada_valor: str = Form("0"),
-    forma_opcao: str = Form("Entrada + Cartão de Crédito"),
-    num_parcelas: int = Form(1)
-):
-    pv_num = parse_moeda(preco_venda)
-    desc_num = parse_moeda(desconto_pct)
-    ent_num = parse_moeda(entrada_valor)
-    
-    empresa = get_empresa_dados(1)
-    comissao_num = round(pv_num * (float(empresa.get("comissao_padrao_pct", 4.0)) / 100.0), 2)
-    lucro_estimado = round(pv_num * 0.35, 2)
-
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE orcamentos SET
-            preco_venda = ?,
-            desconto_pct = ?,
-            entrada_valor = ?,
-            modalidade_pagamento = ?,
-            num_parcelas = ?,
-            comissao_valor = ?,
-            lucro_liquido = ?
-        WHERE id = ?
-    """, (pv_num, desc_num, ent_num, forma_opcao, num_parcelas, comissao_num, lucro_estimado, orcamento_id))
-    conn.commit()
-    conn.close()
-    return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.post("/importar-promob", response_class=HTMLResponse)
 async def importar_promob_route(
