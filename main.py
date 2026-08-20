@@ -9,6 +9,7 @@ import math
 import base64
 import traceback
 import secrets
+import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, date, timedelta
 from typing import List
@@ -74,6 +75,8 @@ def init_db():
             desconto_max_vendedor REAL DEFAULT 3.0,
             comissao_padrao_pct REAL DEFAULT 4.0,
             taxa_juros_mensal REAL DEFAULT 1.99,
+            asaas_api_key TEXT DEFAULT '',
+            asaas_ambiente TEXT DEFAULT 'producao',
             financiamento_ativo INTEGER DEFAULT 1
         )
     """)
@@ -107,7 +110,10 @@ def init_db():
             status TEXT DEFAULT 'Aprovado (Crédito Liberado)',
             score_estimado INTEGER DEFAULT 750,
             criado_em TEXT,
-            contrato_ccb_assinado INTEGER DEFAULT 0
+            contrato_ccb_assinado INTEGER DEFAULT 0,
+            asaas_payment_id TEXT DEFAULT '',
+            asaas_carne_url TEXT DEFAULT '',
+            asaas_installment_id TEXT DEFAULT ''
         )
     """)
 
@@ -203,6 +209,7 @@ def init_db():
     """)
 
     novas_colunas = [
+        "asaas_api_key TEXT DEFAULT ''", "asaas_ambiente TEXT DEFAULT 'producao'",
         "cliente_rua_postal TEXT DEFAULT ''", "cliente_num_postal TEXT DEFAULT ''",
         "cliente_comp_postal TEXT DEFAULT ''", "cliente_bairro_postal TEXT DEFAULT ''",
         "cliente_cidade_postal TEXT DEFAULT ''", "cliente_uf_postal TEXT DEFAULT ''",
@@ -215,7 +222,15 @@ def init_db():
     ]
     for col in novas_colunas:
         try:
+            cursor.execute(f"ALTER TABLE empresas ADD COLUMN {col}")
+        except Exception:
+            pass
+        try:
             cursor.execute(f"ALTER TABLE orcamentos ADD COLUMN {col}")
+        except Exception:
+            pass
+        try:
+            cursor.execute(f"ALTER TABLE propostas_credito ADD COLUMN {col}")
         except Exception:
             pass
 
@@ -263,7 +278,8 @@ def get_empresa_dados(empresa_id=1):
         "id": 1, "slug": "mvi", "nome_empresa": "MVI Móveis Planejados",
         "cnpj": "", "endereco": "", "telefone": "",
         "email": "", "pix": "", "precos_json": "{}", "chave_mestra": "MVI2026",
-        "desconto_max_vendedor": 3.0, "comissao_padrao_pct": 4.0, "taxa_juros_mensal": 1.99
+        "desconto_max_vendedor": 3.0, "comissao_padrao_pct": 4.0, "taxa_juros_mensal": 1.99,
+        "asaas_api_key": "", "asaas_ambiente": "producao"
     }
 
 def calcular_parcela_price(valor: float, taxa_mensal_pct: float, parcelas: int) -> float:
@@ -274,6 +290,64 @@ def calcular_parcela_price(valor: float, taxa_mensal_pct: float, parcelas: int) 
         return valor / parcelas
     pmt = valor * (i * ((1 + i) ** parcelas)) / (((1 + i) ** parcelas) - 1)
     return pmt
+
+
+# ==============================================================================
+# MOTOR INTEGRADO ASAAS (EMISSÃO REAL DE BOLETOS / CARNÊS)
+# ==============================================================================
+def emitir_carne_asaas(empresa_dict, cliente_nome, cliente_cpf, cliente_tel, valor_parcela, num_parcelas):
+    api_key = (empresa_dict.get("asaas_api_key") or "").strip()
+    if not api_key:
+        return {"sucesso": False, "msg": "Chave de API do Asaas não configurada", "carne_url": ""}
+
+    base_url = "https://api.asaas.com/v3" if empresa_dict.get("asaas_ambiente") == "producao" else "https://sandbox.asaas.com/api/v3"
+    headers = {
+        "Content-Type": "application/json",
+        "access_token": api_key,
+        "User-Agent": "MVI-Sistemas/1.0"
+    }
+
+    try:
+        # 1. Cria ou localiza o cliente no Asaas
+        cpf_limpo = cliente_cpf.replace(".", "").replace("-", "").replace(" ", "")
+        payload_cli = json.dumps({
+            "name": cliente_nome,
+            "cpfCnpj": cpf_limpo if len(cpf_limpo) in [11, 14] else None,
+            "mobilePhone": cliente_tel.replace("(", "").replace(")", "").replace("-", "").replace(" ", "")
+        }).encode("utf-8")
+
+        req_cli = urllib.request.Request(f"{base_url}/customers", data=payload_cli, headers=headers, method="POST")
+        with urllib.request.urlopen(req_cli, timeout=10) as resp_cli:
+            res_c = json.loads(resp_cli.read().decode("utf-8"))
+            customer_id = res_c.get("id")
+
+        # 2. Cria o parcelamento em carnê
+        primeiro_vencimento = (date.today() + timedelta(days=30)).strftime("%Y-%m-%d")
+        payload_cobranca = json.dumps({
+            "customer": customer_id,
+            "billingType": "BOLETO",
+            "installmentCount": num_parcelas,
+            "installmentValue": round(valor_parcela, 2),
+            "dueDate": primeiro_vencimento,
+            "description": f"Financiamento MVI Planejados - Contrato em {num_parcelas}x",
+            "postalService": False
+        }).encode("utf-8")
+
+        req_cob = urllib.request.Request(f"{base_url}/payments", data=payload_cobranca, headers=headers, method="POST")
+        with urllib.request.urlopen(req_cob, timeout=10) as resp_cob:
+            res_p = json.loads(resp_cob.read().decode("utf-8"))
+            installment_id = res_p.get("installment") or res_p.get("id")
+            bank_slip_url = res_p.get("bankSlipUrl") or res_p.get("invoiceUrl") or ""
+
+            return {
+                "sucesso": True,
+                "installment_id": installment_id,
+                "carne_url": bank_slip_url,
+                "msg": "Carnê emitido com sucesso no Asaas"
+            }
+    except Exception as e:
+        return {"sucesso": False, "msg": str(e), "carne_url": ""}
+
 
 def get_metricas():
     conn = sqlite3.connect(DB_PATH)
@@ -1005,6 +1079,8 @@ def render_dashboard_view():
     for prop in propostas_credito:
         pr = dict(prop)
         st_color = "bg-emerald-950 text-emerald-300 border-emerald-500/40" if "Aprovado" in pr['status'] else "bg-rose-950 text-rose-300 border-rose-500/40"
+        carne_btn = f"""<a href="{pr['asaas_carne_url']}" target="_blank" class="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-slate-950 rounded font-black text-[11px] shadow">💳 Abrir Carnê / Boletos</a>""" if pr.get("asaas_carne_url") else ""
+
         tabela_credito_html += f"""
         <tr class="border-b border-slate-800 text-xs hover:bg-slate-800/40">
             <td class="py-3 px-3 font-mono font-bold text-amber-400">CCB#{pr['id']:05d}</td>
@@ -1015,7 +1091,10 @@ def render_dashboard_view():
             <td class="py-3 px-3 text-right text-slate-300">R$ {fmt_br(pr['total_com_juros'])}</td>
             <td class="py-3 px-3 text-center"><span class="px-2.5 py-1 rounded-full text-[10px] font-bold border {st_color}">{pr['status']}</span></td>
             <td class="py-3 px-3 text-center">
-                <a href="/emitir-ccb/{pr['id']}" target="_blank" class="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded font-bold text-[11px] shadow">📄 Imprimir CCB</a>
+                <div class="flex items-center justify-center gap-1.5">
+                    {carne_btn}
+                    <a href="/emitir-ccb/{pr['id']}" target="_blank" class="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded font-bold text-[11px] shadow">📄 CCB</a>
+                </div>
             </td>
         </tr>
         """
@@ -1177,9 +1256,9 @@ def render_dashboard_view():
                 <div class="flex justify-between items-center pb-2 border-b border-slate-800">
                     <div>
                         <h3 class="font-bold text-sm text-sky-400 uppercase">💳 MVI Crédito & Financiadora Própria</h3>
-                        <p class="text-[11px] text-slate-400">Emissão de CCB, parcelamento direto ao cliente e repasse à vista para a loja</p>
+                        <p class="text-[11px] text-slate-400">Emissão de CCB e Carnês de Boletos Registrados direto na conta PJ</p>
                     </div>
-                    <span class="px-3 py-1 bg-sky-950 text-sky-300 border border-sky-500/40 rounded-full font-bold text-[10px]">CaaS Integrado</span>
+                    <span class="px-3 py-1 bg-sky-950 text-sky-300 border border-sky-500/40 rounded-full font-bold text-[10px]">Asaas BaaS Integrado</span>
                 </div>
 
                 <div class="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
@@ -1201,17 +1280,18 @@ def render_dashboard_view():
                         <input type="hidden" name="orcamento_id" value="{c_id}">
                         <input type="hidden" name="cliente_nome" value="{c_nome}">
                         <input type="hidden" name="cliente_cpf" value="{c_cpf}">
+                        <input type="hidden" name="cliente_telefone" value="{c_tel}">
                         <input type="hidden" name="cliente_renda" value="{c_renda}">
                         <input type="hidden" name="valor_financiado" value="{saldo_para_financiar}">
                         <div class="flex gap-2">
                             <select name="num_parcelas" class="p-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold text-xs flex-1">
-                                <option value="12">Plano 12x no Boleto/PIX Direto</option>
-                                <option value="18">Plano 18x no Boleto/PIX Direto</option>
-                                <option value="24" selected>Plano 24x no Boleto/PIX Direto</option>
-                                <option value="36">Plano 36x no Boleto/PIX Direto</option>
+                                <option value="12">Plano 12x no Boleto/PIX (Carnê Asaas)</option>
+                                <option value="18">Plano 18x no Boleto/PIX (Carnê Asaas)</option>
+                                <option value="24" selected>Plano 24x no Boleto/PIX (Carnê Asaas)</option>
+                                <option value="36">Plano 36x no Boleto/PIX (Carnê Asaas)</option>
                             </select>
                             <button type="submit" class="px-5 py-2.5 bg-gradient-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 text-slate-950 font-black rounded-xl text-xs shadow-lg uppercase">
-                                🚀 Submeter Proposta & Emitir CCB
+                                🚀 Emitir CCB & Gerar Carnê de Boletos
                             </button>
                         </div>
                     </form>
@@ -1230,7 +1310,7 @@ def render_dashboard_view():
                                     <th class="py-2.5 px-3 text-center">Parcelas Cliente</th>
                                     <th class="py-2.5 px-3 text-right">Total Financiado</th>
                                     <th class="py-2.5 px-3 text-center">Status</th>
-                                    <th class="py-2.5 px-3 text-center">Ação</th>
+                                    <th class="py-2.5 px-3 text-center">Ações</th>
                                 </tr>
                             </thead>
                             <tbody>{tabela_credito_html if tabela_credito_html else "<tr><td colspan='8' class='py-4 text-center text-slate-500'>Nenhuma proposta de crédito submetida ainda.</td></tr>"}</tbody>
@@ -1501,10 +1581,10 @@ def render_dashboard_view():
                 </div>
             </div>
 
-            <!-- ABA 7: CONFIGURAÇÕES DA EMPRESA & PARÂMETROS FINANCEIROS -->
+            <!-- ABA 7: CONFIGURAÇÕES DA EMPRESA & CHAVE DE API ASAAS -->
             <div id="aba-empresa" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
                 <div class="border-b border-slate-800 pb-2">
-                    <h3 class="font-bold text-amber-400 uppercase">🏢 Configuração da Empresa & Parâmetros Comerciais</h3>
+                    <h3 class="font-bold text-amber-400 uppercase">🏢 Configuração da Empresa & Financiadora Asaas</h3>
                 </div>
                 <form action="/salvar-empresa" method="post" class="grid sm:grid-cols-2 gap-3">
                     <div class="sm:col-span-2">
@@ -1527,10 +1607,26 @@ def render_dashboard_view():
                         <label class="block text-slate-400 mb-1 font-semibold">Comissão Padrão da Equipe (%)</label>
                         <input type="text" name="comissao_padrao_pct" value="{empresa.get('comissao_padrao_pct', 4.0)}" class="w-full p-2.5 bg-slate-950 border border-emerald-500/50 rounded-xl text-emerald-300 font-bold">
                     </div>
-                    <div class="sm:col-span-2 bg-slate-950 p-3 rounded-xl border border-sky-500/40">
-                        <label class="block text-sky-400 mb-1 font-bold">💳 Taxa de Juros Mensal da Financiadora MVI (%)</label>
-                        <input type="text" name="taxa_juros_mensal" value="{empresa.get('taxa_juros_mensal', 1.99)}" class="w-full p-2.5 bg-slate-900 border border-sky-500/60 rounded-xl text-white font-black">
-                        <span class="text-[10px] text-slate-400 block mt-1">Taxa padrão aplicada nas CCBs e financiamentos diretos ao consumidor (Tabela Price).</span>
+                    <div class="sm:col-span-2 bg-slate-950 p-3.5 rounded-2xl border border-sky-500/40 space-y-2">
+                        <div class="flex justify-between items-center">
+                            <label class="font-bold text-sky-400 block text-xs">🔑 Token de API da sua Conta Asaas (Emissão de Boletos)</label>
+                            <span class="text-[10px] text-slate-400">Pegue em asaas.com > Configurações > Integrações</span>
+                        </div>
+                        <input type="password" name="asaas_api_key" value="{empresa.get('asaas_api_key','')}" placeholder="$aact_YTU5YTE0M2M6N2..." class="w-full p-2.5 bg-slate-900 border border-sky-500/60 rounded-xl text-sky-300 font-mono text-xs">
+                        
+                        <div class="grid grid-cols-2 gap-2 pt-1">
+                            <div>
+                                <label class="block text-slate-400 text-[11px] mb-1">Ambiente</label>
+                                <select name="asaas_ambiente" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-semibold text-xs">
+                                    <option value="producao" {'selected' if empresa.get('asaas_ambiente')=='producao' else ''}>Produção (Boletos Reais)</option>
+                                    <option value="sandbox" {'selected' if empresa.get('asaas_ambiente')=='sandbox' else ''}>Sandbox (Testes)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-slate-400 text-[11px] mb-1">Taxa de Juros Mensal Financiamento (%)</label>
+                                <input type="text" name="taxa_juros_mensal" value="{empresa.get('taxa_juros_mensal', 1.99)}" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold text-xs">
+                            </div>
+                        </div>
                     </div>
                     <button type="submit" class="sm:col-span-2 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-lg mt-2">
                         💾 Salvar Parâmetros
@@ -1776,6 +1872,7 @@ def submeter_proposta_credito_route(
     orcamento_id: int = Form(...),
     cliente_nome: str = Form(...),
     cliente_cpf: str = Form(...),
+    cliente_telefone: str = Form(""),
     cliente_renda: str = Form("5500"),
     valor_financiado: str = Form("0"),
     num_parcelas: int = Form(24)
@@ -1789,15 +1886,20 @@ def submeter_proposta_credito_route(
     tot_juros = v_parc * num_parcelas
     agora = datetime.now().strftime("%d/%m/%Y %H:%M")
 
+    # Dispara a emissão do Carnê / Boletos reais no Asaas
+    res_asaas = emitir_carne_asaas(empresa, cliente_nome, cliente_cpf, cliente_telefone, v_parc, num_parcelas)
+    carne_url = res_asaas.get("carne_url", "")
+    inst_id = res_asaas.get("installment_id", "")
+
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO propostas_credito (
             empresa_id, orcamento_id, cliente_nome, cliente_cpf, cliente_renda,
             valor_financiado, num_parcelas, taxa_juros, valor_parcela, total_com_juros,
-            status, score_estimado, criado_em, contrato_ccb_assinado
-        ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Aprovado (Crédito Liberado)', 780, ?, 1)
-    """, (orcamento_id, cliente_nome, cliente_cpf, r_cli, v_fin, num_parcelas, taxa, v_parc, tot_juros, agora))
+            status, score_estimado, criado_em, contrato_ccb_assinado, asaas_carne_url, asaas_installment_id
+        ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Aprovado (Crédito Liberado)', 780, ?, 1, ?, ?)
+    """, (orcamento_id, cliente_nome, cliente_cpf, r_cli, v_fin, num_parcelas, taxa, v_parc, tot_juros, agora, carne_url, inst_id))
     
     cursor.execute("UPDATE orcamentos SET modalidade_pagamento = ?, status = 'Crédito Aprovado / CCB Emitida' WHERE id = ?", (f"MVI Crédito ({num_parcelas}x no Boleto/PIX)", orcamento_id))
     conn.commit()
@@ -1818,6 +1920,8 @@ def emitir_ccb_route(proposta_id: int):
         return HTMLResponse("Proposta de Crédito não encontrada.", status_code=404)
 
     empresa = get_empresa_dados(1)
+    carne_btn = f"""<a href="{prop['asaas_carne_url']}" target="_blank" class="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded text-xs inline-block">💳 Visualizar / Imprimir Carnê de Boletos</a>""" if prop.get("asaas_carne_url") else ""
+
     return f"""<!DOCTYPE html>
 <html lang="pt-br">
 <head>
@@ -1845,7 +1949,10 @@ def emitir_ccb_route(proposta_id: int):
         <div class="w-1/2">______________________________________<br><b>{empresa['nome_empresa']}</b><br>Credor / Operador</div>
     </div>
 
-    <div class="mt-8 text-center"><button onclick="window.print()" class="px-4 py-2 bg-sky-500 text-slate-950 font-bold rounded">🖨️ Imprimir Cédula de Crédito (PDF)</button></div>
+    <div class="mt-8 text-center flex items-center justify-center gap-3">
+        <button onclick="window.print()" class="px-4 py-2 bg-sky-500 text-slate-950 font-bold rounded">🖨️ Imprimir Cédula de Crédito (PDF)</button>
+        {carne_btn}
+    </div>
 </body></html>"""
 
 @app.post("/salvar-negociacao-mesa", response_class=HTMLResponse)
@@ -2050,7 +2157,9 @@ def update_empresa(
     telefone: str = Form(""),
     desconto_max_vendedor: str = Form("3.0"),
     comissao_padrao_pct: str = Form("4.0"),
-    taxa_juros_mensal: str = Form("1.99")
+    taxa_juros_mensal: str = Form("1.99"),
+    asaas_api_key: str = Form(""),
+    asaas_ambiente: str = Form("producao")
 ):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -2061,9 +2170,11 @@ def update_empresa(
             telefone = ?,
             desconto_max_vendedor = ?,
             comissao_padrao_pct = ?,
-            taxa_juros_mensal = ?
+            taxa_juros_mensal = ?,
+            asaas_api_key = ?,
+            asaas_ambiente = ?
         WHERE id = 1
-    """, (nome_empresa.strip(), cnpj.strip(), telefone.strip(), parse_moeda(desconto_max_vendedor), parse_moeda(comissao_padrao_pct), parse_moeda(taxa_juros_mensal)))
+    """, (nome_empresa.strip(), cnpj.strip(), telefone.strip(), parse_moeda(desconto_max_vendedor), parse_moeda(comissao_padrao_pct), parse_moeda(taxa_juros_mensal), asaas_api_key.strip(), asaas_ambiente.strip()))
     conn.commit()
     conn.close()
     return RedirectResponse(url="/painel-get", status_code=303)
