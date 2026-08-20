@@ -33,6 +33,7 @@ def render_pre_orcamento_agendamento(
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen p-4 sm:p-8 font-sans flex items-center justify-center">
     <div class="max-w-2xl w-full bg-slate-900 border border-amber-500/40 rounded-3xl p-6 sm:p-10 shadow-2xl space-y-6">
+        
         <div class="text-center space-y-2 border-b border-slate-800 pb-4">
             <span class="text-4xl block">✨</span>
             <h1 class="text-xl sm:text-2xl font-bold text-white">Pré-Orçamento Calculado com Sucesso!</h1>
@@ -40,6 +41,7 @@ def render_pre_orcamento_agendamento(
             <p class="text-[11px] text-amber-300 font-semibold">{ambientes_str}</p>
         </div>
 
+        <!-- QUADRO DO VALOR ESTIMADO -->
         <div class="bg-slate-950 p-6 rounded-2xl border border-amber-500/40 text-center space-y-2">
             <span class="text-xs text-slate-400 font-bold uppercase tracking-wider block">Valor Estimado do Projeto</span>
             <span class="text-3xl sm:text-4xl font-black text-amber-400">R$ {pv_redondo:,.0f}</span>
@@ -49,21 +51,28 @@ def render_pre_orcamento_agendamento(
             </div>
         </div>
 
-        <div class="space-y-3 pt-2">
-            <p class="text-center text-xs text-slate-300 font-semibold">Deseja dar continuidade e falar com um especialista?</p>
-            
-            <!-- OPÇÃO 1: CONTINUAR PARA O WHATSAPP -->
-            <a href="https://wa.me/55{tel_limpo}?text=Ol%C3%A1!%20Simulei%20meu%20projeto%20no%20site%20da%20{empresa['nome_empresa']}%20(Projeto%20%23{orcamento_id:04d})%20e%20quero%20dar%20continuidade%20ao%20atendimento!" target="_blank" class="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold rounded-2xl flex items-center justify-center space-x-2 shadow-lg shadow-emerald-500/20 transition-all text-sm uppercase tracking-wider block text-center">
-                ✅ Sim, quero dar continuidade no WhatsApp
-            </a>
+        <!-- OPÇÕES DE DECISÃO DO CLIENTE -->
+        <div class="bg-slate-950/80 p-5 rounded-2xl border border-slate-800 space-y-4">
+            <div class="text-center">
+                <h3 class="text-sm font-bold text-white uppercase tracking-wide">Deseja dar continuidade ao seu projeto?</h3>
+                <p class="text-xs text-slate-400 mt-1">Selecione uma opção abaixo:</p>
+            </div>
 
-            <!-- OPÇÃO 2: NÃO TENHO INTERESSE -->
-            <form action="/recusar-lead" method="post">
-                <input type="hidden" name="orcamento_id" value="{orcamento_id}">
-                <button type="submit" class="w-full py-3 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-rose-300 border border-slate-700 rounded-2xl font-semibold text-xs transition block text-center">
-                    ❌ Não tenho interesse no momento
-                </button>
-            </form>
+            <div class="space-y-3">
+                <!-- OPÇÃO 1: DAR CONTINUIDADE NO WHATSAPP -->
+                <a href="https://wa.me/55{tel_limpo}?text=Ol%C3%A1!%20Simulei%20meu%20projeto%20no%20site%20da%20{empresa['nome_empresa']}%20(Projeto%20%23{orcamento_id:04d})%20e%20quero%20dar%20continuidade%20ao%20atendimento!" target="_blank" class="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black rounded-2xl flex items-center justify-center space-x-2 shadow-lg shadow-emerald-500/20 transition-all text-sm uppercase tracking-wider text-center block">
+                    ✅ Sim, quero dar continuidade no WhatsApp
+                </a>
+
+                <!-- OPÇÃO 2: NÃO TENHO INTERESSE -->
+                <form action="/recusar-lead" method="post">
+                    <input type="hidden" name="orcamento_id" value="{orcamento_id}">
+                    <button type="submit" class="w-full py-3 bg-slate-900 hover:bg-rose-950/40 text-slate-400 hover:text-rose-400 border border-slate-700 hover:border-rose-800/50 rounded-2xl font-semibold text-xs transition block text-center">
+                        ❌ Não tenho interesse no momento
+                    </button>
+                </form>
+            </div>
         </div>
+
     </div>
 </body></html>"""
