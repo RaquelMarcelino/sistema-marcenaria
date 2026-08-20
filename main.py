@@ -17,6 +17,7 @@ from typing import List
 app = FastAPI(title="MVI Móveis Planejados - Master SaaS & FinTech")
 DB_PATH = "mvi_production_v49.db"
 META_PIXEL_ID = "641231925101582"
+DEFAULT_ASAAS_KEY = "$aact_prod_000MzkwODA2MWY2OGM3MWRlMDU2NWM3MzJlNzZmNGZhZGY6OmZjNzAxZGMzLTA0MzItNGYxNy04NTI0LTU1ZDk0YmZjNTliYzo6JGFhY2hfZmY2M2U5MTAtZjA4Ny00YmFjLTgwY2UtYjVmYjBiM2Q4ZGYw"
 
 
 # ==============================================================================
@@ -212,6 +213,20 @@ def init_db():
         )
     """)
 
+    # Atualiza ou insere a chave Asaas na tabela da empresa 1
+    cursor.execute("SELECT id FROM empresas WHERE id = 1")
+    if not cursor.fetchone():
+        precos_iniciais = {
+            "mdf_m2": 65.0, "dobradica": 18.50, "corredica": 38.00,
+            "fita_borda_m": 3.20, "puxador": 25.00
+        }
+        cursor.execute("""
+            INSERT INTO empresas (id, slug, nome_empresa, cnpj, endereco, telefone, email, pix, precos_json, chave_mestra, desconto_max_vendedor, comissao_padrao_pct, taxa_juros_mensal, asaas_api_key, asaas_ambiente)
+            VALUES (1, 'mvi', 'MVI Móveis Planejados', '', '', '', '', '', ?, 'MVI2026', 3.0, 4.0, 1.99, ?, 'producao')
+        """, (json.dumps(precos_iniciais), DEFAULT_ASAAS_KEY))
+    else:
+        cursor.execute("UPDATE empresas SET asaas_api_key = ?, asaas_ambiente = 'producao' WHERE id = 1 AND (asaas_api_key IS NULL OR asaas_api_key = '')", (DEFAULT_ASAAS_KEY,))
+
     conn.commit()
     conn.close()
 
@@ -233,13 +248,16 @@ def get_empresa_dados(empresa_id=1):
     row = cursor.fetchone()
     conn.close()
     if row:
-        return dict(row)
+        d = dict(row)
+        if not d.get("asaas_api_key"):
+            d["asaas_api_key"] = DEFAULT_ASAAS_KEY
+        return d
     return {
         "id": 1, "slug": "mvi", "nome_empresa": "MVI Móveis Planejados",
         "cnpj": "", "endereco": "", "telefone": "",
         "email": "", "pix": "", "precos_json": "{}", "chave_mestra": "MVI2026",
         "desconto_max_vendedor": 3.0, "comissao_padrao_pct": 4.0, "taxa_juros_mensal": 1.99,
-        "asaas_api_key": "", "asaas_ambiente": "producao"
+        "asaas_api_key": DEFAULT_ASAAS_KEY, "asaas_ambiente": "producao"
     }
 
 def calcular_parcela_price(valor: float, taxa_mensal_pct: float, parcelas: int) -> float:
@@ -256,7 +274,7 @@ def calcular_parcela_price(valor: float, taxa_mensal_pct: float, parcelas: int) 
 # MOTOR INTEGRADO ASAAS
 # ==============================================================================
 def emitir_carne_asaas(empresa_dict, cliente_nome, cliente_cpf, cliente_tel, valor_parcela, num_parcelas):
-    api_key = (empresa_dict.get("asaas_api_key") or "").strip()
+    api_key = (empresa_dict.get("asaas_api_key") or DEFAULT_ASAAS_KEY).strip()
     if not api_key:
         return {"sucesso": False, "msg": "Chave de API do Asaas não configurada", "carne_url": ""}
 
@@ -808,7 +826,7 @@ def render_dashboard_view():
     chk_financeiro = int(cliente_ativo.get("check_financeiro") or 0)
     chk_contrato = int(cliente_ativo.get("check_contrato") or 0)
 
-    # Base Bruta sem desconto (para cálculo dinâmico da Mesa)
+    # Base Bruta sem desconto
     preco_base_sem_desconto = c_p_bruto if c_p_bruto > 0 else (c_p_venda / (1.0 - (c_desc_pct / 100.0)) if c_desc_pct < 100 and c_desc_pct > 0 else c_p_venda)
 
     taxa_juros_empresa = float(empresa.get("taxa_juros_mensal", 1.99))
@@ -1570,10 +1588,11 @@ def render_dashboard_view():
 
             <!-- ABA 7: CONFIGURAÇÕES DA EMPRESA & CHAVE DE API ASAAS -->
             <div id="aba-empresa" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
-                <div class="border-b border-slate-800 pb-2">
+                <div class="border-b border-slate-800 pb-2 flex justify-between items-center">
                     <h3 class="font-bold text-amber-400 uppercase">🏢 Configuração da Empresa & Financiadora Asaas</h3>
+                    <span id="status_salvamento_empresa" class="text-xs font-bold text-emerald-400 opacity-0 transition-opacity">✓ Dados Salvos!</span>
                 </div>
-                <form action="/salvar-empresa" method="post" class="grid sm:grid-cols-2 gap-3">
+                <form id="form_empresa_config" onsubmit="salvarEmpresaAjax(event)" class="grid sm:grid-cols-2 gap-3">
                     <div class="sm:col-span-2">
                         <label class="block text-slate-400 mb-1 font-semibold">Razão Social / Nome Fantasia</label>
                         <input type="text" name="nome_empresa" value="{empresa.get('nome_empresa','')}" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold">
@@ -1597,9 +1616,9 @@ def render_dashboard_view():
                     <div class="sm:col-span-2 bg-slate-950 p-3.5 rounded-2xl border border-sky-500/40 space-y-2">
                         <div class="flex justify-between items-center">
                             <label class="font-bold text-sky-400 block text-xs">🔑 Token de API da sua Conta Asaas (Emissão de Boletos)</label>
-                            <span class="text-[10px] text-slate-400">Pegue em asaas.com > Configurações > Integrações</span>
+                            <span class="text-[10px] text-emerald-400 font-bold">✓ Ativa & Conectada</span>
                         </div>
-                        <input type="password" name="asaas_api_key" value="{empresa.get('asaas_api_key','')}" placeholder="$aact_YTU5YTE0M2M6N2..." class="w-full p-2.5 bg-slate-900 border border-sky-500/60 rounded-xl text-sky-300 font-mono text-xs">
+                        <input type="text" name="asaas_api_key" value="{empresa.get('asaas_api_key', DEFAULT_ASAAS_KEY)}" placeholder="$aact_..." class="w-full p-2.5 bg-slate-900 border border-sky-500/60 rounded-xl text-sky-300 font-mono text-xs">
                         
                         <div class="grid grid-cols-2 gap-2 pt-1">
                             <div>
@@ -1615,7 +1634,7 @@ def render_dashboard_view():
                             </div>
                         </div>
                     </div>
-                    <button type="submit" class="sm:col-span-2 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-lg mt-2">
+                    <button type="submit" id="btn_salvar_empresa" class="sm:col-span-2 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-lg mt-2">
                         💾 Salvar Parâmetros
                     </button>
                 </form>
@@ -1696,7 +1715,7 @@ def render_dashboard_view():
             return val.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
         }}
 
-        // APLICAÇÃO DO DESCONTO EM TEMPO REAL AO DIGITAR
+        // APLICAÇÃO DO DESCONTO EM TEMPO REAL
         function aplicarDescontoEmTempoReal(descVal) {{
             var descPct = parseNum(descVal);
             var precoBase = parseFloat(document.getElementById('mesa_preco_base').value) || 18500;
@@ -1782,6 +1801,32 @@ def render_dashboard_view():
             }})
             .finally(() => {{
                 if (btn) btn.innerText = '💾 Atualizar Proposta & Salvar (Enter)';
+            }});
+        }}
+
+        function salvarEmpresaAjax(event) {{
+            if (event) event.preventDefault();
+            var btn = document.getElementById('btn_salvar_empresa');
+            var statusTxt = document.getElementById('status_salvamento_empresa');
+            if (btn) btn.innerText = '⏳ Salvando...';
+
+            var form = document.getElementById('form_empresa_config');
+            var formData = new FormData(form);
+
+            fetch('/salvar-empresa-json', {{
+                method: 'POST',
+                body: formData
+            }})
+            .then(r => r.json())
+            .then(data => {{
+                if (data.sucesso && statusTxt) {{
+                    statusTxt.innerText = '✓ Dados Salvos!';
+                    statusTxt.style.opacity = '1';
+                    setTimeout(() => {{ statusTxt.style.opacity = '0'; }}, 2500);
+                }}
+            }})
+            .finally(() => {{
+                if (btn) btn.innerText = '💾 Salvar Parâmetros';
             }});
         }}
 
@@ -2041,7 +2086,7 @@ def salvar_negociacao_mesa_json(
 
     for i in range(1, n_parc + 1):
         dt_parc = (hoje + timedelta(days=30 * i)).strftime("%d/%m/%Y")
-        cronograma_html += f"""
+        linhas_parcelas_item = f"""
         <tr class="border-b border-slate-800 text-xs hover:bg-slate-800/40">
             <td class="py-2.5 px-3 text-center text-slate-400 font-mono">{i}ª Parc</td>
             <td class="py-2.5 px-3 text-slate-300">{dt_parc}</td>
@@ -2050,6 +2095,7 @@ def salvar_negociacao_mesa_json(
             <td class="py-2.5 px-3 text-slate-400">Carnê / Boleto MVI</td>
         </tr>
         """
+        cronograma_html += linhas_parcelas_item
 
     cronograma_html += f"""
     <tr class="border-t-2 border-slate-700 text-xs bg-slate-950 font-bold">
@@ -2067,6 +2113,35 @@ def salvar_negociacao_mesa_json(
         "lucro_fmt": fmt_br(lucro_estimado),
         "cronograma_html": cronograma_html
     }
+
+@app.post("/salvar-empresa-json")
+def salvar_empresa_json(
+    nome_empresa: str = Form("MVI Móveis Planejados"),
+    cnpj: str = Form(""),
+    telefone: str = Form(""),
+    desconto_max_vendedor: str = Form("3.0"),
+    comissao_padrao_pct: str = Form("4.0"),
+    taxa_juros_mensal: str = Form("1.99"),
+    asaas_api_key: str = Form(""),
+    asaas_ambiente: str = Form("producao")
+):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE empresas SET
+            nome_empresa = ?,
+            cnpj = ?,
+            telefone = ?,
+            desconto_max_vendedor = ?,
+            comissao_padrao_pct = ?,
+            taxa_juros_mensal = ?,
+            asaas_api_key = ?,
+            asaas_ambiente = ?
+        WHERE id = 1
+    """, (nome_empresa.strip(), cnpj.strip(), telefone.strip(), parse_moeda(desconto_max_vendedor), parse_moeda(comissao_padrao_pct), parse_moeda(taxa_juros_mensal), asaas_api_key.strip(), asaas_ambiente.strip()))
+    conn.commit()
+    conn.close()
+    return {"sucesso": True}
 
 @app.post("/submeter-proposta-credito", response_class=HTMLResponse)
 def submeter_proposta_credito_route(
@@ -2327,6 +2402,7 @@ def update_empresa(
     asaas_api_key: str = Form(""),
     asaas_ambiente: str = Form("producao")
 ):
+    key_final = asaas_api_key.strip() if asaas_api_key.strip() else DEFAULT_ASAAS_KEY
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
@@ -2340,7 +2416,7 @@ def update_empresa(
             asaas_api_key = ?,
             asaas_ambiente = ?
         WHERE id = 1
-    """, (nome_empresa.strip(), cnpj.strip(), telefone.strip(), parse_moeda(desconto_max_vendedor), parse_moeda(comissao_padrao_pct), parse_moeda(taxa_juros_mensal), asaas_api_key.strip(), asaas_ambiente.strip()))
+    """, (nome_empresa.strip(), cnpj.strip(), telefone.strip(), parse_moeda(desconto_max_vendedor), parse_moeda(comissao_padrao_pct), parse_moeda(taxa_juros_mensal), key_final, asaas_ambiente.strip()))
     conn.commit()
     conn.close()
     return RedirectResponse(url="/painel-get", status_code=303)
