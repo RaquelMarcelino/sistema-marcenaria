@@ -11,48 +11,63 @@ def calcular_engenharia(
 ):
     empresa = get_empresa_dados(CURRENT_SESSION.get("empresa_id", 1))
     
-    # Valores de referência base por tipo de ambiente sob medida
-    tabela_base_ambiente = {
-        "Cozinha": 16500.0,
-        "Lavanderia": 6800.0,
-        "Sala": 9800.0,
-        "Sacada": 7500.0,
-        "Área Gourmet": 14500.0,
-        "Dorm. Solteiro": 11500.0,
-        "Dorm. Casal/Suíte": 19500.0,
-        "Banheiro": 4800.0,
-        "Projeto Completo Sob Medida": 18000.0
+    # 1. Base líquida de custo (calibrada para padrão apartamento de 45m² a 60m²)
+    # Cozinha + Lavanderia juntas fecham a base líquida de ~R$ 3.800 (R$ 12.000 final)
+    tabela_base_liquida = {
+        "Cozinha": 2900.0,
+        "Lavanderia": 950.0,
+        "Sala": 1800.0,
+        "Sacada": 1200.0,
+        "Área Gourmet": 2400.0,
+        "Dorm. Solteiro": 1900.0,
+        "Dorm. Casal/Suíte": 2900.0,
+        "Banheiro": 750.0,
+        "Projeto Completo Sob Medida": 3200.0
     }
 
-    # Multiplicadores de acabamento e materiais
-    fator_caixa = 1.15 if "18mm" in esp_caixa else 1.0
-    if "Amadeirado" in cor_caixa: fator_caixa *= 1.10
+    # Custo médio de ferragens por ambiente
+    tabela_ferragens = {
+        "Blum": 1400.0,
+        "Hettich": 1150.0,
+        "Häfele": 950.0,
+        "FGVTN": 650.0
+    }
+    
+    ferragem_unit = 750.0
+    for k, v in tabela_ferragens.items():
+        if k.lower() in marca_ferr.lower():
+            ferragem_unit = v
+            break
 
-    fator_porta = 1.12 if "18mm" in esp_porta else 1.0
-    if "Amadeirado" in cor_porta: fator_porta *= 1.12
+    # Fatores adicionais de acabamento nas portas e caixas
+    fator_acab = 1.0
+    if "18mm" in esp_caixa: fator_acab *= 1.05
+    if "Amadeirado" in cor_caixa: fator_acab *= 1.05
+    if "18mm" in esp_porta: fator_acab *= 1.05
+    if "Amadeirado" in cor_porta: fator_acab *= 1.05
 
     if "Lacca" in acabamento_porta:
-        fator_porta *= 1.55
+        fator_acab *= 1.35
     elif "Vidro" in acabamento_porta or "Reflecta" in acabamento_porta:
-        fator_porta *= 1.48
+        fator_acab *= 1.30
     elif "Provençal" in acabamento_porta:
-        fator_porta *= 1.35
+        fator_acab *= 1.20
     elif "Americana" in acabamento_porta:
-        fator_porta *= 1.28
-    elif "Passantes" in acabamento_porta:
-        fator_porta *= 1.22
+        fator_acab *= 1.15
 
-    fator_ferragem = 1.25 if "Blum" in marca_ferr else (1.18 if "Hettich" in marca_ferr else (1.12 if "Häfele" in marca_ferr else 1.0))
-    fator_tamponamento = 1.20 if "36mm" in esp_tamp else (1.12 if "25mm" in esp_tamp else 1.0)
+    if "36mm" in esp_tamp:
+        fator_acab *= 1.15
+    elif "25mm" in esp_tamp:
+        fator_acab *= 1.08
 
-    fator_geral_materiais = fator_caixa * fator_porta * fator_ferragem * fator_tamponamento
-    fator_area = max(area_m2 / 70.0, 0.85)
+    # Proporção de escala por metragem informada pelo cliente (base neutra 45m²)
+    fator_area = max((area_m2 / 45.0) ** 0.45, 0.80)
 
+    soma_base_liquida = 0.0
+    total_ferragens = 0.0
     items, desc_promob_auto = [], []
-    soma_venda_ambientes = 0.0
 
     for amb in ambientes:
-        # Extrai quantidade caso venha como "2x Banheiro" ou "1x Dorm. Solteiro"
         qtd = 1
         nome_limpo = amb
         if "x " in amb:
@@ -64,26 +79,34 @@ def calcular_engenharia(
                 qtd = 1
                 nome_limpo = amb
 
-        valor_unit_base = 12000.0
-        for chave, val in tabela_base_ambiente.items():
+        base_amb = 2000.0
+        for chave, val in tabela_base_liquida.items():
             if chave.lower() in nome_limpo.lower():
-                valor_unit_base = val
+                base_amb = val
                 break
 
-        valor_ambiente = valor_unit_base * fator_geral_materiais * (fator_area ** 0.6) * qtd
-        soma_venda_ambientes += valor_ambiente
-        
+        custo_liquido_ambiente = base_amb * fator_acab * fator_area * qtd
+        soma_base_liquida += custo_liquido_ambiente
+        total_ferragens += (ferragem_unit * qtd)
+
         items.append({
-            "nome": f"{amb} (Estrutura {esp_caixa}, Portas {acabamento_porta}, Ferragens {marca_ferr})",
-            "valor": round(valor_ambiente * 0.40)
+            "nome": f"{amb} (Estrutura {esp_caixa}, Portas {acabamento_porta})",
+            "valor": round(custo_liquido_ambiente)
         })
         desc_promob_auto.append(f"{amb}: Caixaria {esp_caixa} ({cor_caixa}), portas {acabamento_porta} ({cor_porta}), ferragens {marca_ferr}.")
 
-    preco_venda = round(soma_venda_ambientes)
-    total_materiais = round(preco_venda * 0.38)
-    custo_mo = round(preco_venda * 0.18)
-    custo_frete = round(preco_venda * 0.06)
+    # 2. Montagem (+ 15% do valor líquido sem os adicionais)
+    custo_montagem = soma_base_liquida * 0.15
+
+    # 3. Frete fixo
+    custo_frete = 180.0
+
+    # 4. Markup de +150% (multiplicador 2.50) sobre a base e montagem + ferragens médias + frete
+    preco_venda = round(((soma_base_liquida + custo_montagem) * 2.50) + total_ferragens + custo_frete)
     preco_bruto = preco_venda
+
+    total_materiais = round(soma_base_liquida + total_ferragens)
+    custo_mo = round(custo_montagem)
     
     comissao_venda = round(preco_venda * (float(empresa.get("comissao_padrao_pct", 4.0)) / 100.0))
     lucro = round(preco_venda - (total_materiais + custo_mo + custo_frete + (preco_venda * 0.10)))
