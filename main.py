@@ -617,9 +617,9 @@ def render_pre_orcamento_agendamento(
         </div>
 
         <div class="pt-2">
-            <a href="https://api.whatsapp.com/send?phone=55{tel_limpo}&text=Ol%C3%A1!%20Simulei%20meu%20projeto%20no%20site%20da%20{empresa['nome_empresa']}%20(Projeto%20#{orcamento_id:04d})%20e%20gostaria%20de%20atendimento." target="_blank" class="flex items-center justify-center gap-2 w-full py-4 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 font-black rounded-xl text-sm transition-all shadow-xl">
+<a href="https://wa.me/55{tel_limpo}?text=Ol%C3%A1!%20Simulei%20meu%20projeto%20no%20site%20da%20{empresa['nome_empresa']}%20(Projeto%20%23{orcamento_id:04d})%20e%20gostaria%20de%20atendimento!" target="_blank" class="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold rounded-2xl flex items-center justify-center space-x-2 shadow-lg shadow-emerald-500/20 transition-all text-sm uppercase tracking-wider block">
                 📲 Enviar Simulação para o WhatsApp da Empresa
-            </a>
+</a>
         </div>
     </div>
 </body></html>"""
