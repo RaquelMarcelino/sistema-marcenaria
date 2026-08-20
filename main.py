@@ -1,124 +1,79 @@
-def calcular_engenharia(
-    ambientes: list,
-    area_m2: float,
-    esp_caixa: str,
-    cor_caixa: str,
-    esp_porta: str,
-    cor_porta: str,
-    acabamento_porta: str,
-    esp_tamp: str,
-    marca_ferr: str
+def render_pre_orcamento_agendamento(
+    empresa, orcamento_id, nome, whatsapp, cidade, area_m2, preco_venda,
+    esp_caixa, cor_caixa, esp_porta, cor_porta, acab_porta, marca_ferr, esp_tamp, ambientes_str
 ):
-    empresa = get_empresa_dados(CURRENT_SESSION.get("empresa_id", 1))
+    pv_redondo = int(round(preco_venda))
+    desconto_vista_5 = int(round(pv_redondo * 0.95))
     
-    # 1. Base líquida de custo (calibrada para padrão apartamento de 45m² a 60m²)
-    # Cozinha + Lavanderia juntas fecham a base líquida de ~R$ 3.800 (R$ 12.000 final)
-    tabela_base_liquida = {
-        "Cozinha": 2900.0,
-        "Lavanderia": 950.0,
-        "Sala": 1800.0,
-        "Sacada": 1200.0,
-        "Área Gourmet": 2400.0,
-        "Dorm. Solteiro": 1900.0,
-        "Dorm. Casal/Suíte": 2900.0,
-        "Banheiro": 750.0,
-        "Projeto Completo Sob Medida": 3200.0
-    }
-
-    # Custo médio de ferragens por ambiente
-    tabela_ferragens = {
-        "Blum": 1400.0,
-        "Hettich": 1150.0,
-        "Häfele": 950.0,
-        "FGVTN": 650.0
-    }
+    # Formatação no padrão monetário brasileiro (R$ 12.000)
+    pv_fmt = f"{pv_redondo:,}".replace(",", ".")
+    desconto_fmt = f"{desconto_vista_5:,}".replace(",", ".")
     
-    ferragem_unit = 750.0
-    for k, v in tabela_ferragens.items():
-        if k.lower() in marca_ferr.lower():
-            ferragem_unit = v
-            break
+    tel_limpo = (empresa.get("telefone") or "").replace("-","").replace(" ","").replace("(","").replace(")","")
 
-    # Fatores adicionais de acabamento nas portas e caixas
-    fator_acab = 1.0
-    if "18mm" in esp_caixa: fator_acab *= 1.05
-    if "Amadeirado" in cor_caixa: fator_acab *= 1.05
-    if "18mm" in esp_porta: fator_acab *= 1.05
-    if "Amadeirado" in cor_porta: fator_acab *= 1.05
-
-    if "Lacca" in acabamento_porta:
-        fator_acab *= 1.35
-    elif "Vidro" in acabamento_porta or "Reflecta" in acabamento_porta:
-        fator_acab *= 1.30
-    elif "Provençal" in acabamento_porta:
-        fator_acab *= 1.20
-    elif "Americana" in acabamento_porta:
-        fator_acab *= 1.15
-
-    if "36mm" in esp_tamp:
-        fator_acab *= 1.15
-    elif "25mm" in esp_tamp:
-        fator_acab *= 1.08
-
-    # Proporção de escala por metragem informada pelo cliente (base neutra 45m²)
-    fator_area = max((area_m2 / 45.0) ** 0.45, 0.80)
-
-    soma_base_liquida = 0.0
-    total_ferragens = 0.0
-    items, desc_promob_auto = [], []
-
-    for amb in ambientes:
-        qtd = 1
-        nome_limpo = amb
-        if "x " in amb:
-            partes = amb.split("x ")
-            try:
-                qtd = int(partes[0].strip())
-                nome_limpo = partes[1].strip()
-            except Exception:
-                qtd = 1
-                nome_limpo = amb
-
-        base_amb = 2000.0
-        for chave, val in tabela_base_liquida.items():
-            if chave.lower() in nome_limpo.lower():
-                base_amb = val
-                break
-
-        custo_liquido_ambiente = base_amb * fator_acab * fator_area * qtd
-        soma_base_liquida += custo_liquido_ambiente
-        total_ferragens += (ferragem_unit * qtd)
-
-        items.append({
-            "nome": f"{amb} (Estrutura {esp_caixa}, Portas {acabamento_porta})",
-            "valor": round(custo_liquido_ambiente)
-        })
-        desc_promob_auto.append(f"{amb}: Caixaria {esp_caixa} ({cor_caixa}), portas {acabamento_porta} ({cor_porta}), ferragens {marca_ferr}.")
-
-    # 2. Montagem (+ 15% do valor líquido sem os adicionais)
-    custo_montagem = soma_base_liquida * 0.15
-
-    # 3. Frete fixo
-    custo_frete = 180.0
-
-    # 4. Markup de +150% (multiplicador 2.50) sobre a base e montagem + ferragens médias + frete
-    preco_venda = round(((soma_base_liquida + custo_montagem) * 2.50) + total_ferragens + custo_frete)
-    preco_bruto = preco_venda
-
-    total_materiais = round(soma_base_liquida + total_ferragens)
-    custo_mo = round(custo_montagem)
+    return f"""<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{empresa['nome_empresa']} - Pré-Orçamento</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     
-    comissao_venda = round(preco_venda * (float(empresa.get("comissao_padrao_pct", 4.0)) / 100.0))
-    lucro = round(preco_venda - (total_materiais + custo_mo + custo_frete + (preco_venda * 0.10)))
+    <script>
+    !function(f,b,e,v,n,t,s)
+    {{if(f.fbq)return;n=f.fbq=function(){{n.callMethod?
+    n.callMethod.apply(n,arguments):n.queue.push(arguments)}};
+    if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+    n.queue=[];t=b.createElement(e);t.async=!0;
+    t.src=v;s=b.getElementsByTagName(e)[0];
+    s.parentNode.insertBefore(t,s)}}(window, document,'script',
+    'https://connect.facebook.net/en_US/fbevents.js');
+    fbq('init', '{META_PIXEL_ID}');
+    fbq('track', 'PageView');
+    fbq('track', 'Lead', {{
+        content_name: '{ambientes_str}',
+        value: {pv_redondo},
+        currency: 'BRL'
+    }});
+    </script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen p-4 sm:p-8 font-sans flex items-center justify-center">
+    <div class="max-w-2xl w-full bg-slate-900 border border-amber-500/40 rounded-3xl p-6 sm:p-10 shadow-2xl space-y-6">
+        
+        <div class="text-center space-y-2 border-b border-slate-800 pb-4">
+            <span class="text-4xl block">✨</span>
+            <h1 class="text-xl sm:text-2xl font-bold text-white">Pré-Orçamento Calculado com Sucesso!</h1>
+            <p class="text-xs text-slate-400">Olá, <b>{nome}</b>! Estimativa para <b>{cidade} ({area_m2} m²)</b>.</p>
+            <p class="text-[11px] text-amber-300 font-semibold">{ambientes_str}</p>
+        </div>
 
-    return {
-        "items": items,
-        "total_mat": total_materiais,
-        "custo_mo": custo_mo,
-        "custo_frete": custo_frete,
-        "preco_bruto": preco_bruto,
-        "preco_venda": preco_venda,
-        "lucro": lucro,
-        "comissao": comissao_venda,
-        "desc_promob": "\n".join(desc_promob_auto)
-    }
+        <div class="bg-slate-950 p-6 rounded-2xl border border-amber-500/40 text-center space-y-2">
+            <span class="text-xs text-slate-400 font-bold uppercase tracking-wider block">Valor Estimado do Projeto</span>
+            <span class="text-3xl sm:text-4xl font-black text-amber-400">R$ {pv_fmt}</span>
+            <div class="p-3 bg-emerald-950/60 border border-emerald-500/40 rounded-xl inline-block mt-1">
+                <span class="text-xs text-emerald-300 font-bold block">⚡ À Vista no PIX (5% de Desconto):</span>
+                <span class="text-xl sm:text-2xl font-black text-emerald-400">R$ {desconto_fmt}</span>
+            </div>
+        </div>
+
+        <div class="bg-slate-950/80 p-5 rounded-2xl border border-slate-800 space-y-4">
+            <div class="text-center">
+                <h3 class="text-sm font-bold text-white uppercase tracking-wide">Deseja dar continuidade ao seu projeto?</h3>
+                <p class="text-xs text-slate-400 mt-1">Selecione uma opção abaixo:</p>
+            </div>
+
+            <div class="space-y-3">
+                <a href="https://wa.me/55{tel_limpo}?text=Ol%C3%A1!%20Simulei%20meu%20projeto%20no%20site%20da%20{empresa['nome_empresa']}%20(Projeto%20%23{orcamento_id:04d})%20e%20quero%20dar%20continuidade%20ao%20atendimento!" target="_blank" class="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black rounded-2xl flex items-center justify-center space-x-2 shadow-lg shadow-emerald-500/20 transition-all text-sm uppercase tracking-wider text-center block">
+                    ✅ Sim, quero dar continuidade no WhatsApp
+                </a>
+
+                <form action="/recusar-lead" method="post">
+                    <input type="hidden" name="orcamento_id" value="{orcamento_id}">
+                    <button type="submit" class="w-full py-3 bg-slate-900 hover:bg-rose-950/40 text-slate-400 hover:text-rose-400 border border-slate-700 hover:border-rose-800/50 rounded-2xl font-semibold text-xs transition block text-center">
+                        ❌ Não tenho interesse no momento
+                    </button>
+                </form>
+            </div>
+        </div>
+
+    </div>
+</body></html>"""
