@@ -107,8 +107,20 @@ def init_db():
             cliente_telefone TEXT,
             cliente_telefone_2 TEXT DEFAULT '',
             cliente_cep_postal TEXT DEFAULT '',
+            cliente_rua_postal TEXT DEFAULT '',
+            cliente_num_postal TEXT DEFAULT '',
+            cliente_comp_postal TEXT DEFAULT '',
+            cliente_bairro_postal TEXT DEFAULT '',
+            cliente_cidade_postal TEXT DEFAULT '',
+            cliente_uf_postal TEXT DEFAULT '',
             cliente_endereco_postal TEXT DEFAULT '',
             cliente_cep_entrega TEXT DEFAULT '',
+            cliente_rua_entrega TEXT DEFAULT '',
+            cliente_num_entrega TEXT DEFAULT '',
+            cliente_comp_entrega TEXT DEFAULT '',
+            cliente_bairro_entrega TEXT DEFAULT '',
+            cliente_cidade_entrega TEXT DEFAULT '',
+            cliente_uf_entrega TEXT DEFAULT '',
             cliente_endereco_entrega TEXT DEFAULT '',
             cliente_banco TEXT DEFAULT '',
             cliente_agencia TEXT DEFAULT '',
@@ -168,7 +180,16 @@ def init_db():
         )
     """)
 
-    for col in ["arquivo_planta TEXT DEFAULT ''", "arquivo_inspiracao TEXT DEFAULT ''", "imagens_json TEXT DEFAULT '{}'"]:
+    novas_colunas = [
+        "cliente_rua_postal TEXT DEFAULT ''", "cliente_num_postal TEXT DEFAULT ''",
+        "cliente_comp_postal TEXT DEFAULT ''", "cliente_bairro_postal TEXT DEFAULT ''",
+        "cliente_cidade_postal TEXT DEFAULT ''", "cliente_uf_postal TEXT DEFAULT ''",
+        "cliente_rua_entrega TEXT DEFAULT ''", "cliente_num_entrega TEXT DEFAULT ''",
+        "cliente_comp_entrega TEXT DEFAULT ''", "cliente_bairro_entrega TEXT DEFAULT ''",
+        "cliente_cidade_entrega TEXT DEFAULT ''", "cliente_uf_entrega TEXT DEFAULT ''",
+        "arquivo_planta TEXT DEFAULT ''", "arquivo_inspiracao TEXT DEFAULT ''", "imagens_json TEXT DEFAULT '{}'"
+    ]
+    for col in novas_colunas:
         try:
             cursor.execute(f"ALTER TABLE orcamentos ADD COLUMN {col}")
         except Exception:
@@ -714,11 +735,25 @@ def render_dashboard_view():
     c_nome = cliente_ativo.get("cliente_nome") or "Novo Cliente (Sem Pasta)"
     c_cpf = cliente_ativo.get("cliente_cpf") or "Não informado"
     c_tel = cliente_ativo.get("cliente_telefone") or "—"
-    c_cep_post = cliente_ativo.get("cliente_cep_postal") or ""
-    c_end_post = cliente_ativo.get("cliente_endereco_postal") or ""
-    c_cep_ent = cliente_ativo.get("cliente_cep_entrega") or ""
-    c_end_ent = cliente_ativo.get("cliente_endereco_entrega") or ""
     c_vendedor = cliente_ativo.get("vendedor_responsavel") or CURRENT_SESSION["user_nome"]
+
+    # Endereço Postal
+    c_cep_post = cliente_ativo.get("cliente_cep_postal") or ""
+    c_rua_post = cliente_ativo.get("cliente_rua_postal") or ""
+    c_num_post = cliente_ativo.get("cliente_num_postal") or ""
+    c_comp_post = cliente_ativo.get("cliente_comp_postal") or ""
+    c_bairro_post = cliente_ativo.get("cliente_bairro_postal") or ""
+    c_cidade_post = cliente_ativo.get("cliente_cidade_postal") or ""
+    c_uf_post = cliente_ativo.get("cliente_uf_postal") or ""
+
+    # Endereço de Entrega / Obra
+    c_cep_ent = cliente_ativo.get("cliente_cep_entrega") or ""
+    c_rua_ent = cliente_ativo.get("cliente_rua_entrega") or ""
+    c_num_ent = cliente_ativo.get("cliente_num_entrega") or ""
+    c_comp_ent = cliente_ativo.get("cliente_comp_entrega") or ""
+    c_bairro_ent = cliente_ativo.get("cliente_bairro_entrega") or ""
+    c_cidade_ent = cliente_ativo.get("cliente_cidade_entrega") or ""
+    c_uf_ent = cliente_ativo.get("cliente_uf_entrega") or ""
 
     c_prazo = cliente_ativo.get("prazo_entrega") or "25 dias úteis"
     c_amb = cliente_ativo.get("cliente_ambiente") or "Cozinha Planejada"
@@ -1077,7 +1112,7 @@ def render_dashboard_view():
                 </div>
             </div>
 
-            <!-- NOVA ABA: GESTÃO COMPLETA DE LEADS E ORÇAMENTOS RECEBIDOS -->
+            <!-- ABA GESTÃO DE LEADS -->
             <div id="aba-leads-gestao" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl space-y-3">
                 <div class="bg-slate-850 px-5 py-3 border-b border-slate-800 flex justify-between items-center">
                     <h3 class="font-bold text-xs uppercase text-amber-400 tracking-wide">🎯 Painel de Leads & Orçamentos Recebidos</h3>
@@ -1102,10 +1137,10 @@ def render_dashboard_view():
                 </div>
             </div>
 
-            <!-- ABA 2: DADOS DO CLIENTE -->
+            <!-- ABA 2: DADOS DO CLIENTE & ENDEREÇOS COM AUTOCOMPLETE DE CEP -->
             <div id="aba-cliente" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
                 <h3 class="font-bold text-amber-400 uppercase pb-1 border-b border-slate-800">👤 Cadastro de Contratante & Obra</h3>
-                <form action="/salvar-dados-completos-cliente" method="post" class="space-y-3">
+                <form action="/salvar-dados-completos-cliente" method="post" class="space-y-4">
                     <input type="hidden" name="orcamento_id" value="{c_id}">
                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
                         <div class="sm:col-span-2">
@@ -1123,22 +1158,106 @@ def render_dashboard_view():
                     </div>
 
                     <div class="border-t border-slate-800 pt-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div class="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-2">
-                            <label class="font-bold text-amber-400 block">📬 Endereço Postal</label>
-                            <input type="text" name="cliente_cep_postal" value="{c_cep_post}" placeholder="CEP" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
-                            <textarea name="cliente_endereco_postal" rows="2" placeholder="Rua, Número, Bairro, Cidade - UF" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">{c_end_post}</textarea>
+                        <!-- ENDEREÇO POSTAL -->
+                        <div class="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2.5">
+                            <div class="flex justify-between items-center pb-1 border-b border-slate-800">
+                                <label class="font-bold text-amber-400 block">📬 Endereço Postal / Cobrança</label>
+                                <span class="text-[10px] text-slate-400">Digite o CEP para buscar</span>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-slate-400 mb-1 text-[11px]">CEP</label>
+                                <input type="text" id="cep_postal" name="cliente_cep_postal" value="{c_cep_post}" onblur="buscarCepPostal(this.value)" placeholder="00000-000" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold">
+                            </div>
+
+                            <div class="grid grid-cols-3 gap-2">
+                                <div class="col-span-2">
+                                    <label class="block text-slate-400 mb-1 text-[11px]">Rua / Logradouro</label>
+                                    <input type="text" id="rua_postal" name="cliente_rua_postal" value="{c_rua_post}" placeholder="Nome da Rua / Avenida" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-slate-400 mb-1 text-[11px]">Número</label>
+                                    <input type="text" name="cliente_num_postal" value="{c_num_post}" placeholder="Nº" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold">
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label class="block text-slate-400 mb-1 text-[11px]">Complemento / Bloco</label>
+                                    <input type="text" name="cliente_comp_postal" value="{c_comp_post}" placeholder="Apto, Casa, Bloco" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-slate-400 mb-1 text-[11px]">Bairro</label>
+                                    <input type="text" id="bairro_postal" name="cliente_bairro_postal" value="{c_bairro_post}" placeholder="Bairro" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-3 gap-2">
+                                <div class="col-span-2">
+                                    <label class="block text-slate-400 mb-1 text-[11px]">Cidade</label>
+                                    <input type="text" id="cidade_postal" name="cliente_cidade_postal" value="{c_cidade_post}" placeholder="Cidade" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-slate-400 mb-1 text-[11px]">UF</label>
+                                    <input type="text" id="uf_postal" name="cliente_uf_postal" value="{c_uf_post}" placeholder="SP" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold uppercase">
+                                </div>
+                            </div>
                         </div>
-                        <div class="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-2">
-                            <label class="font-bold text-slate-300 block">🚚 Endereço da Instalação / Obra</label>
-                            <input type="text" name="cliente_cep_entrega" value="{c_cep_ent}" placeholder="CEP Obra" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">{c_end_ent}</textarea>
+
+                        <!-- ENDEREÇO DE ENTREGA / INSTALAÇÃO -->
+                        <div class="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2.5">
+                            <div class="flex justify-between items-center pb-1 border-b border-slate-800">
+                                <label class="font-bold text-slate-300 block">🚚 Endereço da Instalação / Obra</label>
+                                <span class="text-[10px] text-slate-400">Digite o CEP da Obra</span>
+                            </div>
+
+                            <div>
+                                <label class="block text-slate-400 mb-1 text-[11px]">CEP da Obra</label>
+                                <input type="text" id="cep_entrega" name="cliente_cep_entrega" value="{c_cep_ent}" onblur="buscarCepEntrega(this.value)" placeholder="00000-000" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold">
+                            </div>
+
+                            <div class="grid grid-cols-3 gap-2">
+                                <div class="col-span-2">
+                                    <label class="block text-slate-400 mb-1 text-[11px]">Rua / Logradouro</label>
+                                    <input type="text" id="rua_entrega" name="cliente_rua_entrega" value="{c_rua_ent}" placeholder="Nome da Rua / Alameda" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-slate-400 mb-1 text-[11px]">Número</label>
+                                    <input type="text" name="cliente_num_entrega" value="{c_num_ent}" placeholder="Nº" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold">
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label class="block text-slate-400 mb-1 text-[11px]">Complemento / Casa / Apto</label>
+                                    <input type="text" name="cliente_comp_entrega" value="{c_comp_ent}" placeholder="Apto, Casa 2, Bloco" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-slate-400 mb-1 text-[11px]">Bairro</label>
+                                    <input type="text" id="bairro_entrega" name="cliente_bairro_entrega" value="{c_bairro_ent}" placeholder="Bairro" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-3 gap-2">
+                                <div class="col-span-2">
+                                    <label class="block text-slate-400 mb-1 text-[11px]">Cidade</label>
+                                    <input type="text" id="cidade_entrega" name="cliente_cidade_entrega" value="{c_cidade_ent}" placeholder="Cidade" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-slate-400 mb-1 text-[11px]">UF</label>
+                                    <input type="text" id="uf_entrega" name="cliente_uf_entrega" value="{c_uf_ent}" placeholder="SP" class="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold uppercase">
+                                </div>
+                            </div>
                         </div>
                     </div>
 
-                    <button type="submit" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-lg">💾 Salvar Ficha Cadastral</button>
+                    <button type="submit" class="w-full py-3.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-lg text-xs uppercase tracking-wide">
+                        💾 Salvar Ficha Cadastral do Cliente
+                    </button>
                 </form>
             </div>
 
-            <!-- ABA 3: MESA DE NEGOCIAÇÃO (ACEITA PONTOS E VÍRGULAS) -->
+            <!-- ABA 3: MESA DE NEGOCIAÇÃO -->
             <div id="aba-mesa" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
                 <div class="flex justify-between items-center pb-1 border-b border-slate-800">
                     <h3 class="font-bold text-amber-400 uppercase">💼 Mesa de Negociação & Fechamento</h3>
@@ -1204,10 +1323,10 @@ def render_dashboard_view():
                     <input type="text" name="cliente_telefone" value="{c_tel if c_tel != '—' else ''}" placeholder="WhatsApp" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
                     <input type="text" name="cliente_ambiente" value="{c_amb}" placeholder="Ambiente" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white">
                     <div class="p-4 bg-slate-950 border border-slate-800 rounded-2xl">
-                        <label class="block font-bold text-amber-400 mb-1">Arquivo Promob (.xml, .csv, .txt):</label>
+                        <label class="block font-bold text-amber-400 mb-1">Arquivo Promob (.xml, .csv, .txt, .cut):</label>
                         <input type="file" name="arquivo_promob" accept=".xml,.csv,.txt,.cut" required class="w-full text-slate-400 file:bg-amber-500 file:border-0 file:rounded-xl file:px-3 file:py-1 file:font-bold">
                     </div>
-                    <button type="submit" class="w-full py-3.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-lg">⚡ Processar Peças</button>
+                    <button type="submit" class="w-full py-3.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-lg">⚡ Processar Peças do Promob</button>
                 </form>
             </div>
 
@@ -1317,6 +1436,39 @@ def render_dashboard_view():
             if (targetAba) targetAba.classList.add('active');
             if (targetBtn) targetBtn.classList.add('active');
             window.scrollTo({{ top: 0, behavior: 'smooth' }});
+        }}
+
+        // AUTOCOMPLETE DE CEP COM VIACEP
+        function buscarCepPostal(cep) {{
+            var limpo = cep.replace(/\\D/g, '');
+            if (limpo.length === 8) {{
+                fetch(`https://viacep.com.br/ws/${{limpo}}/json/`)
+                    .then(r => r.json())
+                    .then(d => {{
+                        if (!d.erro) {{
+                            document.getElementById('rua_postal').value = d.logradouro || '';
+                            document.getElementById('bairro_postal').value = d.bairro || '';
+                            document.getElementById('cidade_postal').value = d.localidade || '';
+                            document.getElementById('uf_postal').value = d.uf || '';
+                        }}
+                    }}).catch(e => console.log('Erro ao buscar CEP:', e));
+            }}
+        }}
+
+        function buscarCepEntrega(cep) {{
+            var limpo = cep.replace(/\\D/g, '');
+            if (limpo.length === 8) {{
+                fetch(`https://viacep.com.br/ws/${{limpo}}/json/`)
+                    .then(r => r.json())
+                    .then(d => {{
+                        if (!d.erro) {{
+                            document.getElementById('rua_entrega').value = d.logradouro || '';
+                            document.getElementById('bairro_entrega').value = d.bairro || '';
+                            document.getElementById('cidade_entrega').value = d.localidade || '';
+                            document.getElementById('uf_entrega').value = d.uf || '';
+                        }}
+                    }}).catch(e => console.log('Erro ao buscar CEP:', e));
+            }}
         }}
     </script>
 </body></html>"""
@@ -1500,6 +1652,47 @@ def salvar_negociacao_mesa_route(
     conn.close()
     return RedirectResponse(url="/painel-get", status_code=303)
 
+@app.post("/importar-promob", response_class=HTMLResponse)
+async def importar_promob_route(
+    cliente_nome: str = Form(...),
+    cliente_telefone: str = Form(""),
+    cliente_ambiente: str = Form("Projeto Promob"),
+    arquivo_promob: UploadFile = File(...)
+):
+    conteudo = ""
+    try:
+        bytes_arquivo = await arquivo_promob.read()
+        conteudo = bytes_arquivo.decode("utf-8", errors="ignore")
+    except Exception:
+        pass
+
+    # Estimativa de peças importadas do Promob
+    linhas = [l for l in conteudo.splitlines() if l.strip()]
+    qtd_itens = max(len(linhas), 6)
+    
+    valor_promob = round(qtd_itens * 240.0 + 3800.0)
+    agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO orcamentos (
+            empresa_id, criado_em, vendedor_responsavel, vendedor_email,
+            cliente_nome, cliente_telefone, cliente_ambiente,
+            prazo_entrega, status, preco_venda, preco_bruto,
+            observacoes_tecnicas, descricao_promob
+        ) VALUES (1, ?, 'Raquel Marcelino', 'raquel@mvi.com', ?, ?, ?, '25 dias úteis', 'Em Negociação', ?, ?, ?, ?)
+    """, (
+        agora, cliente_nome, cliente_telefone, cliente_ambiente,
+        valor_promob, valor_promob, f"Arquivo Promob: {arquivo_promob.filename}", conteudo[:1000]
+    ))
+    conn.commit()
+    novo_id = cursor.lastrowid
+    CURRENT_SESSION["cliente_ativo_id"] = novo_id
+    conn.close()
+
+    return RedirectResponse(url="/painel-get", status_code=303)
+
 @app.post("/recusar-lead", response_class=HTMLResponse)
 def recusar_lead_route(orcamento_id: int = Form(...)):
     conn = sqlite3.connect(DB_PATH)
@@ -1550,19 +1743,43 @@ def salvar_dados_completos_cliente_route(
     cliente_cpf: str = Form(""),
     cliente_telefone: str = Form(""),
     cliente_cep_postal: str = Form(""),
-    cliente_endereco_postal: str = Form(""),
+    cliente_rua_postal: str = Form(""),
+    cliente_num_postal: str = Form(""),
+    cliente_comp_postal: str = Form(""),
+    cliente_bairro_postal: str = Form(""),
+    cliente_cidade_postal: str = Form(""),
+    cliente_uf_postal: str = Form(""),
     cliente_cep_entrega: str = Form(""),
-    cliente_endereco_entrega: str = Form("")
+    cliente_rua_entrega: str = Form(""),
+    cliente_num_entrega: str = Form(""),
+    cliente_comp_entrega: str = Form(""),
+    cliente_bairro_entrega: str = Form(""),
+    cliente_cidade_entrega: str = Form(""),
+    cliente_uf_entrega: str = Form("")
 ):
+    end_postal_completo = f"{cliente_rua_postal}, {cliente_num_postal} - {cliente_comp_postal}, {cliente_bairro_postal}, {cliente_cidade_postal} - {cliente_uf_postal}".strip(" ,-")
+    end_entrega_completo = f"{cliente_rua_entrega}, {cliente_num_entrega} - {cliente_comp_entrega}, {cliente_bairro_entrega}, {cliente_cidade_entrega} - {cliente_uf_entrega}".strip(" ,-")
+
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
         UPDATE orcamentos SET
             cliente_nome = ?, cliente_cpf = ?, cliente_telefone = ?,
-            cliente_cep_postal = ?, cliente_endereco_postal = ?,
-            cliente_cep_entrega = ?, cliente_endereco_entrega = ?
+            cliente_cep_postal = ?, cliente_rua_postal = ?, cliente_num_postal = ?,
+            cliente_comp_postal = ?, cliente_bairro_postal = ?, cliente_cidade_postal = ?, cliente_uf_postal = ?,
+            cliente_endereco_postal = ?,
+            cliente_cep_entrega = ?, cliente_rua_entrega = ?, cliente_num_entrega = ?,
+            cliente_comp_entrega = ?, cliente_bairro_entrega = ?, cliente_cidade_entrega = ?, cliente_uf_entrega = ?,
+            cliente_endereco_entrega = ?
         WHERE id = ?
-    """, (cliente_nome, cliente_cpf, cliente_telefone, cliente_cep_postal, cliente_endereco_postal, cliente_cep_entrega, cliente_endereco_entrega, orcamento_id))
+    """, (
+        cliente_nome, cliente_cpf, cliente_telefone,
+        cliente_cep_postal, cliente_rua_postal, cliente_num_postal, cliente_comp_postal, cliente_bairro_postal, cliente_cidade_postal, cliente_uf_postal,
+        end_postal_completo,
+        cliente_cep_entrega, cliente_rua_entrega, cliente_num_entrega, cliente_comp_entrega, cliente_bairro_entrega, cliente_cidade_entrega, cliente_uf_entrega,
+        end_entrega_completo,
+        orcamento_id
+    ))
     conn.commit()
     conn.close()
     return RedirectResponse(url="/painel-get", status_code=303)
@@ -1608,11 +1825,13 @@ def minuta_contrato_route(orcamento_id: int):
     empresa = get_empresa_dados(1)
     
     pv_total = float(orc['preco_venda'] or 0) + float(orc['adendo_valor'] or 0)
+    end_ent = orc['cliente_endereco_entrega'] or orc['cliente_endereco_postal'] or 'A combinar'
     return f"""<!DOCTYPE html><html><head><title>Contrato MVI #{orc['id']:04d}</title><script src="https://cdn.tailwindcss.com"></script></head>
     <body class="bg-white text-slate-900 p-10 font-sans leading-relaxed text-sm max-w-4xl mx-auto">
         <h1 class="text-center font-bold text-base border-b pb-3 uppercase">INSTRUMENTO PARTICULAR DE PRESTAÇÃO DE SERVIÇOS DE MARCENARIA</h1>
         <p class="mt-4"><b>CONTRATADA:</b> {empresa['nome_empresa']} (CNPJ: {empresa['cnpj']})</p>
         <p><b>CONTRATANTE:</b> {orc['cliente_nome']} (Tel: {orc['cliente_telefone']})</p>
+        <p><b>LOCAL DA INSTALAÇÃO:</b> {end_ent}</p>
         <p><b>OBJETO:</b> Fabricação e instalação de móveis sob medida para: <b>{orc['cliente_ambiente']}</b>.</p>
         <p><b>VALOR TOTAL:</b> R$ {fmt_br(pv_total)} em {orc['modalidade_pagamento']}.</p>
         <p><b>PRAZO:</b> {orc['prazo_entrega']}. <b>GARANTIA:</b> {orc['prazo_garantia']}.</p>
