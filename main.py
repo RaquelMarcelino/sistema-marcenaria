@@ -7,9 +7,9 @@ from pydantic import BaseModel
 from typing import List, Optional
 
 app = FastAPI(
-    title="Sistema Marcenaria API",
-    description="API para gestão de marcenarias com Auditoria Inteligente via Google Gemini",
-    version="1.0.0"
+    title="CRM MVI - API de Auditoria",
+    description="Motor de Auditoria Técnica e Comercial para Projetos de Marcenaria",
+    version="1.1.0"
 )
 
 app.add_middleware(
@@ -32,49 +32,54 @@ class PecaItem(BaseModel):
 class AuditoriaRequest(BaseModel):
     nome_projeto: str
     ambiente: str
-    custo_total_estimado: float
-    valor_venda_pretendido: float
-    comissao_rt_porcentagem: float = 0.0
+    valor_tabela_promob: float
+    desconto_acrescimo_negociacao_pct: float = 0.0  # Ex: -5 para 5% desc, +10 para margem extra
+    comissao_rt_porcentagem: float = 10.0  # Manual (0 a 10%)
     pecas: List[PecaItem]
 
 @app.get("/")
 def rota_status():
-    return {"status": "online", "motor_ia": "Google Gemini REST"}
+    return {"status": "online", "sistema": "CRM MVI Integrado"}
 
-@app.post("/api/v1/auditor-promob", summary="Auditar Projeto Promob")
+@app.post("/api/v1/auditor-promob", summary="Auditoria Técnica e Comercial MVI")
 def auditar_projeto_promob(dados: AuditoriaRequest):
     gemini_key = os.getenv("GEMINI_API_KEY")
     if not gemini_key:
         raise HTTPException(
             status_code=500,
-            detail="Chave GEMINI_API_KEY não configurada nas variáveis de ambiente do Render."
+            detail="Chave GEMINI_API_KEY não configurada no Render."
         )
 
+    # Cálculo financeiro do CRM antes de repassar à IA
+    valor_venda_final = dados.valor_tabela_promob * (1 + (dados.desconto_acrescimo_negociacao_pct / 100))
+    valor_rt = valor_venda_final * (dados.comissao_rt_porcentagem / 100)
+    receita_liquida = valor_venda_final - valor_rt
+
     prompt_texto = f"""
-    Você é um Auditor Especialista em Engenharia de Móveis Sob Medida, Marcenaria e Precificação Comercial.
-    
-    Analise tecnicamente o projeto a seguir:
-    - Nome do Projeto: {dados.nome_projeto}
+    Você é o Auditor Técnico e Estrategista Comercial do sistema CRM MVI para marcenarias de alto padrão.
+
+    DADOS DO PROJETO & NEGOCIAÇÃO COMERCIAL:
+    - Projeto: {dados.nome_projeto}
     - Ambiente: {dados.ambiente}
-    - Custo Total Estimado: R$ {dados.custo_total_estimado:.2f}
-    - Valor de Venda Pretendido: R$ {dados.valor_venda_pretendido:.2f}
-    - Comissão RT/Parceiro: {dados.comissao_rt_porcentagem}%
-    
-    Lista de Peças e Engenharia:
+    - Valor Base Tabela Promob (já inclui custos diretos, frete, montagem e comissão de vendedor): R$ {dados.valor_tabela_promob:.2f}
+    - Ajuste Comercial de Negociação (%): {dados.desconto_acrescimo_negociacao_pct}%
+    - Valor Final de Venda ao Cliente: R$ {valor_venda_final:.2f}
+    - Comissão RT Arquiteto/Parceiro ({dados.comissao_rt_porcentagem}% inserido manual): R$ {valor_rt:.2f}
+    - Receita Líquida do Projeto após RT: R$ {receita_liquida:.2f}
+
+    LISTA TÉCNICA DE PEÇAS:
     {json.dumps([p.dict() for p in dados.pecas], indent=2, ensure_ascii=False)}
 
-    Forneça um parecer executivo e estruturado com:
-    1. Saúde Financeira e Margem: Calcule o lucro bruto estimado em R$ e % descontando a RT e avalie se a margem está segura para o padrão de mercado sob medida.
-    2. Auditoria Técnica de Produção: Aponte riscos em dimensões, proporções, ferragens ausentes ou fitas de borda não especificadas.
-    3. Recomendações Práticas: Sugestões diretas para otimização de corte, montagem e fechamento de venda.
+    Gere um parecer executivo contendo:
+    1. **Parecer Comercial e RT:** Analise a saúde do fechamento considerando o ajuste percentual e o valor da RT inserido manualmente.
+    2. **Auditoria Técnica de Produção:** Checagem rigorosa de espessuras de chapas vs vãos livres, ferragens críticas e proteção contra umidade.
+    3. **Diretrizes para Produção e Fechamento:** Dicas de montagem, otimização de sobras e argumentos de alto padrão para venda.
     """
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={gemini_key}"
     payload = {
         "contents": [
-            {
-                "parts": [{"text": prompt_texto}]
-            }
+            {"parts": [{"text": prompt_texto}]}
         ]
     }
     
@@ -91,6 +96,12 @@ def auditar_projeto_promob(dados: AuditoriaRequest):
             "status": "sucesso",
             "projeto": dados.nome_projeto,
             "ambiente": dados.ambiente,
+            "resumo_financeiro": {
+                "valor_tabela_promob": dados.valor_tabela_promob,
+                "valor_venda_final": valor_venda_final,
+                "valor_rt": valor_rt,
+                "receita_liquida_projeto": receita_liquida
+            },
             "analise_ia": texto_ia
         }
     except HTTPException:
