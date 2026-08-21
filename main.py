@@ -1,10 +1,10 @@
 import json
 import os
+import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
-import google.generativeai as genai
 
 app = FastAPI(
     title="Sistema Marcenaria API",
@@ -39,7 +39,7 @@ class AuditoriaRequest(BaseModel):
 
 @app.get("/")
 def rota_status():
-    return {"status": "online", "motor_ia": "Google Gemini"}
+    return {"status": "online", "motor_ia": "Google Gemini REST"}
 
 @app.post("/api/v1/auditor-promob", summary="Auditar Projeto Promob")
 def auditar_projeto_promob(dados: AuditoriaRequest):
@@ -50,7 +50,7 @@ def auditar_projeto_promob(dados: AuditoriaRequest):
             detail="Chave GEMINI_API_KEY não configurada nas variáveis de ambiente do Render."
         )
 
-    prompt = f"""
+    prompt_texto = f"""
     Você é um Auditor Especialista em Engenharia de Móveis Sob Medida, Marcenaria e Precificação Comercial.
     
     Analise tecnicamente o projeto a seguir:
@@ -69,29 +69,37 @@ def auditar_projeto_promob(dados: AuditoriaRequest):
     3. **Recomendações Práticas:** Sugestões diretas para otimização de corte, montagem e fechamento de venda.
     """
 
+    # Chamada HTTP direta à API do Gemini
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}"
+    payload = {
+        "contents": [
+            {
+                "parts": [{"text": prompt_texto}]
+            }
+        ]
+    }
+    
     try:
-        genai.configure(api_key=gemini_key)
+        response = requests.post(url, json=payload, timeout=40)
         
-        # Seleciona automaticamente o modelo de geração de texto ativo
-        model_name = "gemini-pro"
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                if 'flash' in m.name or 'pro' in m.name:
-                    model_name = m.name
-                    break
-        
-        model = genai.GenerativeModel(model_name)
-        response = model.generate_content(prompt)
-        
+        # Fallback automático para gemini-1.5-flash caso o modelo acima não esteja na conta
+        if response.status_code != 200:
+            url_fallback = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}"
+            response = requests.post(url_fallback, json=payload, timeout=40)
+
+        if response.status_code != 200:
+            raise HTTPException(status_code=500, detail=f"Erro na API Google: {response.text}")
+
+        data = response.json()
+        texto_ia = data["candidates"][0]["content"]["parts"][0]["text"]
+
         return {
             "status": "sucesso",
-            "modelo_usado": model_name,
             "projeto": dados.nome_projeto,
             "ambiente": dados.ambiente,
-            "analise_ia": response.text
+            "analise_ia": texto_ia
         }
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Erro ao processar auditoria IA Gemini: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
