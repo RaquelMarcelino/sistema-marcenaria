@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
-from google import genai
+import google.generativeai as genai
 
 app = FastAPI(
     title="Sistema Marcenaria API",
@@ -39,7 +39,7 @@ class AuditoriaRequest(BaseModel):
 
 @app.get("/")
 def rota_status():
-    return {"status": "online", "motor_ia": "Google Gemini 2.5 Flash"}
+    return {"status": "online", "motor_ia": "Google Gemini"}
 
 @app.post("/api/v1/auditor-promob", summary="Auditar Projeto Promob")
 def auditar_projeto_promob(dados: AuditoriaRequest):
@@ -70,11 +70,10 @@ def auditar_projeto_promob(dados: AuditoriaRequest):
     """
 
     try:
-        client = genai.Client(api_key=gemini_key)
-        response = client.models.generate_content(
-            model="gemini-3.6-flash",
-            contents=prompt,
-        )
+        genai.configure(api_key=gemini_key)
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        response = model.generate_content(prompt)
+        
         return {
             "status": "sucesso",
             "projeto": dados.nome_projeto,
