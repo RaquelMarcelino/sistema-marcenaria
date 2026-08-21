@@ -71,11 +71,21 @@ def auditar_projeto_promob(dados: AuditoriaRequest):
 
     try:
         genai.configure(api_key=gemini_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        
+        # Seleciona automaticamente o modelo de geração de texto ativo
+        model_name = "gemini-pro"
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                if 'flash' in m.name or 'pro' in m.name:
+                    model_name = m.name
+                    break
+        
+        model = genai.GenerativeModel(model_name)
         response = model.generate_content(prompt)
         
         return {
             "status": "sucesso",
+            "modelo_usado": model_name,
             "projeto": dados.nome_projeto,
             "ambiente": dados.ambiente,
             "analise_ia": response.text
