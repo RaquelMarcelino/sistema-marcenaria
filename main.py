@@ -1718,61 +1718,61 @@ def render_dashboard_view():
             if (targetBtn) targetBtn.classList.add('active');
             window.scrollTo({{ top: 0, behavior: 'smooth' }});
         }}
-        function alternarSigiloPromob() {
+     function alternarSigiloPromob() {{
             var txt = document.getElementById('campo_promob_bruto_texto');
             var sig = document.getElementById('campo_promob_bruto_sigilo');
             var ico = document.getElementById('icone_olho_promob');
             
-            if (txt.classList.contains('hidden')) {
+            if (!txt || !sig) return;
+            if (txt.classList.contains('hidden')) {{
                 txt.classList.remove('hidden');
                 sig.classList.add('hidden');
-                ico.innerText = '👁️';
-            } else {
+                if (ico) ico.innerText = '👁️';
+            }} else {{
                 txt.classList.add('hidden');
                 sig.classList.remove('hidden');
-                ico.innerText = '🙈';
-            }
-        }
+                if (ico) ico.innerText = '🙈';
+            }}
+        }}
 
-        function aplicarDescontoComBase(descStr) {
+        function aplicarDescontoComBase(descStr) {{
             var base = parseFloat(document.getElementById('mesa_preco_base').value) || 0;
             var desc = parseFloat(descStr.replace(',', '.')) || 0;
             var tetoMax = parseFloat("{empresa.get('desconto_max_vendedor', 3.0)}");
 
-            if (base > 0) {
+            if (base > 0) {{
                 var novoValor = base * (1 - (desc / 100));
-                document.getElementById('preco_venda_input').value = novoValor.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-            }
+                document.getElementById('preco_venda_input').value = novoValor.toLocaleString('pt-BR', {{minimumFractionDigits: 2, maximumFractionDigits: 2}});
+            }}
 
             validarMargemComercial(desc, tetoMax);
             aoMudarEntradaOuParcela();
-        }
+        }}
 
-        function aoMudarValorVendaComBase() {
+        function aoMudarValorVendaComBase() {{
             var base = parseFloat(document.getElementById('mesa_preco_base').value) || 0;
             var valorDigitado = parseNum(document.getElementById('preco_venda_input').value);
             var tetoMax = parseFloat("{empresa.get('desconto_max_vendedor', 3.0)}");
 
-            if (base > 0) {
+            if (base > 0) {{
                 var desc = ((base - valorDigitado) / base) * 100;
                 document.getElementById('desconto_pct_input').value = desc.toFixed(1);
                 validarMargemComercial(desc, tetoMax);
-            }
+            }}
             aoMudarEntradaOuParcela();
-        }
+        }}
 
-        function validarMargemComercial(desc, tetoMax) {
+        function validarMargemComercial(desc, tetoMax) {{
             var tag = document.getElementById('tag_status_margem');
             if (!tag) return;
-            if (desc > tetoMax) {
+            if (desc > tetoMax) {{
                 tag.innerText = '⚠️ Desconto Excedido (Requer Autorização ADM)';
                 tag.className = 'font-bold text-rose-500 text-xs animate-pulse';
-            } else {
+            }} else {{
                 tag.innerText = '✓ Margem Permitida';
                 tag.className = 'font-bold text-emerald-400 text-xs';
-            }
-        }
-
+            }}
+        }} 
         function parseNum(val) {{
             if (!val) return 0;
             var s = String(val).replace('R$', '').trim();
