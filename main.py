@@ -1472,11 +1472,33 @@ def render_dashboard_view():
                 </form>
             </div>
 
-            <!-- ABA 3: MESA DE NEGOCIAÇÃO COM CÁLCULO DE DESCONTO EM TEMPO REAL -->
+           <!-- ABA 3: MESA DE NEGOCIAÇÃO COM CÁLCULO DE DESCONTO EM TEMPO REAL E MODO SIGILO -->
             <div id="aba-mesa" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
                 <div class="flex justify-between items-center pb-1 border-b border-slate-800">
-                    <h3 class="font-bold text-amber-400 uppercase">💼 Mesa de Negociação & Fechamento</h3>
+                    <div class="flex items-center gap-2">
+                        <h3 class="font-bold text-amber-400 uppercase">💼 Mesa de Negociação & Fechamento</h3>
+                        <button type="button" onclick="alternarSigiloPromob()" class="text-slate-400 hover:text-amber-400 p-1 rounded transition" title="Ocultar/Mostrar Tabela Promob para o Cliente">
+                            <span id="icone_olho_promob">👁️</span>
+                        </button>
+                    </div>
                     <span id="status_salvamento_mesa" class="text-xs font-bold text-emerald-400 opacity-0 transition-opacity">✓ Atualizado com Sucesso!</span>
+                </div>
+
+                <!-- CARD DE VALOR BRUTO PROMOB COM MODO SIGILO -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-slate-950 border border-slate-800 rounded-2xl">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <span class="text-slate-400 block text-[11px] font-semibold">Tabela Promob (Valor Bruto Base):</span>
+                            <span id="campo_promob_bruto_texto" class="font-bold text-sky-400 text-sm">R$ {fmt_br(preco_base_sem_desconto)}</span>
+                            <span id="campo_promob_bruto_sigilo" class="font-bold text-slate-500 text-sm hidden">••••••••</span>
+                        </div>
+                    </div>
+                    <div class="flex justify-between items-center sm:border-l sm:border-slate-800 sm:pl-3">
+                        <div>
+                            <span class="text-slate-400 block text-[11px] font-semibold">Status da Margem Comercial:</span>
+                            <span id="tag_status_margem" class="font-bold text-emerald-400 text-xs">✓ Margem Permitida</span>
+                        </div>
+                    </div>
                 </div>
 
                 <form id="form_mesa_negociacao" onsubmit="salvarMesaAjax(event)" class="space-y-4">
@@ -1485,13 +1507,13 @@ def render_dashboard_view():
 
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div>
-                            <label class="block text-slate-400 mb-1 font-semibold">Valor Venda (R$)</label>
-                            <input type="text" name="preco_venda" id="preco_venda_input" oninput="aoMudarValorVenda()" value="{fmt_br(c_p_venda)}" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-amber-400 text-sm">
+                            <label class="block text-slate-400 mb-1 font-semibold">Valor Venda Fechado (R$)</label>
+                            <input type="text" name="preco_venda" id="preco_venda_input" oninput="aoMudarValorVendaComBase()" value="{fmt_br(c_p_venda)}" required class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-amber-400 text-sm">
                         </div>
 
                         <div>
-                            <label class="block text-slate-400 mb-1 font-semibold">Desconto (%)</label>
-                            <input type="text" name="desconto_pct" id="desconto_pct_input" oninput="aplicarDescontoEmTempoReal(this.value)" value="{c_desc_pct}" class="w-full p-2.5 bg-slate-950 border border-amber-500/60 rounded-xl font-bold text-amber-300">
+                            <label class="block text-slate-400 mb-1 font-semibold">Desconto / Acréscimo (%)</label>
+                            <input type="text" name="desconto_pct" id="desconto_pct_input" oninput="aplicarDescontoComBase(this.value)" value="{c_desc_pct}" class="w-full p-2.5 bg-slate-950 border border-amber-500/60 rounded-xl font-bold text-amber-300">
                             <span class="text-[10px] text-slate-500 mt-0.5 block">Teto sem autorização: {empresa.get('desconto_max_vendedor', 3.0)}%</span>
                         </div>
 
