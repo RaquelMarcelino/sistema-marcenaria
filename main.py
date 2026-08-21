@@ -2323,45 +2323,61 @@ async def importar_promob_route(
 
     pv_num = 0.0
 
-    # 1. Extração prioritária do Valor Total Bruto direto do arquivo Promob (XML/TXT/CSV)
-    try:
-        if conteudo.strip().startswith("<"):
+    # Varredura no XML do Promob (Tags e Atributos de Preço Total Orçado)
+    if conteudo.strip():
+        try:
             root = ET.fromstring(conteudo)
-            for tag in ["VALORTOTAL", "TOTAL", "Total", "PrecoTotal", "VALOR", "price", "total", "PRECO"]:
-                for elem in root.findall(f".//{tag}"):
-                    if elem is not None and elem.text:
-                        v = parse_moeda(elem.text)
-                        if v > 0:
-                            pv_num = max(pv_num, v)
-        else:
-            # Leitura de arquivos texto/cutcon/csv somando colunas de valores
-            for linha in conteudo.splitlines():
-                partes = [p.strip() for p in linha.replace(";", ",").split(",") if p.strip()]
-                for p in partes:
-                    if ("R$" in p or "." in p or "," in p) and any(c.isdigit() for c in p):
-                        v = parse_moeda(p)
-                        if v > 100:
-                            pv_num = max(pv_num, v)
-    except Exception:
-        pass
+            tags_alvo = [
+                "TOTALORCADO", "TOTAL_ORCADO", "VALORTOTAL", "VALOR_TOTAL", 
+                "TOTAL", "TOTALGERAL", "PRECOTOTAL", "VALOR", "PRECO"
+            ]
+            for elem in root.iter():
+                tag_limpa = elem.tag.upper().replace("_", "")
+                for alvo in tags_alvo:
+                    if alvo.replace("_", "") in tag_limpa and elem.text:
+                        val = parse_moeda(elem.text)
+                        if val > pv_num:
+                            pv_num = val
+                
+                for attr_k, attr_v in elem.attrib.items():
+                    attr_limpo = attr_k.upper().replace("_", "")
+                    for alvo in tags_alvo:
+                        if alvo.replace("_", "") in attr_limpo:
+                            val = parse_moeda(attr_v)
+                            if val > pv_num:
+                                pv_num = val
+        except Exception:
+            import re
+            padroes = [
+                r"Total\s*or[cç]ado\s*[:=]?\s*([0-9\.\,]+)",
+                r"Valor\s*Total\s*[:=]?\s*([0-9\.\,]+)",
+                r"TOTAL\s*[:=]?\s*([0-9\.\,]+)"
+            ]
+            for padrao in padroes:
+                match = re.search(padrao, conteudo, re.IGNORECASE)
+                if match:
+                    val = parse_moeda(match.group(1))
+                    if val > pv_num:
+                        pv_num = val
 
-    # 2. Se não encontrou valor no arquivo e o usuário preencheu manualmente, usa o digitado
-    if pv_num <= 0 and valor_venda_manual:
-        pv_num = parse_moeda(valor_venda_manual)
-
-    if pv_num <= 0:
-        pv_num = 0.0
-
-    if pv_num <= 0:
-        pv_num = 18500.0
-
-    agora = datetime.now().strftime("%d/%m/%Y %H:%M")
-    empresa = get_empresa_dados(1)
-    comissao_num = round(pv_num * (float(empresa.get("comissao_padrao_pct", 4.0)) / 100.0), 2)
-    lucro_estimado = round(pv_num * 0.35, 2)
+    # Se digitado manualmente, sobrepõe
+    if valor_venda_manual and valor_venda_manual.strip():
+        v_digitado = parse_moeda(valor_venda_manual)
+        if v_digitado > 0:
+            pv_num = v_digitado
 
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
+    
+    cursor.execute("SELECT comissao_padrao_pct FROM empresa LIMIT 1")
+    row_emp = cursor.fetchone()
+    comissao_pct = row_emp[0] if row_emp else 4.0
+
+    comissao_num = (pv_num * comissao_pct) / 100.0
+    custo_estimado = pv_num * 0.65
+    lucro_estimado = pv_num - custo_estimado - comissao_num
+    agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+
     cursor.execute("""
         INSERT INTO orcamentos (
             empresa_id, criado_em, vendedor_responsavel, vendedor_email,
@@ -2375,10 +2391,13 @@ async def importar_promob_route(
         pv_num, pv_num, comissao_num, lucro_estimado,
         f"Arquivo: {arquivo_promob.filename}", conteudo[:1000]
     ))
+    
     conn.commit()
     novo_id = cursor.lastrowid
     CURRENT_SESSION["cliente_ativo_id"] = novo_id
     conn.close()
+
+    return RedirectResponse(url="/painel-get", status_code=303)
 
     return RedirectResponse(url="/painel-get", status_code=303)
 
