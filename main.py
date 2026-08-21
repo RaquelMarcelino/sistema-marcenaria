@@ -2369,9 +2369,14 @@ async def importar_promob_route(
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
-    cursor.execute("SELECT comissao_padrao_pct FROM empresa LIMIT 1")
-    row_emp = cursor.fetchone()
-    comissao_pct = row_emp[0] if row_emp else 4.0
+   comissao_pct = 4.0
+    try:
+        cursor.execute("SELECT comissao_padrao_pct FROM empresa LIMIT 1")
+        row_emp = cursor.fetchone()
+        if row_emp and row_emp[0]:
+            comissao_pct = float(row_emp[0])
+    except Exception:
+        pass
 
     comissao_num = (pv_num * comissao_pct) / 100.0
     custo_estimado = pv_num * 0.65
