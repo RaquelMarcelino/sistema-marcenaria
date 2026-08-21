@@ -2457,3 +2457,85 @@ def assinar_contrato_view(orcamento_id: int):
             <a href="/painel-get" class="inline-block px-4 py-2 bg-emerald-600 text-slate-950 font-bold rounded-xl text-xs">Voltar ao Painel</a>
         </div>
     </body></html>""")
+# ==========================================
+# MÓDULO AUDITORIA PROMOB COM GEMINI IA (MVI)
+# ==========================================
+import requests
+from pydantic import BaseModel
+
+class PecaItem(BaseModel):
+    descricao: str
+    largura: float
+    altura: float
+    profundidade: float
+    material: str
+    fita_borda: Optional[str] = "Não especificada"
+    ferragens: Optional[List[str]] = []
+
+class AuditoriaRequest(BaseModel):
+    nome_projeto: str
+    ambiente: str
+    valor_tabela_promob: float
+    desconto_acrescimo_negociacao_pct: float = 0.0
+    comissao_rt_porcentagem: float = 10.0
+    pecas: List[PecaItem]
+
+@app.post("/api/v1/auditor-promob", summary="Auditoria Técnica e Comercial MVI")
+def auditar_projeto_promob(dados: AuditoriaRequest):
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_key:
+        raise HTTPException(
+            status_code=500,
+            detail="Chave GEMINI_API_KEY não configurada no Render."
+        )
+
+    valor_venda_final = dados.valor_tabela_promob * (1 + (dados.desconto_acrescimo_negociacao_pct / 100))
+    valor_rt = valor_venda_final * (dados.comissao_rt_porcentagem / 100)
+    receita_liquida = valor_venda_final - valor_rt
+
+    prompt_texto = f"""
+    Você é o Auditor Técnico e Estrategista Comercial do sistema CRM MVI para marcenarias de alto padrão.
+
+    DADOS DO PROJETO & NEGOCIAÇÃO COMERCIAL:
+    - Projeto: {dados.nome_projeto}
+    - Ambiente: {dados.ambiente}
+    - Valor Base Tabela Promob: R$ {dados.valor_tabela_promob:.2f}
+    - Ajuste Comercial (%): {dados.desconto_acrescimo_negociacao_pct}%
+    - Valor Final de Venda: R$ {valor_venda_final:.2f}
+    - Comissão RT ({dados.comissao_rt_porcentagem}% manual): R$ {valor_rt:.2f}
+    - Receita Líquida do Projeto: R$ {receita_liquida:.2f}
+
+    LISTA TÉCNICA DE PEÇAS:
+    {json.dumps([p.dict() for p in dados.pecas], indent=2, ensure_ascii=False)}
+
+    Gere um parecer executivo contendo:
+    1. Parecer Comercial e RT (Saúde do fechamento e margem líquida).
+    2. Auditoria Técnica de Produção (Espessuras, vãos livres, empenamento de portas e umidade).
+    3. Diretrizes para Produção e Fechamento (Dicas de montagem e argumentos comerciais).
+    """
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={gemini_key}"
+    payload = {
+        "contents": [{"parts": [{"text": prompt_texto}]}]
+    }
+
+    try:
+        res = requests.post(url, json=payload, timeout=40)
+        if res.status_code != 200:
+            raise HTTPException(status_code=500, detail=f"Erro Google: {res.text}")
+        
+        texto_ia = res.json()["candidates"][0]["content"]["parts"][0]["text"]
+        return {
+            "status": "sucesso",
+            "projeto": dados.nome_projeto,
+            "ambiente": dados.ambiente,
+            "resumo_financeiro": {
+                "valor_tabela_promob": dados.valor_tabela_promob,
+                "valor_venda_final": valor_venda_final,
+                "valor_rt": valor_rt,
+                "receita_liquida_projeto": receita_liquida
+            },
+            "analise_ia": texto_ia
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
