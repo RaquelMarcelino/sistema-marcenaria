@@ -64,13 +64,12 @@ def auditar_projeto_promob(dados: AuditoriaRequest):
     {json.dumps([p.dict() for p in dados.pecas], indent=2, ensure_ascii=False)}
 
     Forneça um parecer executivo e estruturado com:
-    1. **Saúde Financeira e Margem:** Calcule o lucro bruto estimado em R$ e % descontando a RT e avalie se a margem está segura para o padrão de mercado sob medida.
-    2. **Auditoria Técnica de Produção:** Aponte riscos em dimensões, proporções, ferragens ausentes ou fitas de borda não especificadas.
-    3. **Recomendações Práticas:** Sugestões diretas para otimização de corte, montagem e fechamento de venda.
+    1. Saúde Financeira e Margem: Calcule o lucro bruto estimado em R$ e % descontando a RT e avalie se a margem está segura para o padrão de mercado sob medida.
+    2. Auditoria Técnica de Produção: Aponte riscos em dimensões, proporções, ferragens ausentes ou fitas de borda não especificadas.
+    3. Recomendações Práticas: Sugestões diretas para otimização de corte, montagem e fechamento de venda.
     """
 
-    # Chamada HTTP direta à API do Gemini
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={gemini_key}"
     payload = {
         "contents": [
             {
@@ -82,11 +81,6 @@ def auditar_projeto_promob(dados: AuditoriaRequest):
     try:
         response = requests.post(url, json=payload, timeout=40)
         
-        # Fallback automático para gemini-1.5-flash caso o modelo acima não esteja na conta
-        if response.status_code != 200:
-            url_fallback = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}"
-            response = requests.post(url_fallback, json=payload, timeout=40)
-
         if response.status_code != 200:
             raise HTTPException(status_code=500, detail=f"Erro na API Google: {response.text}")
 
