@@ -1,14 +1,17 @@
-import os
 import json
+import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
-from openai import OpenAI
+from google import genai
 
-app = FastAPI(title="MVI Marcenaria AI Engine", version="2.0")
+app = FastAPI(
+    title="Sistema Marcenaria API",
+    description="API para gestão de marcenarias com Auditoria Inteligente via Google Gemini",
+    version="1.0.0"
+)
 
-# Permite conexões do front-end
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -17,11 +20,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Inicializa o cliente OpenAI
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-# Modelos de Dados
-class PecaPromob(BaseModel):
+class PecaItem(BaseModel):
     descricao: str
     largura: float
     altura: float
@@ -30,61 +29,60 @@ class PecaPromob(BaseModel):
     fita_borda: Optional[str] = "Não especificada"
     ferragens: Optional[List[str]] = []
 
-class ProjetoAuditoriaRequest(BaseModel):
+class AuditoriaRequest(BaseModel):
     nome_projeto: str
     ambiente: str
     custo_total_estimado: float
     valor_venda_pretendido: float
-    comissao_rt_porcentagem: float
-    pecas: List[PecaPromob]
+    comissao_rt_porcentagem: float = 0.0
+    pecas: List[PecaItem]
 
 @app.get("/")
 def rota_status():
-    return {"status": "online", "sistema": "MVI Marcenaria AI Engine v2.0"}
+    return {"status": "online", "motor_ia": "Google Gemini 2.5 Flash"}
 
-@app.post("/api/v1/auditor-promob")
-async def auditar_projeto_promob(projeto: ProjetoAuditoriaRequest):
-    """
-    Inovação 1: Auditoria Inteligente de Engenharia, Margem e Inconsistências de Produção.
-    """
-    try:
-        prompt_sistema = """
-        Você é um Auditor Sênior de Engenharia Moveleira, Fábrica de Marcenaria e Finanças do Sistema MVI.
-        Sua função é auditar a lista técnica de peças do Promob e os dados financeiros do projeto.
-        
-        Você DEVE retornar a resposta EXCLUSIVAMENTE em formato JSON com o seguinte schema:
-        {
-            "status_geral": "APROVADO" | "ALERTA" | "CRITICO",
-            "pontuacao_conformidade": 0 a 100,
-            "analise_financeira": {
-                "markup_calculado": 0.0,
-                "margem_liquida_estimada_porcentagem": 0.0,
-                "status_margem": "SAUDAVEL" | "BAIXA" | "PREJUIZO",
-                "parecer_rt": "string explicativa sobre a comissão do arquiteto"
-            },
-            "inconsistencias_engenharia": [
-                "lista de itens com falta de fita de borda, ferragens incompatíveis ou usinagem incorreta"
-            ],
-            "sugestoes_otimizacao": [
-                "dicas para reduzir desperdício de chapa MDF e agilizar montagem"
-            ]
-        }
-        """
-
-        dados_projeto_json = json.dumps(projeto.dict(), ensure_ascii=False)
-
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": prompt_sistema},
-                {"role": "user", "content": f"Analise o seguinte projeto:\n{dados_projeto_json}"}
-            ],
-            temperature=0.2
+@app.post("/api/v1/auditor-promob", summary="Auditar Projeto Promob")
+def auditar_projeto_promob(dados: AuditoriaRequest):
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_key:
+        raise HTTPException(
+            status_code=500,
+            detail="Chave GEMINI_API_KEY não configurada nas variáveis de ambiente do Render."
         )
 
-        resultado_ia = json.loads(response.choices[0].message.content)
-        return {"sucesso": True, "resultado": resultado_ia}
+    prompt = f"""
+    Você é um Auditor Especialista em Engenharia de Móveis Sob Medida, Marcenaria e Precificação Comercial.
+    
+    Analise tecnicamente o projeto a seguir:
+    - Nome do Projeto: {dados.nome_projeto}
+    - Ambiente: {dados.ambiente}
+    - Custo Total Estimado: R$ {dados.custo_total_estimado:.2f}
+    - Valor de Venda Pretendido: R$ {dados.valor_venda_pretendido:.2f}
+    - Comissão RT/Parceiro: {dados.comissao_rt_porcentagem}%
+    
+    Lista de Peças e Engenharia:
+    {json.dumps([p.dict() for p in dados.pecas], indent=2, ensure_ascii=False)}
 
+    Forneça um parecer executivo e estruturado com:
+    1. **Saúde Financeira e Margem:** Calcule o lucro bruto estimado em R$ e % descontando a RT e avalie se a margem está segura para o padrão de mercado sob medida.
+    2. **Auditoria Técnica de Produção:** Aponte riscos em dimensões, proporções, ferragens ausentes ou fitas de borda não especificadas.
+    3. **Recomendações Práticas:** Sugestões diretas para otimização de corte, montagem e fechamento de venda.
+    """
+
+    try:
+        client = genai.Client(api_key=gemini_key)
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+        )
+        return {
+            "status": "sucesso",
+            "projeto": dados.nome_projeto,
+            "ambiente": dados.ambiente,
+            "analise_ia": response.text
+        }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao processar auditoria IA: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao processar auditoria IA Gemini: {str(e)}"
+        )
