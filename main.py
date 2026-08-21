@@ -2310,8 +2310,8 @@ def emitir_ccb_route(proposta_id: int):
 async def importar_promob_route(
     cliente_nome: str = Form(...),
     cliente_telefone: str = Form(""),
-    cliente_ambiente: str = Form("Studio Completo"),
-    valor_venda_manual: str = Form("18500.00"),
+    cliente_ambiente: str = Form("Ambiente Promob"),
+    valor_venda_manual: str = Form(""),
     arquivo_promob: UploadFile = File(...)
 ):
     conteudo = ""
@@ -2321,18 +2321,36 @@ async def importar_promob_route(
     except Exception:
         pass
 
-    pv_num = parse_moeda(valor_venda_manual)
-    if pv_num <= 0:
-        try:
+    pv_num = 0.0
+
+    # 1. Extração prioritária do Valor Total Bruto direto do arquivo Promob (XML/TXT/CSV)
+    try:
+        if conteudo.strip().startswith("<"):
             root = ET.fromstring(conteudo)
-            for tag in ["TOTAL", "Total", "PrecoTotal", "VALORTOTAL", "price", "total"]:
-                elem = root.find(f".//{tag}")
-                if elem is not None and elem.text:
-                    pv_num = parse_moeda(elem.text)
-                    if pv_num > 0:
-                        break
-        except Exception:
-            pass
+            for tag in ["VALORTOTAL", "TOTAL", "Total", "PrecoTotal", "VALOR", "price", "total", "PRECO"]:
+                for elem in root.findall(f".//{tag}"):
+                    if elem is not None and elem.text:
+                        v = parse_moeda(elem.text)
+                        if v > 0:
+                            pv_num = max(pv_num, v)
+        else:
+            # Leitura de arquivos texto/cutcon/csv somando colunas de valores
+            for linha in conteudo.splitlines():
+                partes = [p.strip() for p in linha.replace(";", ",").split(",") if p.strip()]
+                for p in partes:
+                    if ("R$" in p or "." in p or "," in p) and any(c.isdigit() for c in p):
+                        v = parse_moeda(p)
+                        if v > 100:
+                            pv_num = max(pv_num, v)
+    except Exception:
+        pass
+
+    # 2. Se não encontrou valor no arquivo e o usuário preencheu manualmente, usa o digitado
+    if pv_num <= 0 and valor_venda_manual:
+        pv_num = parse_moeda(valor_venda_manual)
+
+    if pv_num <= 0:
+        pv_num = 0.0
 
     if pv_num <= 0:
         pv_num = 18500.0
