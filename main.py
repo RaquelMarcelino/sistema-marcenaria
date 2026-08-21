@@ -12,7 +12,7 @@ import secrets
 import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, date, timedelta
-from typing import List
+from typing import List, Optional
 
 app = FastAPI(title="MVI Móveis Planejados - Master SaaS & FinTech")
 DB_PATH = "mvi_production_v49.db"
