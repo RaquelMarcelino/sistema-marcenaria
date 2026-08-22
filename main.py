@@ -711,7 +711,6 @@ def render_pre_orcamento_agendamento(
 <body class="bg-slate-950 text-slate-100 min-h-screen p-4 sm:p-8 font-sans flex items-center justify-center">
     <div class="max-w-2xl w-full bg-slate-900 border border-amber-500/40 rounded-3xl p-6 sm:p-10 shadow-2xl space-y-6">
     <!-- CARD DE PROJETO 3D GERADO POR IA -->
-           <!-- CARD DE PROJETO 3D GERADO POR IA -->
     <div class="my-4 p-5 rounded-2xl bg-slate-950 border border-amber-500/40 text-center shadow-xl">
         <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 text-amber-400 text-xs font-bold uppercase tracking-wider mb-2">
             ✨ Perspectiva 3D Preliminar por IA
@@ -721,14 +720,15 @@ def render_pre_orcamento_agendamento(
         
         <div class="relative rounded-xl overflow-hidden border border-slate-800 bg-slate-900 flex items-center justify-center min-h-[220px]">
             <img 
-                src="https://image.pollinations.ai/prompt/luxurious%20modern%20bespoke%20joinery%20{ambientes_str}%20cabinetry%20{area_m2}%20sqm%20interior%20design%20photorealistic%20architectural%20render%20mdf%20warm%20led%20lighting%208k?width=800&height=500&nologo=true" 
+                src="https://image.pollinations.ai/prompt/photorealistic%203d%20architectural%20render%20bespoke%20joinery%20{ambientes_str}%20space%20width%20{area_m2}%20meters%20modern%20cabinetry%20built-in%20high-end%20appliances%20refrigerator%20oven%20recessed%20led%20lighting%208k?width=800&height=500&nologo=true&seed={nome}_{area_m2}_{cidade}" 
                 alt="Perspectiva 3D do Projeto" 
                 class="w-full h-auto object-cover rounded-xl shadow-md"
                 loading="lazy"
             />
         </div>
-        <span class="block text-[10px] text-slate-500 mt-2">*Perspectiva conceitual preliminar gerada por IA. O projeto executivo oficial será detalhado pelo projetista.</span>
+        <span class="block text-[10px] text-slate-500 mt-2">*Perspectiva conceitual preliminar gerada por IA baseada na metragem de {area_m2} m². O projeto executivo oficial será detalhado pelo projetista.</span>
     </div>
+        
 
     <div class="text-center space-y-2 border-b border-slate-800 pb-4">
         <span class="text-4xl block">✨</span>
