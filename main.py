@@ -720,8 +720,7 @@ def render_pre_orcamento_agendamento(
                 
                 <div class="relative rounded-xl overflow-hidden border border-slate-800 bg-slate-900 flex items-center justify-center min-h-[220px]">
                     <img 
-                src="https://image.pollinations.ai/prompt/luxurious%20modern%20bespoke%20joinery%20{ambientes_str}%20{cor_porta}%20cabinetry%20{area_m2}%20sqm%20{acabamento_porta}%20interior%20design%20photorealistic%20architectural%20render%20mdf%20warm%20led%20lighting%208k?width=800&height=500&nologo=true&seed={novo_id}"                       alt="Perspectiva 3D do Projeto" 
-                        class="w-full h-auto object-cover rounded-xl shadow-md"
+src="https://image.pollinations.ai/prompt/luxurious%20modern%20bespoke%20joinery%20{ambientes_str}%20cabinetry%20{area_m2}%20sqm%20interior%20design%20photorealistic%20architectural%20render%20mdf%20warm%20led%20lighting%208k?width=800&height=500&nologo=true&seed={novo_id}"                        class="w-full h-auto object-cover rounded-xl shadow-md"
                         loading="lazy"
                     />
                 </div>
