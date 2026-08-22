@@ -2539,11 +2539,21 @@ def minuta_contrato_route(orcamento_id: int):
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (orcamento_id,))
+    
+    # Se receber ID 0, busca automaticamente a pasta ativa da sessão ou o último orçamento cadastrado
+    if orcamento_id == 0:
+        sess_id = CURRENT_SESSION.get("cliente_ativo_id")
+        if sess_id:
+            cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (sess_id,))
+        else:
+            cursor.execute("SELECT * FROM orcamentos ORDER BY id DESC LIMIT 1")
+    else:
+        cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (orcamento_id,))
+        
     orc = cursor.fetchone()
     conn.close()
     if not orc:
-        return HTMLResponse("Contrato não encontrado.", status_code=404)
+        return HTMLResponse("Nenhum contrato ativo encontrado no sistema.", status_code=404)
 
     empresa = get_empresa_dados(1)
     pv_total = float(orc['preco_venda'] or 0) + float(orc['adendo_valor'] or 0)
