@@ -2445,7 +2445,7 @@ async def importar_promob_route(
     CURRENT_SESSION["cliente_ativo_id"] = novo_id
     conn.close()
 
-   empresa_dados = get_empresa_dados()
+    empresa_dados = get_empresa_dados()
     ambientes_str = "Cozinha Planejada"
     return HTMLResponse(render_pre_orcamento_agendamento(
         empresa_dados, novo_id, nome, whatsapp, cidade, float(area_m2_total or 45), pv_num,
