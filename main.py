@@ -2535,7 +2535,6 @@ def update_empresa(
     return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.get("/minuta-contrato/{orcamento_id}", response_class=HTMLResponse)
-@app.get("/minuta-contrato/{orcamento_id}", response_class=HTMLResponse)
 def minuta_contrato_route(orcamento_id: int):
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
