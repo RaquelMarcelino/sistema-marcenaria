@@ -2146,28 +2146,30 @@ async def submit_lead_route(
     novo_id = cursor.lastrowid
     CURRENT_SESSION["cliente_ativo_id"] = novo_id
     
-    conn.close()    
+    conn.close()
+
     # Leitura inteligente da planta com Gemini Vision
     planta_bytes_dados = None
-        if 'arquivo_planta' in locals() and arquivo_planta and hasattr(arquivo_planta, 'read'):
+    if 'arquivo_planta' in locals() and arquivo_planta and hasattr(arquivo_planta, 'read'):
         try:
-                planta_bytes_dados = await arquivo_planta.read()
+            planta_bytes_dados = await arquivo_planta.read()
         except:
             pass
 
-        prompt_3d = analisar_planta_baixa_gemini(
+    prompt_3d = analisar_planta_baixa_gemini(
         planta_bytes=planta_bytes_dados,
         tipo_ambiente=ambientes_str,
         cor_escolhida=cor_porta,
         medidas_cliente=str(area_num)
     )
-        url_render_ia = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(prompt_3d)}?width=800&height=500&nologo=true&seed={novo_id}"
+    url_render_ia = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(prompt_3d)}?width=800&height=500&nologo=true&seed={novo_id}"
 
     return render_pre_orcamento_agendamento(
         empresa, novo_id, nome, whatsapp, cidade, area_num,
         calc["preco_venda"], espessura_caixa, cor_caixa,
         espessura_porta, cor_porta, acabamento_porta, marca_ferragens, espessura_tamponamento,
         ambientes_str, url_render_ia
+    )
     )
 
 @app.post("/salvar-negociacao-mesa-json")
