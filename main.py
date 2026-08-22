@@ -13,6 +13,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, date, timedelta
 from typing import List, Optional
+import google.generativeai as genai
 
 app = FastAPI(title="MVI Móveis Planejados - Master SaaS & FinTech")
 DB_PATH = "mvi_production_v49.db"
@@ -2675,3 +2676,71 @@ def minuta_contrato_route(orcamento_id: int):
 </body>
 </html>"""
     return HTMLResponse(content=html_code)
+
+# ==========================================
+# MÓDULO ARQUITETO IA - LEITURA DE PLANTA E MEMORIAL
+# ==========================================
+GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
+if GEMINI_KEY:
+    try:
+        genai.configure(api_key=GEMINI_KEY)
+    except Exception:
+        pass
+
+@app.post("/api/analisar-planta-ia")
+async def analisar_planta_ia(
+    cliente_nome: str = Form(...),
+    telefone: str = Form(...),
+    ambiente: str = Form(...),
+    descricao_cliente: str = Form(...),
+    medida_parede: str = Form(""),
+    foto_planta: UploadFile = File(None)
+):
+    briefing_tecnico = ""
+    
+    if GEMINI_KEY:
+        try:
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            prompt_analise = f"""
+            Você é um Arquiteto e Engenheiro de Produção especialista em Marcenaria Sob Medida de Alto Padrão.
+            Analise os dados enviados pelo cliente:
+            - Cliente: {cliente_nome}
+            - Ambiente: {ambiente}
+            - Parede / Medida informada: {medida_parede}
+            - O que o cliente deseja detalhadamente: {descricao_cliente}
+
+            Gere uma análise estruturada para o cliente e para a marcenaria contendo:
+            1. Sugestão de Paginação e Distribuição dos Módulos (inferiores, aéreos, torres).
+            2. Combinação de Cores e Padrões de MDF recomendados.
+            3. Ferragens e Acessórios indicados (corrediças ocultas, amortecedores, iluminação LED).
+            4. Estimativa aproximada de consumo de chapas com base na medida da parede.
+            """
+            
+            if foto_planta and foto_planta.filename:
+                contents = await foto_planta.read()
+                image_parts = [{"mime_type": foto_planta.content_type or "image/jpeg", "data": contents}]
+                response = model.generate_content([prompt_analise, image_parts[0]])
+            else:
+                response = model.generate_content(prompt_analise)
+                
+            briefing_tecnico = response.text if hasattr(response, "text") else "Análise concluída."
+        except Exception as e:
+            briefing_tecnico = f"Briefing preliminar registrado. Detalhe técnico: {str(e)}"
+    else:
+        briefing_tecnico = f"Ambiente: {ambiente} | Parede: {medida_parede} | Briefing: {descricao_cliente}"
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO orcamentos (cliente_nome, cliente_telefone, cliente_ambiente, status_lead, criado_em)
+        VALUES (?, ?, ?, 'Novo Lead IA', datetime('now', 'localtime'))
+    """, (cliente_nome, telefone, f"{ambiente} ({medida_parede}) - {descricao_cliente[:100]}"))
+    conn.commit()
+    novo_id = cursor.lastrowid
+    conn.close()
+
+    return JSONResponse({
+        "status": "success",
+        "orcamento_id": novo_id,
+        "briefing": briefing_tecnico
+    })
