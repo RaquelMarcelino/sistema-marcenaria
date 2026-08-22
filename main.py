@@ -934,7 +934,11 @@ def trocar_senha_post(
 
 
 @app.post("/admin/cadastrar-vendedor")
-def cadastrar_vendedor_route(nome: str = Form(...), email: str = Form(...)):
+def cadastrar_vendedor_route(
+    nome: str = Form(...),
+    email: str = Form(...),
+    perfil: str = Form("vendedor")
+):
     caracteres = string.ascii_letters + string.digits
     senha_provisoria = "MVI-" + "".join(secrets.choice(caracteres) for _ in range(5))
 
@@ -948,14 +952,15 @@ def cadastrar_vendedor_route(nome: str = Form(...), email: str = Form(...)):
 
     cursor.execute("""
         INSERT INTO usuarios (nome, email, senha, perfil, ativo, empresa_id, primeiro_acesso)
-        VALUES (?, ?, ?, 'vendedor', 1, 1, 1)
-    """, (nome.strip(), email.strip().lower(), senha_provisoria))
+        VALUES (?, ?, ?, ?, 1, 1, 1)
+    """, (nome.strip(), email.strip().lower(), senha_provisoria, perfil.strip().lower()))
     conn.commit()
     conn.close()
 
     link_app = "https://sistema-marcenaria-6laa.onrender.com/"
     enviar_email_convite_vendedor(nome, email.strip().lower(), senha_provisoria, link_app)
 
+    return RedirectResponse("/painel", status_code=303)
     return RedirectResponse("/painel", status_code=303)
 
 
