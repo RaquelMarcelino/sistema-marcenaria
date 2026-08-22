@@ -743,6 +743,22 @@ def render_pre_orcamento_agendamento(
                 <span class="text-xl sm:text-2xl font-black text-emerald-400">R$ {desconto_fmt}</span>
             </div>
         </div>
+        <!-- PERSPECTIVA 3D IA -->
+        <div class="p-5 rounded-2xl bg-slate-950 border border-amber-500/40 text-center shadow-xl space-y-3">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 text-amber-400 text-xs font-bold uppercase tracking-wider">
+                ✨ Conceito 3D Gerado por IA
+            </div>
+            <p class="text-white font-bold text-sm">Perspectiva Sugerida para seu Projeto</p>
+            <div class="w-full rounded-xl overflow-hidden border border-slate-800 bg-slate-900">
+                <img 
+                    src="https://image.pollinations.ai/prompt/luxurious%20modern%20bespoke%20kitchen%20cabinetry%20interior%20design%20graphite%20mdf%20freijo%20wood%20warm%20led%20lighting%20photorealistic%208k?width=800&height=500&nologo=true" 
+                    alt="Perspectiva 3D Cozinha" 
+                    class="w-full h-auto object-cover rounded-xl shadow-md"
+                    loading="lazy"
+                />
+            </div>
+            <span class="block text-[10px] text-slate-500">*Perspectiva conceitual preliminar criada por IA. O projeto executivo detalhado será desenvolvido no Promob pelo projetista técnico.</span>
+        </div>
 
         <div class="bg-slate-950/80 p-5 rounded-2xl border border-slate-800 space-y-4">
             <div class="text-center">
