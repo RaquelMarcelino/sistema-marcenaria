@@ -2324,40 +2324,45 @@ async def importar_promob_route(
     pv_num = 0.0
 
     if conteudo.strip():
-        try:
-            root = ET.fromstring(conteudo)
-            tags_alvo = [
-                "TOTALORCADO", "TOTAL_ORCADO", "VALORTOTAL", "VALOR_TOTAL", 
-                "TOTAL", "TOTALGERAL", "PRECOTOTAL", "VALOR", "PRECO"
-            ]
-            for elem in root.iter():
-                tag_limpa = elem.tag.upper().replace("_", "")
-                for alvo in tags_alvo:
-                    if alvo.replace("_", "") in tag_limpa and elem.text:
-                        val = parse_moeda(elem.text)
-                        if val > pv_num:
-                            pv_num = val
-                
-                for attr_k, attr_v in elem.attrib.items():
-                    attr_limpo = attr_k.upper().replace("_", "")
+        import re
+        padroes = [
+            r"TOTALORCADO\s*=\s*[\"']?([0-9\.\,]+)[\"']?",
+            r"VALORTOTAL\s*=\s*[\"']?([0-9\.\,]+)[\"']?",
+            r"PRECOTOTAL\s*=\s*[\"']?([0-9\.\,]+)[\"']?",
+            r"<TOTALORCADO[^>]*>([0-9\.\,]+)<\/TOTALORCADO>",
+            r"<VALORTOTAL[^>]*>([0-9\.\,]+)<\/VALORTOTAL>",
+            r"<PRECOTOTAL[^>]*>([0-9\.\,]+)<\/PRECOTOTAL>",
+            r"Total\s*or[cç]ado\s*[:=]?\s*([0-9\.\,]+)",
+            r"Valor\s*Total\s*[:=]?\s*([0-9\.\,]+)",
+            r"TOTAL\s*[:=]?\s*([0-9\.\,]+)"
+        ]
+        for padrao in padroes:
+            matches = re.findall(padrao, conteudo, re.IGNORECASE)
+            for m in matches:
+                v = parse_moeda(m)
+                if v > pv_num:
+                    pv_num = v
+
+        if pv_num <= 0:
+            try:
+                root = ET.fromstring(conteudo)
+                tags_alvo = ["TOTALORCADO", "TOTAL_ORCADO", "VALORTOTAL", "VALOR_TOTAL", "TOTAL", "TOTALGERAL", "PRECOTOTAL", "VALOR", "PRECO"]
+                for elem in root.iter():
+                    tag_limpa = elem.tag.upper().replace("_", "")
                     for alvo in tags_alvo:
-                        if alvo.replace("_", "") in attr_limpo:
-                            val = parse_moeda(attr_v)
+                        if alvo.replace("_", "") in tag_limpa and elem.text:
+                            val = parse_moeda(elem.text)
                             if val > pv_num:
                                 pv_num = val
-        except Exception:
-            import re
-            padroes = [
-                r"Total\s*or[cç]ado\s*[:=]?\s*([0-9\.\,]+)",
-                r"Valor\s*Total\s*[:=]?\s*([0-9\.\,]+)",
-                r"TOTAL\s*[:=]?\s*([0-9\.\,]+)"
-            ]
-            for padrao in padroes:
-                match = re.search(padrao, conteudo, re.IGNORECASE)
-                if match:
-                    val = parse_moeda(match.group(1))
-                    if val > pv_num:
-                        pv_num = val
+                    for attr_k, attr_v in elem.attrib.items():
+                        attr_limpo = attr_k.upper().replace("_", "")
+                        for alvo in tags_alvo:
+                            if alvo.replace("_", "") in attr_limpo:
+                                val = parse_moeda(attr_v)
+                                if val > pv_num:
+                                    pv_num = val
+            except Exception:
+                pass
 
     if valor_venda_manual and valor_venda_manual.strip():
         v_digitado = parse_moeda(valor_venda_manual)
@@ -2396,7 +2401,6 @@ async def importar_promob_route(
     conn.close()
 
     return RedirectResponse(url="/painel-get", status_code=303)
-
 @app.post("/recusar-lead", response_class=HTMLResponse)
 def recusar_lead_route(orcamento_id: int = Form(...)):
     conn = sqlite3.connect(DB_PATH)
