@@ -2540,7 +2540,6 @@ def minuta_contrato_route(orcamento_id: int):
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
-    # Se receber ID 0, busca automaticamente a pasta ativa da sessão ou o último orçamento cadastrado
     if orcamento_id == 0:
         sess_id = CURRENT_SESSION.get("cliente_ativo_id")
         if sess_id:
@@ -2550,36 +2549,36 @@ def minuta_contrato_route(orcamento_id: int):
     else:
         cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (orcamento_id,))
         
-   row = cursor.fetchone()
+    row = cursor.fetchone()
     conn.close()
     if not row:
         return HTMLResponse("Nenhum contrato ativo encontrado no sistema.", status_code=404)
 
     orc = dict(row)
-    empresa = get_empresa_dados(1) if 'get_empresa_dados' in globals() else {}
+    empresa = get_empresa_dados(1) if "get_empresa_dados" in globals() else {}
     
-    pv_total = float(orc.get('preco_venda') or 0) + float(orc.get('adendo_valor') or 0)
-    end_ent = orc.get('cliente_endereco_entrega') or orc.get('cliente_endereco_postal') or orc.get('cliente_endereco') or 'A combinar'
-    cpf_cli = orc.get('cliente_cpf') or orc.get('cpf') or 'Não informado'
-    rg_cli = orc.get('cliente_rg') or orc.get('rg') or 'Não informado'
-    email_cli = orc.get('cliente_email') or orc.get('email') or 'Não informado'
-    tel_cli = orc.get('cliente_telefone') or orc.get('telefone') or 'Não informado'
+    pv_total = float(orc.get("preco_venda") or 0) + float(orc.get("adendo_valor") or 0)
+    end_ent = orc.get("cliente_endereco_entrega") or orc.get("cliente_endereco_postal") or orc.get("cliente_endereco") or "A combinar"
+    cpf_cli = orc.get("cliente_cpf") or orc.get("cpf") or "Não informado"
+    rg_cli = orc.get("cliente_rg") or orc.get("rg") or "Não informado"
+    email_cli = orc.get("cliente_email") or orc.get("email") or "Não informado"
+    tel_cli = orc.get("cliente_telefone") or orc.get("telefone") or "Não informado"
     
-    nome_emp = empresa.get('nome_empresa', 'MVI Móveis Planejados')
-    cnpj_emp = empresa.get('cnpj', 'Consulte a Administração')
-    end_emp = empresa.get('endereco', 'Endereço da Fábrica / Showroom')
+    nome_emp = empresa.get("nome_empresa", "MVI Móveis Planejados")
+    cnpj_emp = empresa.get("cnpj", "Consulte a Administração")
+    end_emp = empresa.get("endereco", "Endereço da Fábrica / Showroom")
     
-    forma_pag = orc.get('modalidade_pagamento') or orc.get('forma_pagamento') or 'A combinar'
-    parcelas = orc.get('parcelas_qtd') or orc.get('parcelas') or 1
-    entrada = float(orc.get('entrada_valor') or 0)
+    forma_pag = orc.get("modalidade_pagamento") or orc.get("forma_pagamento") or "A combinar"
+    parcelas = orc.get("parcelas_qtd") or orc.get("parcelas") or 1
+    entrada = float(orc.get("entrada_valor") or 0)
     
-    cliente_nome = orc.get('cliente_nome', 'Cliente')
-    ambiente = orc.get('cliente_ambiente', 'Móveis Planejados')
-    prazo = orc.get('prazo_entrega', '25 dias úteis')
-    criado_em = orc.get('criado_em', '')
-    contrato_id = orc.get('id', 1)
+    cliente_nome = orc.get("cliente_nome", "Cliente")
+    ambiente = orc.get("cliente_ambiente", "Móveis Planejados")
+    prazo = orc.get("prazo_entrega", "25 dias úteis")
+    criado_em = orc.get("criado_em", "")
+    contrato_id = orc.get("id", 1)
 
-    return f"""<!DOCTYPE html>
+    html_code = f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
@@ -2675,96 +2674,4 @@ def minuta_contrato_route(orcamento_id: int):
     </div>
 </body>
 </html>"""
-
-@app.get("/assinar/{orcamento_id}", response_class=HTMLResponse)
-def assinar_contrato_view(orcamento_id: int):
-    return HTMLResponse(f"""<!DOCTYPE html><html><head><title>Assinatura Digital</title><script src="https://cdn.tailwindcss.com"></script></head>
-    <body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4 font-sans text-center">
-        <div class="max-w-md w-full bg-slate-900 border border-emerald-500/40 p-8 rounded-3xl space-y-4">
-            <h1 class="font-bold text-emerald-400 text-lg">Assinatura Digital Ativa</h1>
-            <p class="text-xs text-slate-400">Contrato #{orcamento_id:04d} autenticado e disponível para assinatura.</p>
-            <a href="/painel-get" class="inline-block px-4 py-2 bg-emerald-600 text-slate-950 font-bold rounded-xl text-xs">Voltar ao Painel</a>
-        </div>
-    </body></html>""")
-# ==========================================
-# MÓDULO AUDITORIA PROMOB COM GEMINI IA (MVI)
-# ==========================================
-import requests
-from pydantic import BaseModel
-
-class PecaItem(BaseModel):
-    descricao: str
-    largura: float
-    altura: float
-    profundidade: float
-    material: str
-    fita_borda: Optional[str] = "Não especificada"
-    ferragens: Optional[List[str]] = []
-
-class AuditoriaRequest(BaseModel):
-    nome_projeto: str
-    ambiente: str
-    valor_tabela_promob: float
-    desconto_acrescimo_negociacao_pct: float = 0.0
-    comissao_rt_porcentagem: float = 10.0
-    pecas: List[PecaItem]
-
-@app.post("/api/v1/auditor-promob", summary="Auditoria Técnica e Comercial MVI")
-def auditar_projeto_promob(dados: AuditoriaRequest):
-    gemini_key = os.getenv("GEMINI_API_KEY")
-    if not gemini_key:
-        raise HTTPException(
-            status_code=500,
-            detail="Chave GEMINI_API_KEY não configurada no Render."
-        )
-
-    valor_venda_final = dados.valor_tabela_promob * (1 + (dados.desconto_acrescimo_negociacao_pct / 100))
-    valor_rt = valor_venda_final * (dados.comissao_rt_porcentagem / 100)
-    receita_liquida = valor_venda_final - valor_rt
-
-    prompt_texto = f"""
-    Você é o Auditor Técnico e Estrategista Comercial do sistema CRM MVI para marcenarias de alto padrão.
-
-    DADOS DO PROJETO & NEGOCIAÇÃO COMERCIAL:
-    - Projeto: {dados.nome_projeto}
-    - Ambiente: {dados.ambiente}
-    - Valor Base Tabela Promob: R$ {dados.valor_tabela_promob:.2f}
-    - Ajuste Comercial (%): {dados.desconto_acrescimo_negociacao_pct}%
-    - Valor Final de Venda: R$ {valor_venda_final:.2f}
-    - Comissão RT ({dados.comissao_rt_porcentagem}% manual): R$ {valor_rt:.2f}
-    - Receita Líquida do Projeto: R$ {receita_liquida:.2f}
-
-    LISTA TÉCNICA DE PEÇAS:
-    {json.dumps([p.dict() for p in dados.pecas], indent=2, ensure_ascii=False)}
-
-    Gere um parecer executivo contendo:
-    1. Parecer Comercial e RT (Saúde do fechamento e margem líquida).
-    2. Auditoria Técnica de Produção (Espessuras, vãos livres, empenamento de portas e umidade).
-    3. Diretrizes para Produção e Fechamento (Dicas de montagem e argumentos comerciais).
-    """
-
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={gemini_key}"
-    payload = {
-        "contents": [{"parts": [{"text": prompt_texto}]}]
-    }
-
-    try:
-        res = requests.post(url, json=payload, timeout=40)
-        if res.status_code != 200:
-            raise HTTPException(status_code=500, detail=f"Erro Google: {res.text}")
-        
-        texto_ia = res.json()["candidates"][0]["content"]["parts"][0]["text"]
-        return {
-            "status": "sucesso",
-            "projeto": dados.nome_projeto,
-            "ambiente": dados.ambiente,
-            "resumo_financeiro": {
-                "valor_tabela_promob": dados.valor_tabela_promob,
-                "valor_venda_final": valor_venda_final,
-                "valor_rt": valor_rt,
-                "receita_liquida_projeto": receita_liquida
-            },
-            "analise_ia": texto_ia
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return HTMLResponse(content=html_code)
