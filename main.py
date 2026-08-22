@@ -2535,6 +2535,7 @@ def update_empresa(
     return RedirectResponse(url="/painel-get", status_code=303)
 
 @app.get("/minuta-contrato/{orcamento_id}", response_class=HTMLResponse)
+@app.get("/minuta-contrato/{orcamento_id}", response_class=HTMLResponse)
 def minuta_contrato_route(orcamento_id: int):
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -2544,21 +2545,118 @@ def minuta_contrato_route(orcamento_id: int):
     conn.close()
     if not orc:
         return HTMLResponse("Contrato não encontrado.", status_code=404)
+
     empresa = get_empresa_dados(1)
-    
     pv_total = float(orc['preco_venda'] or 0) + float(orc['adendo_valor'] or 0)
     end_ent = orc['cliente_endereco_entrega'] or orc['cliente_endereco_postal'] or 'A combinar'
-    return f"""<!DOCTYPE html><html><head><title>Contrato MVI #{orc['id']:04d}</title><script src="https://cdn.tailwindcss.com"></script></head>
-    <body class="bg-white text-slate-900 p-10 font-sans leading-relaxed text-sm max-w-4xl mx-auto">
-        <h1 class="text-center font-bold text-base border-b pb-3 uppercase">INSTRUMENTO PARTICULAR DE PRESTAÇÃO DE SERVIÇOS DE MARCENARIA</h1>
-        <p class="mt-4"><b>CONTRATADA:</b> {empresa['nome_empresa']} (CNPJ: {empresa['cnpj']})</p>
-        <p><b>CONTRATANTE:</b> {orc['cliente_nome']} (Tel: {orc['cliente_telefone']})</p>
-        <p><b>LOCAL DA INSTALAÇÃO:</b> {end_ent}</p>
-        <p><b>OBJETO:</b> Fabricação e instalação de móveis sob medida para: <b>{orc['cliente_ambiente']}</b>.</p>
-        <p><b>VALOR TOTAL:</b> R$ {fmt_br(pv_total)} em {orc['modalidade_pagamento']}.</p>
-        <p><b>PRAZO:</b> {orc['prazo_entrega']}. <b>GARANTIA:</b> {orc['prazo_garantia']}.</p>
-        <div class="mt-12 text-center"><button onclick="window.print()" class="px-4 py-2 bg-amber-500 text-slate-950 font-bold rounded">🖨️ Imprimir / Salvar PDF</button></div>
-    </body></html>"""
+    cpf_cli = orc['cliente_cpf'] or 'Não informado'
+    rg_cli = orc['cliente_rg'] or 'Não informado'
+    email_cli = orc['cliente_email'] or 'Não informado'
+    tel_cli = orc['cliente_telefone'] or 'Não informado'
+    nome_emp = empresa.get('nome_empresa', 'MVI Móveis Planejados')
+    cnpj_emp = empresa.get('cnpj', 'Consulte a Administração')
+    end_emp = empresa.get('endereco', 'Endereço da Fábrica / Showroom')
+    
+    forma_pag = orc['modalidade_pagamento'] or 'A combinar'
+    parcelas = orc['parcelas_qtd'] or 1
+    entrada = float(orc['entrada_valor'] or 0)
+
+    return f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Contrato de Prestação de Serviços - {orc['cliente_nome']}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @media print {{
+            .no-print {{ display: none !important; }}
+            body {{ padding: 0; background: white; }}
+            @page {{ margin: 15mm 20mm 15mm 20mm; }}
+        }}
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 font-sans text-xs leading-relaxed p-6">
+    <div class="max-w-4xl mx-auto bg-white p-8 md:p-12 shadow-md rounded-sm border border-slate-200">
+        
+        <div class="no-print flex justify-between items-center bg-slate-900 text-white p-4 rounded mb-6">
+            <div>
+                <h3 class="font-bold text-sm">Visualização de Minuta Contratual</h3>
+                <p class="text-xs text-slate-400">Pronto para impressão em A4 ou exportação para PDF.</p>
+            </div>
+            <button onclick="window.print()" class="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold px-4 py-2 rounded flex items-center gap-2 text-xs transition">
+                🖨️ Imprimir / Salvar PDF
+            </button>
+        </div>
+
+        <div class="text-center border-b pb-4 mb-6">
+            <h1 class="text-base font-bold uppercase tracking-wider text-slate-900">INSTRUMENTO PARTICULAR DE PRESTAÇÃO DE SERVIÇOS E FORNECIMENTO DE MÓVEIS SOB MEDIDA</h1>
+            <p class="text-xs text-slate-500 mt-1">Contrato Referência: #{orc['id']:04d} | Emissão: {orc['criado_em']}</p>
+        </div>
+
+        <div class="space-y-4">
+            <div>
+                <h2 class="font-bold text-slate-900 uppercase border-b pb-1 mb-2">1. DAS PARTES</h2>
+                <p><b>CONTRATADA:</b> <span class="uppercase">{nome_emp}</span>, pessoa jurídica de direito privado, inscrita no CNPJ sob o nº <b>{cnpj_emp}</b>, com sede em {end_emp}.</p>
+                <p class="mt-1"><b>CONTRATANTE:</b> <b>{orc['cliente_nome']}</b>, CPF nº <b>{cpf_cli}</b>, RG nº <b>{rg_cli}</b>, Telefone: <b>{tel_cli}</b>, E-mail: <b>{email_cli}</b>, com endereço de entrega/instalação em: <b>{end_ent}</b>.</p>
+            </div>
+
+            <div>
+                <h2 class="font-bold text-slate-900 uppercase border-b pb-1 mb-2">2. DO OBJETO</h2>
+                <p>O presente contrato tem por objeto a fabricação, fornecimento e montagem dos móveis planejados sob medida para o(s) seguinte(s) ambiente(s): <b>{orc['cliente_ambiente']}</b>, em conformidade estrita com o projeto 3D e memorial descritivo aprovados pelo CONTRATANTE.</p>
+            </div>
+
+            <div>
+                <h2 class="font-bold text-slate-900 uppercase border-b pb-1 mb-2">3. DO VALOR E FORMA DE PAGAMENTO</h2>
+                <p>Pela prestação dos serviços e fornecimento dos materiais, o CONTRATANTE pagará à CONTRATADA o valor total fechado de <b>R$ {fmt_br(pv_total)}</b>.</p>
+                <p class="mt-1"><b>Condição comercial acordada:</b> {forma_pag}.</p>
+                <p class="mt-1"><b>Valor de Entrada:</b> R$ {fmt_br(entrada)} | <b>Parcelamento:</b> {parcelas}x parcela(s).</p>
+            </div>
+
+            <div>
+                <h2 class="font-bold text-slate-900 uppercase border-b pb-1 mb-2">4. DO PRAZO DE FABRICAÇÃO E INSTALAÇÃO</h2>
+                <p>O prazo estimado para entrega e início da montagem é de <b>{orc['prazo_entrega'] or '25 dias úteis'}</b>, contados a partir da conclusão da medição técnica final no local e aprovação definitiva do projeto executivo por ambas as partes.</p>
+                <p class="mt-1 text-slate-600"><i>Parágrafo Único:</i> O CONTRATANTE compromete-se a deixar o ambiente civilmente preparado (alvenaria, hidráulica, elétrica e pisos concluídos) para o início da montagem.</p>
+            </div>
+
+            <div>
+                <h2 class="font-bold text-slate-900 uppercase border-b pb-1 mb-2">5. DA GARANTIA E ASSISTÊNCIA TÉCNICA</h2>
+                <p>A CONTRATADA oferece garantia legal e contratual de <b>12 (doze) meses</b> contra eventuais defeitos de fabricação e montagem, excetuando-se danos decorrentes de umidade excessiva, mau uso, impacto mecânico ou intervenção de terceiros não autorizados.</p>
+            </div>
+
+            <div>
+                <h2 class="font-bold text-slate-900 uppercase border-b pb-1 mb-2">6. DO FORO</h2>
+                <p>Para dirimir quaisquer controvérsias oriundas do presente instrumento, as partes elegem o foro da Comarca de domicílio da CONTRATADA, com renúncia expressa a qualquer outro.</p>
+            </div>
+        </div>
+
+        <div class="mt-12 pt-8 border-t border-slate-300">
+            <p class="text-center mb-10 text-slate-600">E, por estarem justas e acordadas, as partes assinam o presente contrato em 02 (duas) vias de igual teor.</p>
+            
+            <div class="grid grid-cols-2 gap-12 text-center text-xs">
+                <div>
+                    <div class="border-b border-slate-900 pb-1 mb-1 font-bold uppercase">{orc['cliente_nome']}</div>
+                    <span class="text-slate-500">CONTRATANTE</span>
+                </div>
+                <div>
+                    <div class="border-b border-slate-900 pb-1 mb-1 font-bold uppercase">{nome_emp}</div>
+                    <span class="text-slate-500">CONTRATADA</span>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-12 text-center text-xs mt-8">
+                <div>
+                    <div class="border-b border-slate-400 pb-1 mb-1 text-slate-400">Assinatura Testemunha 1</div>
+                    <span class="text-slate-500">CPF: ______________________</span>
+                </div>
+                <div>
+                    <div class="border-b border-slate-400 pb-1 mb-1 text-slate-400">Assinatura Testemunha 2</div>
+                    <span class="text-slate-500">CPF: ______________________</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>"""
 
 @app.get("/assinar/{orcamento_id}", response_class=HTMLResponse)
 def assinar_contrato_view(orcamento_id: int):
