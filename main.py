@@ -1364,6 +1364,56 @@ def render_dashboard_view():
                 {f'''<button onclick="mudarAba('aba-equipe')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700">👥 Equipe</button>
                 <button onclick="mudarAba('aba-empresa')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700">🏢 Empresa</button>''' if pode_gerenciar_equipe else ''}
                 <a href="/solicitar-orcamento" target="_blank" class="px-3 py-1.5 rounded-lg bg-amber-950 text-amber-300 hover:bg-amber-900 border border-amber-500/40">🔗 Link Público</a>
+                <button onclick="document.getElementById('modal-novo-colaborador').classList.remove('hidden')" class="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition shadow-lg shadow-amber-500/20">
+            <span>👥</span> + Colaborador
+        </button>
+
+        <div id="modal-novo-colaborador" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div class="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-6 shadow-2xl space-y-4 text-left">
+                <div class="flex justify-between items-center pb-2 border-b border-slate-800">
+                    <h3 class="text-base font-bold text-white flex items-center gap-2">
+                        <span class="p-1.5 bg-amber-500/10 text-amber-400 rounded-lg">👤</span> Cadastrar Colaborador
+                    </h3>
+                    <button type="button" onclick="document.getElementById('modal-novo-colaborador').classList.add('hidden')" class="text-slate-400 hover:text-white text-lg font-bold">✕</button>
+                </div>
+
+                <form action="/admin/cadastrar-vendedor" method="post" class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1">NOME DO COLABORADOR</label>
+                        <input type="text" name="nome" required placeholder="Ex: Roberto Silva" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1">E-MAIL CORPORATIVO / PESSOAL</label>
+                        <input type="email" name="email" required placeholder="Ex: roberto@empresa.com" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1">CARGO / FUNÇÃO</label>
+                        <div class="relative">
+                            <select name="perfil" required class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 appearance-none cursor-pointer">
+                                <option value="vendedor" selected>💼 Vendedor (Comercial & Leads)</option>
+                                <option value="gerente">📊 Gerente (Metas & Gestão Geral)</option>
+                                <option value="liberacao">📐 Finalização / Liberação Técnica (Fábrica)</option>
+                                <option value="financeiro">💳 Financeiro (Aprovações & Cobrança)</option>
+                            </select>
+                            <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-400">
+                                ▼
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex gap-2 pt-2">
+                        <button type="button" onclick="document.getElementById('modal-novo-colaborador').classList.add('hidden')" class="w-1/2 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition">
+                            Cancelar
+                        </button>
+                        <button type="submit" class="w-1/2 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-xl transition shadow-lg shadow-amber-500/20">
+                            Cadastrar e Enviar
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
             </nav>
         </div>
 
