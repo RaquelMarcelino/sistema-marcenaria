@@ -2445,11 +2445,11 @@ async def importar_promob_route(
     CURRENT_SESSION["cliente_ativo_id"] = novo_id
     conn.close()
 
-    empresa = {"nome_empresa": "MVI Móveis Planejados", "telefone": "11999998888"}
+   empresa_dados = get_empresa_dados()
     ambientes_str = "Cozinha Planejada"
     return HTMLResponse(render_pre_orcamento_agendamento(
-        empresa, novo_id, cliente_nome, cliente_telefone, "São Paulo", float(area_m2_total or 45), pv_num,
-        esp_caixa, cor_caixa, esp_porta, cor_porta, acabamento_porta, marca_ferragens, espessura_tamponamento, ambientes_str
+        empresa_dados, novo_id, nome, whatsapp, cidade, float(area_m2_total or 45), pv_num,
+        espessura_caixa, cor_caixa, espessura_porta, cor_porta, acabamento_porta, marca_ferragens, espessura_tamponamento, ambientes_str
     ))
 @app.post("/recusar-lead", response_class=HTMLResponse)
 def recusar_lead_route(orcamento_id: int = Form(...)):
