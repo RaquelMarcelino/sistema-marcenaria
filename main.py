@@ -2323,7 +2323,6 @@ async def importar_promob_route(
 
     pv_num = 0.0
 
-    # Varredura no XML do Promob (Tags e Atributos de Preço Total Orçado)
     if conteudo.strip():
         try:
             root = ET.fromstring(conteudo)
@@ -2360,21 +2359,22 @@ async def importar_promob_route(
                     if val > pv_num:
                         pv_num = val
 
-    # Se digitado manualmente, sobrepõe
     if valor_venda_manual and valor_venda_manual.strip():
         v_digitado = parse_moeda(valor_venda_manual)
         if v_digitado > 0:
             pv_num = v_digitado
 
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-   comissao_pct = 4.0
-  
+    if pv_num <= 0:
+        pv_num = 0.0
+
+    comissao_pct = 4.0
     comissao_num = (pv_num * comissao_pct) / 100.0
     custo_estimado = pv_num * 0.65
     lucro_estimado = pv_num - custo_estimado - comissao_num
     agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
 
     cursor.execute("""
         INSERT INTO orcamentos (
@@ -2394,8 +2394,6 @@ async def importar_promob_route(
     novo_id = cursor.lastrowid
     CURRENT_SESSION["cliente_ativo_id"] = novo_id
     conn.close()
-
-    return RedirectResponse(url="/painel-get", status_code=303)
 
     return RedirectResponse(url="/painel-get", status_code=303)
 
