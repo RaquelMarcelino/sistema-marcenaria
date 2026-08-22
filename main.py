@@ -15,7 +15,61 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, date, timedelta
 from typing import List, Optional
 import google.generativeai as genai
+import smtplib
+import string
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
+SMTP_HOST = "smtp.gmail.com"
+SMTP_PORT = 587
+SMTP_USER = os.getenv("EMAIL_NOTIFICACAO_REMETENTE", "contato@marcenaria.com")
+SMTP_PASS = os.getenv("EMAIL_NOTIFICACAO_SENHA", "")
+
+def enviar_email_convite_vendedor(nome_vendedor: str, email_vendedor: str, senha_temp: str, link_acesso: str):
+    """Dispara as credenciais de primeiro acesso para o vendedor."""
+    if not SMTP_PASS:
+        print("SMTP_PASS não configurada no Render. E-mail não disparado.")
+        return False
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = "🔐 Bem-vindo à MVI - Seu Acesso ao CRM de Vendas"
+        msg["From"] = f"MVI Móveis <{SMTP_USER}>"
+        msg["To"] = email_vendedor
+
+        corpo_html = f"""
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #0f172a; color: #f8fafc; padding: 24px; border-radius: 12px; border: 1px solid #1e293b;">
+            <div style="text-align: center; margin-bottom: 20px;">
+                <h2 style="color: #f59e0b; margin: 0;">MVI Móveis Planejados</h2>
+                <p style="color: #94a3b8; font-size: 14px;">Hub Promob, Financiamentos & Gestão Comercial</p>
+            </div>
+            <p style="font-size: 15px;">Olá, <strong>{nome_vendedor}</strong>!</p>
+            <p style="font-size: 14px; color: #cbd5e1; line-height: 1.5;">
+                Seu cadastro como vendedor foi realizado com sucesso. Seguem suas credenciais de acesso provisórias:
+            </p>
+            <div style="background-color: #1e293b; padding: 16px; border-radius: 8px; margin: 20px 0; border: 1px solid #334155;">
+                <p style="margin: 6px 0; font-size: 14px;"><strong>E-mail:</strong> <span style="color: #38bdf8;">{email_vendedor}</span></p>
+                <p style="margin: 6px 0; font-size: 14px;"><strong>Senha Provisória:</strong> <span style="color: #f59e0b; font-family: monospace; font-size: 16px; font-weight: bold;">{senha_temp}</span></p>
+            </div>
+            <p style="font-size: 13px; color: #fbbf24;">
+                ⚠️ <em>No primeiro login, o sistema solicitará a troca imediata para a sua senha definitiva.</em>
+            </p>
+            <div style="text-align: center; margin-top: 24px;">
+                <a href="{link_acesso}" style="background-color: #f59e0b; color: #0f172a; padding: 12px 24px; font-weight: bold; text-decoration: none; border-radius: 8px; display: inline-block; font-size: 14px;">
+                    Acessar o Painel CRM
+                </a>
+            </div>
+        </div>
+        """
+        msg.attach(MIMEText(corpo_html, "html"))
+
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASS)
+            server.sendmail(SMTP_USER, email_vendedor, msg.as_string())
+        return True
+    except Exception as e:
+        print(f"Erro no envio de e-mail ao vendedor: {e}")
+        return False
 app = FastAPI(title="MVI Móveis Planejados - Master SaaS & FinTech")
 DB_PATH = "mvi_production_v49.db"
 META_PIXEL_ID = "641231925101582"
@@ -788,6 +842,121 @@ def render_pre_orcamento_agendamento(
 
     </div>
 </body></html>"""
+
+def render_trocar_senha(msg: str = "", msg_tipo: str = "erro") -> HTMLResponse:
+    cor_alerta = "bg-rose-500/20 text-rose-300 border-rose-500/30" if msg_tipo == "erro" else "bg-amber-500/20 text-amber-300 border-amber-500/30"
+    html = f"""<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Definição de Nova Senha</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex items-center justify-center p-4">
+    <div class="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl space-y-6">
+        <div class="text-center space-y-2">
+            <div class="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-amber-500/10 text-amber-400 font-black text-xl mb-2">🔒</div>
+            <h1 class="text-xl font-bold text-white">Criar Senha Definitiva</h1>
+            <p class="text-xs text-slate-400">Por segurança, altere sua senha provisória para acessar o painel.</p>
+        </div>
+
+        {f'<div class="p-3 rounded-xl border text-xs text-center {cor_alerta}">{msg}</div>' if msg else ''}
+
+        <form action="/trocar-senha" method="post" class="space-y-4">
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1">SENHA PROVISÓRIA / ATUAL</label>
+                <input type="password" name="senha_atual" required class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500" placeholder="••••••••">
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1">NOVA SENHA DEFINITIVA</label>
+                <input type="password" name="nova_senha" required minlength="6" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500" placeholder="Mínimo 6 caracteres">
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1">CONFIRMAR NOVA SENHA</label>
+                <input type="password" name="confirma_senha" required minlength="6" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500" placeholder="Repita a nova senha">
+            </div>
+
+            <button type="submit" class="w-full py-3 bg-amber-500 hover:bg-amber-600 font-bold text-slate-950 rounded-xl text-sm transition shadow-lg shadow-amber-500/20">
+                Salvar e Acessar Painel
+            </button>
+        </form>
+    </div>
+</body>
+</html>"""
+    return HTMLResponse(content=html)
+
+
+@app.get("/trocar-senha", response_class=HTMLResponse)
+def trocar_senha_view():
+    if not CURRENT_SESSION.get("user_email"):
+        return render_login("Faça login antes de alterar a senha.")
+    return render_trocar_senha()
+
+
+@app.post("/trocar-senha", response_class=HTMLResponse)
+def trocar_senha_post(
+    senha_atual: str = Form(...),
+    nova_senha: str = Form(...),
+    confirma_senha: str = Form(...)
+):
+    email_logado = CURRENT_SESSION.get("user_email")
+    if not email_logado:
+        return render_login("Sessão expirada. Faça login novamente.")
+
+    if nova_senha != confirma_senha:
+        return render_trocar_senha("❌ A nova senha e a confirmação não coincidem.", "erro")
+
+    if len(nova_senha) < 6:
+        return render_trocar_senha("❌ A nova senha deve ter no mínimo 6 caracteres.", "erro")
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM usuarios WHERE email = ?", (email_logado.strip().lower(),))
+    user = cursor.fetchone()
+
+    if not user or user["senha"] != senha_atual:
+        conn.close()
+        return render_trocar_senha("❌ Senha provisória incorreta.", "erro")
+
+    cursor.execute("UPDATE usuarios SET senha = ?, primeiro_acesso = 0 WHERE email = ?", (nova_senha, email_logado.strip().lower()))
+    conn.commit()
+    conn.close()
+
+    CURRENT_SESSION["user_perfil"] = user["perfil"]
+    CURRENT_SESSION["user_nome"] = user["nome"]
+    CURRENT_SESSION["empresa_id"] = user["empresa_id"]
+    return render_dashboard_view()
+
+
+@app.post("/admin/cadastrar-vendedor")
+def cadastrar_vendedor_route(nome: str = Form(...), email: str = Form(...)):
+    caracteres = string.ascii_letters + string.digits
+    senha_provisoria = "MVI-" + "".join(secrets.choice(caracteres) for _ in range(5))
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("ALTER TABLE usuarios ADD COLUMN primeiro_acesso INTEGER DEFAULT 0")
+    except:
+        pass
+
+    cursor.execute("""
+        INSERT INTO usuarios (nome, email, senha, perfil, ativo, empresa_id, primeiro_acesso)
+        VALUES (?, ?, ?, 'vendedor', 1, 1, 1)
+    """, (nome.strip(), email.strip().lower(), senha_provisoria))
+    conn.commit()
+    conn.close()
+
+    link_app = "https://sistema-marcenaria-6laa.onrender.com/"
+    enviar_email_convite_vendedor(nome, email.strip().lower(), senha_provisoria, link_app)
+
+    return RedirectResponse("/painel", status_code=303)
 
 
 # ==============================================================================
@@ -2043,9 +2212,13 @@ def login_route(username: str = Form(...), password: str = Form(...)):
 
     CURRENT_SESSION["user_email"] = user["email"]
     CURRENT_SESSION["user_nome"] = user["nome"]
+
+    # Se for o primeiro acesso do vendedor, força a troca de senha
+    if dict(user).get("primeiro_acesso") == 1:
+        return render_trocar_senha("Primeiro acesso: Crie sua senha definitiva.", "aviso")
+
     CURRENT_SESSION["user_perfil"] = user["perfil"]
     CURRENT_SESSION["empresa_id"] = user["empresa_id"]
-
     return render_dashboard_view()
 
 @app.get("/painel", response_class=HTMLResponse)
