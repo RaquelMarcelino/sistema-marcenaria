@@ -691,7 +691,7 @@ def render_form_captacao(empresa):
 
 def render_pre_orcamento_agendamento(
     empresa, orcamento_id, nome, whatsapp, cidade, area_m2, preco_venda,
-    esp_caixa, cor_caixa, esp_porta, cor_porta, acab_porta, marca_ferr, esp_tamp, ambientes_str
+    esp_caixa, cor_caixa, esp_porta, cor_porta, acab_porta, marca_ferr, esp_tamp, ambientes_str, url_render_ia: str = ""
 ):
     pv_redondo = int(round(preco_venda))
     desconto_vista_5 = int(round(pv_redondo * 0.95))
@@ -720,8 +720,8 @@ def render_pre_orcamento_agendamento(
         
         <div class="relative rounded-xl overflow-hidden border border-slate-800 bg-slate-900 flex items-center justify-center min-h-[220px]">
             <img 
-                src="https://image.pollinations.ai/prompt/photorealistic%203d%20architectural%20render%20bespoke%20joinery%20{ambientes_str}%20space%20width%20{area_m2}%20meters%20modern%20cabinetry%20built-in%20high-end%20appliances%20refrigerator%20oven%20recessed%20led%20lighting%208k?width=800&height=500&nologo=true&seed={nome}_{area_m2}_{cidade}" 
-                alt="Perspectiva 3D do Projeto" 
+                src="{url_render_ia}" 
+                alt="Perspectiva 3D Baseada na Planta" 
                 class="w-full h-auto object-cover rounded-xl shadow-md"
                 loading="lazy"
             />
@@ -2145,13 +2145,29 @@ async def submit_lead_route(
     conn.commit()
     novo_id = cursor.lastrowid
     CURRENT_SESSION["cliente_ativo_id"] = novo_id
-    conn.close()
+    
+    conn.close()    
+    # Leitura inteligente da planta com Gemini Vision
+    planta_bytes_dados = None
+        if 'arquivo_planta' in locals() and arquivo_planta and hasattr(arquivo_planta, 'read'):
+        try:
+                planta_bytes_dados = await arquivo_planta.read()
+        except:
+            pass
+
+        prompt_3d = analisar_planta_baixa_gemini(
+        planta_bytes=planta_bytes_dados,
+        tipo_ambiente=ambientes_str,
+        cor_escolhida=cor_porta,
+        medidas_cliente=str(area_num)
+    )
+        url_render_ia = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(prompt_3d)}?width=800&height=500&nologo=true&seed={novo_id}"
 
     return render_pre_orcamento_agendamento(
         empresa, novo_id, nome, whatsapp, cidade, area_num,
         calc["preco_venda"], espessura_caixa, cor_caixa,
         espessura_porta, cor_porta, acabamento_porta, marca_ferragens, espessura_tamponamento,
-        ambientes_str
+        ambientes_str, url_render_ia
     )
 
 @app.post("/salvar-negociacao-mesa-json")
@@ -2799,3 +2815,35 @@ async def analisar_planta_ia(
         "orcamento_id": novo_id,
         "briefing": briefing_tecnico
     })
+
+def analisar_planta_baixa_gemini(planta_bytes: bytes, tipo_ambiente: str, cor_escolhida: str, medidas_cliente: str) -> str:
+    """Usa o Gemini Vision para ler a planta baixa e gerar o prompt arquitetônico 3D exato."""
+    try:
+        if not GEMINI_KEY or not planta_bytes:
+            return f"photorealistic 3d interior render modern bespoke joinery {tipo_ambiente} cabinetry width {medidas_cliente}m {cor_escolhida} built-in appliances modern led lighting 8k"
+        
+        genai.configure(api_key=GEMINI_KEY)
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        
+        prompt_instrucao = (
+            f"Você é um arquiteto especialista em marcenaria sob medida e leitura técnica de plantas baixas. "
+            f"Analise detalhadamente a imagem da planta baixa anexada. "
+            f"Identifique o ambiente de {tipo_ambiente} com base nas medidas declaradas ({medidas_cliente}). "
+            f"Extraia o layout real da cozinha (se é linear, em L, paralela ou com ilha/península), "
+            f"a posição exata dos armários superiores e inferiores, torre quente, cuba da pia, cooktop, depurador e refrigerador. "
+            f"Escreva um prompt em INGLÊS com no máximo 45 palavras, ultra descritivo para renderização arquitetônica fotorrealista 3D, "
+            f"incluindo marcenaria planejada na cor {cor_escolhida}, eletros embutidos na posição correta da planta e iluminação LED embutida. "
+            f"Retorne APENAS o prompt em inglês, sem aspas ou explicações."
+        )
+        
+        conteudo = [
+            prompt_instrucao,
+            {"mime_type": "image/jpeg", "data": planta_bytes}
+        ]
+        
+        resposta = model.generate_content(conteudo)
+        prompt_gerado = resposta.text.strip().replace("\n", " ")
+        return prompt_gerado
+    except Exception as e:
+        print(f"Erro na leitura da planta com Gemini: {e}")
+        return f"photorealistic 3d architectural render bespoke joinery {tipo_ambiente} cabinetry width {medidas_cliente}m {cor_escolhida} built-in appliances modern led 8k"
