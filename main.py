@@ -2170,7 +2170,6 @@ async def submit_lead_route(
         espessura_porta, cor_porta, acabamento_porta, marca_ferragens, espessura_tamponamento,
         ambientes_str, url_render_ia
     )
-    )
 
 @app.post("/salvar-negociacao-mesa-json")
 def salvar_negociacao_mesa_json(
