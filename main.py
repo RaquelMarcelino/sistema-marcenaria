@@ -2818,23 +2818,22 @@ async def analisar_planta_ia(
     })
 
 def analisar_planta_baixa_gemini(planta_bytes: bytes, tipo_ambiente: str, cor_escolhida: str, medidas_cliente: str) -> str:
-    """Usa o Gemini Vision para ler a planta baixa e gerar o prompt arquitetônico 3D exato."""
+    """Usa o Gemini Vision para ler a planta baixa e forçar a tipologia real (linear vs L)."""
     try:
         if not GEMINI_KEY or not planta_bytes:
-            return f"photorealistic 3d interior render modern bespoke joinery {tipo_ambiente} cabinetry width {medidas_cliente}m {cor_escolhida} built-in appliances modern led lighting 8k"
+            return f"photorealistic 3d interior render modern bespoke joinery narrow linear straight single wall kitchen cabinetry width {medidas_cliente}m {cor_escolhida} no island no L-shape built-in appliances modern led lighting 8k"
         
         genai.configure(api_key=GEMINI_KEY)
         model = genai.GenerativeModel("gemini-1.5-flash")
         
         prompt_instrucao = (
-            f"Você é um arquiteto especialista em marcenaria sob medida e leitura técnica de plantas baixas. "
-            f"Analise detalhadamente a imagem da planta baixa anexada. "
-            f"Identifique o ambiente de {tipo_ambiente} com base nas medidas declaradas ({medidas_cliente}). "
-            f"Extraia o layout real da cozinha (se é linear, em L, paralela ou com ilha/península), "
-            f"a posição exata dos armários superiores e inferiores, torre quente, cuba da pia, cooktop, depurador e refrigerador. "
-            f"Escreva um prompt em INGLÊS com no máximo 45 palavras, ultra descritivo para renderização arquitetônica fotorrealista 3D, "
-            f"incluindo marcenaria planejada na cor {cor_escolhida}, eletros embutidos na posição correta da planta e iluminação LED embutida. "
-            f"Retorne APENAS o prompt em inglês, sem aspas ou explicações."
+            f"Você é um arquiteto técnico especialista em marcenaria sob medida e leitura técnica de plantas baixas brasileiras. "
+            f"Analise detalhadamente a imagem da planta baixa anexada com foco no ambiente de {tipo_ambiente} ({medidas_cliente} m²). "
+            f"REGRAS DE LAYOUT ESTRITAS: "
+            f"1. Se a planta for uma cozinha corredor/estreita com bancada em apenas uma parede, descreva OBRIGATORIAMENTE como 'narrow linear straight galley single-wall kitchen, straight cabinetry run along one single wall, perfectly straight countertop, NO L-shape, NO island, NO corner cabinet'. "
+            f"2. Se e somente se a planta tiver bancada contínua virando a quina em 90 graus, descreva como 'L-shaped corner kitchen'. "
+            f"3. Inclua acabamento dos armários em {cor_escolhida}, cuba inox, cooktop embutido, armários aéreos superiores alinhados e iluminação LED. "
+            f"Retorne APENAS um prompt em INGLÊS com até 40 palavras para renderização arquitetônica fotorrealista 8k."
         )
         
         conteudo = [
@@ -2847,4 +2846,4 @@ def analisar_planta_baixa_gemini(planta_bytes: bytes, tipo_ambiente: str, cor_es
         return prompt_gerado
     except Exception as e:
         print(f"Erro na leitura da planta com Gemini: {e}")
-        return f"photorealistic 3d architectural render bespoke joinery {tipo_ambiente} cabinetry width {medidas_cliente}m {cor_escolhida} built-in appliances modern led 8k"
+        return f"photorealistic 3d interior render narrow linear straight single wall kitchen cabinetry width {medidas_cliente}m {cor_escolhida} no island no L-shape built-in appliances 8k"
