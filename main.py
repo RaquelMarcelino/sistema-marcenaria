@@ -653,22 +653,32 @@ def render_form_captacao(empresa):
                     </div>
                 </div>
 
-                <div>
-                    <label class="block text-slate-300 font-semibold mb-1">Observações & Detalhes Especiais do seu Projeto</label>
-                    <textarea name="descricao" rows="2" placeholder="Ex: Iluminação em LED nos aéreos, cava nos gaveteiros..." class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white text-xs"></textarea>
-                </div>
-            </div>
+              <div class="bg-slate-950/80 p-4 rounded-xl border border-amber-500/40 space-y-3">
+                    <div class="flex items-center gap-2 text-amber-400 font-bold text-xs uppercase tracking-wide">
+                        <span>✨</span> Arquiteto IA & Briefing Sob Medida
+                    </div>
+                    
+                    <div>
+                        <label class="block text-slate-300 font-semibold mb-1 text-xs">📐 Medidas das Paredes / Espaço (Largura x Altura)</label>
+                        <input type="text" name="medida_parede" placeholder="Ex: Parede principal 3,40m x 2,60m (Pé direito)" class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-xs placeholder:text-slate-500">
+                    </div>
 
-            <div class="grid sm:grid-cols-2 gap-3 text-xs">
-                <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1">
-                    <label class="font-bold text-amber-400 block">📐 Planta Baixa do Imóvel (PDF ou Imagem)</label>
-                    <input type="file" name="planta" class="w-full text-slate-400 file:bg-amber-500 file:border-0 file:rounded-xl file:px-3 file:py-1 file:font-bold text-xs">
-                </div>
-                <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1">
-                    <label class="font-bold text-slate-300 block">🖼️ Foto de Inspiração / Referência</label>
-                    <input type="file" name="inspiracao" class="w-full text-slate-400 file:bg-slate-700 file:border-0 file:rounded-xl file:px-3 file:py-1 file:font-bold file:text-white text-xs">
-                </div>
-            </div>
+                    <div>
+                        <label class="block text-slate-300 font-semibold mb-1 text-xs">📝 Descreva o que deseja no ambiente</label>
+                        <textarea name="descricao" rows="2" placeholder="Ex: Torre quente, gavetões com corrediça oculta, perfil LED embutido, ripado amadeirado..." class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-xs placeholder:text-slate-500"></textarea>
+                    </div>
+
+                    <div class="grid sm:grid-cols-2 gap-3 text-xs pt-1">
+                        <div class="bg-slate-900 p-3 rounded-lg border border-slate-800 space-y-1">
+                            <label class="font-bold text-amber-400 block">📐 Planta Baixa / Croqui (IA lê cotas)</label>
+                            <input type="file" name="planta" accept="image/*,.pdf" class="w-full text-slate-400 file:bg-amber-500 file:text-slate-950 file:border-0 file:rounded-md file:px-2 file:py-1 file:font-bold file:text-xs">
+                        </div>
+                        <div class="bg-slate-900 p-3 rounded-lg border border-slate-800 space-y-1">
+                            <label class="font-bold text-slate-300 block">🖼️ Foto de Inspiração / Estilo</label>
+                            <input type="file" name="inspiracao" accept="image/*" class="w-full text-slate-400 file:bg-slate-700 file:text-white file:border-0 file:rounded-md file:px-2 file:py-1 file:font-bold file:text-xs">
+                        </div>
+                    </div>
+                </div> 
             
             <button type="submit" class="w-full py-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl text-sm shadow-lg">
                 ⚡ Simular Projeto & Receber Proposta MVI
