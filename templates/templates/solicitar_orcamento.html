@@ -1,273 +1,133 @@
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MVI CRM - Simulador & Render IA Multi-Ambientes</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-</head>
-<body class="bg-slate-950 text-slate-100 min-h-screen p-4 md:p-8 font-sans">
-  <div class="max-w-5xl mx-auto">
-    
-    <div class="text-center mb-8">
-      <h1 class="text-3xl md:text-5xl font-extrabold text-amber-500 uppercase tracking-wide">MVI CRM</h1>
-      <p class="text-slate-400 mt-2 text-sm md:text-base">Simulador Técnico de Marcenaria & Renderizador IA Fiel com Leitura de Medidas</p>
-    </div>
+# ==========================================================
+# --- SOLICITAÇÃO DE ORÇAMENTO MULTI-AMBIENTES & RENDER IA ---
+# ==========================================================
 
-    <form id="form-orcamento-multi" onsubmit="enviarProjetoMulti(event)" class="space-y-6">
-      
-      <!-- 1. DADOS DO CLIENTE -->
-      <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
-        <h2 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
-          <i class="fas fa-user-circle text-amber-500"></i> 1. Dados do Cliente
-        </h2>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label class="block text-xs text-slate-400 mb-1">Nome Completo</label>
-            <input type="text" id="cliente_nome" required class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-amber-500">
-          </div>
-          <div>
-            <label class="block text-xs text-slate-400 mb-1">WhatsApp</label>
-            <input type="tel" id="cliente_whats" required placeholder="(11) 99999-9999" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-amber-500">
-          </div>
-        </div>
-      </div>
+@app.get("/solicitar-orcamento")
+@app.get("/orcamento-multi")
+async def rota_solicitar_orcamento(request: Request):
+    caminho = os.path.join(os.path.dirname(__file__), "templates", "templates", "solicitar_orcamento.html")
+    if not os.path.exists(caminho):
+        caminho = os.path.join(os.path.dirname(__file__), "templates", "solicitar_orcamento.html")
+    if os.path.exists(caminho):
+        with open(caminho, "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
+    return HTMLResponse(content="<h2>Template de orçamento não encontrado</h2>", status_code=404)
 
-      <!-- 2. ESPECIFICAÇÕES TÉCNICAS DE MARCENARIA -->
-      <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
-        <h2 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
-          <i class="fas fa-tools text-amber-500"></i> 2. Especificações de Caixas, Portas & Ferragens
-        </h2>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label class="block text-xs text-slate-400 mb-1">Espessura da Caixa (Estrutura)</label>
-            <select id="espessura_caixa" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white">
-              <option value="MDF 18mm (Reforçado)">MDF 18mm (Reforçado)</option>
-              <option value="MDF 15mm (Padrão)">MDF 15mm (Padrão)</option>
-              <option value="Compensado Naval 18mm">Compensado Naval 18mm</option>
-            </select>
-          </div>
-          <div>
-            <label class="block text-xs text-slate-400 mb-1">Padrão / Cor da Caixa</label>
-            <select id="cor_caixa" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white">
-              <option value="Branco TX">Branco TX</option>
-              <option value="Cinza Sagrado">Cinza Sagrado</option>
-              <option value="Grafite / Preto Trama">Grafite / Preto Trama</option>
-              <option value="Amadeirado Carvalho">Amadeirado Carvalho</option>
-            </select>
-          </div>
-          <div>
-            <label class="block text-xs text-slate-400 mb-1">Espessura das Portas</label>
-            <select id="espessura_portas" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white">
-              <option value="MDF 18mm">MDF 18mm</option>
-              <option value="MDF 25mm (Robusto)">MDF 25mm (Robusto)</option>
-              <option value="Vidro com Perfil Alumínio">Vidro com Perfil Alumínio</option>
-            </select>
-          </div>
-          <div>
-            <label class="block text-xs text-slate-400 mb-1">Padrão / Cor das Portas</label>
-            <select id="cor_portas" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white">
-              <option value="Branco TX">Branco TX</option>
-              <option value="Cinza Sagrado Matt">Cinza Sagrado Matt</option>
-              <option value="Verde Oliva / Sage">Verde Oliva / Sage</option>
-              <option value="Amadeirado Freijó / Louro">Amadeirado Freijó / Louro</option>
-              <option value="Preto Silk / Grafite">Preto Silk / Grafite</option>
-            </select>
-          </div>
-          <div>
-            <label class="block text-xs text-slate-400 mb-1">Marca das Ferragens</label>
-            <select id="ferragens" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white">
-              <option value="Blum (Linha Blumotion Áustria)">Blum (Linha Blumotion Áustria)</option>
-              <option value="Hettich (Linha Sensys Alemanha)">Hettich (Linha Sensys Alemanha)</option>
-              <option value="Hafele (Linha Oculta)">Hafele (Linha Oculta)</option>
-              <option value="FGV TN com Amortecimento">FGV TN com Amortecimento</option>
-            </select>
-          </div>
-          <div>
-            <label class="block text-xs text-slate-400 mb-1">Tamponamento Externo</label>
-            <select id="tamponamento" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white">
-              <option value="Tamponamento 25mm">Tamponamento 25mm</option>
-              <option value="Tamponamento 36mm Engrossado">Tamponamento 36mm Engrossado</option>
-              <option value="Sem Tamponamento (18mm Direto)">Sem Tamponamento (18mm Direto)</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <!-- 3. PLANTA BAIXA GERAL (1X) -->
-      <div class="bg-slate-900 border-2 border-dashed border-amber-500/40 hover:border-amber-500 transition p-6 rounded-2xl text-center">
-        <i class="fas fa-drafting-compass text-3xl text-amber-500 mb-2"></i>
-        <h3 class="text-base font-bold text-white">Planta Baixa Geral do Imóvel (Envie 1x)</h3>
-        <p class="text-xs text-slate-400 mb-4">Envie o arquivo ou foto da planta com medidas para leitura global pela IA.</p>
-        <input type="file" id="planta_geral" accept="image/*,.pdf" class="hidden" onchange="mostrarNomePlanta(this)">
-        <label for="planta_geral" class="cursor-pointer inline-flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs transition">
-          <i class="fas fa-upload"></i> <span id="label-planta">Selecionar Arquivo da Planta</span>
-        </label>
-      </div>
-
-      <!-- 4. AMBIENTES, FOTOS E MEDIDAS REAIS -->
-      <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
-        <h2 class="text-lg font-bold text-white mb-2 flex items-center gap-2">
-          <i class="fas fa-cubes text-amber-500"></i> 4. Ambientes a Orçar & Fotos do Local com Medidas
-        </h2>
-        <p class="text-xs text-slate-400 mb-6">Marque os ambientes, anexe a foto da parede/obra com as cotas desenhadas e digite as dimensões:</p>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-
-          <!-- Cozinha -->
-          <div class="bg-slate-950 border border-slate-800 p-4 rounded-xl space-y-3">
-            <label class="flex items-center gap-2 text-sm font-bold text-white cursor-pointer">
-              <input type="checkbox" id="check_cozinha" checked class="w-4 h-4 text-amber-500 accent-amber-500">
-              🍳 Cozinha Planejada
-            </label>
-            <input type="text" id="medidas_cozinha" placeholder="Medidas reais (ex: Parede 3.82m x 2.50m | Altura 2.63m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
-            <input type="file" id="foto_cozinha" accept="image/*" class="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700">
-          </div>
-
-          <!-- Lavanderia -->
-          <div class="bg-slate-950 border border-slate-800 p-4 rounded-xl space-y-3">
-            <label class="flex items-center gap-2 text-sm font-bold text-white cursor-pointer">
-              <input type="checkbox" id="check_lavanderia" class="w-4 h-4 text-amber-500 accent-amber-500">
-              🧺 Lavanderia / Área de Serviço
-            </label>
-            <input type="text" id="medidas_lavanderia" placeholder="Medidas reais (ex: Parede Tanque: 1.80m x 2.60m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
-            <input type="file" id="foto_lavanderia" accept="image/*" class="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700">
-          </div>
-
-          <!-- Sacada -->
-          <div class="bg-slate-950 border border-slate-800 p-4 rounded-xl space-y-3">
-            <label class="flex items-center gap-2 text-sm font-bold text-white cursor-pointer">
-              <input type="checkbox" id="check_sacada" class="w-4 h-4 text-amber-500 accent-amber-500">
-              🍷 Sacada / Varanda Gourmet
-            </label>
-            <input type="text" id="medidas_sacada" placeholder="Medidas reais (ex: Parede Churrasqueira: 2.40m x 2.60m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
-            <input type="file" id="foto_sacada" accept="image/*" class="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700">
-          </div>
-
-          <!-- Dormitório Casal -->
-          <div class="bg-slate-950 border border-slate-800 p-4 rounded-xl space-y-3">
-            <label class="flex items-center gap-2 text-sm font-bold text-white cursor-pointer">
-              <input type="checkbox" id="check_casal" class="w-4 h-4 text-amber-500 accent-amber-500">
-              🛏️ Dormitório Casal / Suíte
-            </label>
-            <input type="text" id="medidas_casal" placeholder="Medidas reais (ex: Armário: 3.50m | Cabeceira: 2.80m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
-            <input type="file" id="foto_casal" accept="image/*" class="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700">
-          </div>
-
-          <!-- Dormitório Solteiro -->
-          <div class="bg-slate-950 border border-slate-800 p-4 rounded-xl space-y-3">
-            <label class="flex items-center gap-2 text-sm font-bold text-white cursor-pointer">
-              <input type="checkbox" id="check_solteiro" class="w-4 h-4 text-amber-500 accent-amber-500">
-              🧸 Dormitório Solteiro / Home Office
-            </label>
-            <input type="text" id="medidas_solteiro" placeholder="Medidas reais (ex: Armário: 2.00m | Bancada: 1.50m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
-            <input type="file" id="foto_solteiro" accept="image/*" class="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700">
-          </div>
-
-          <!-- Banho e Lavabo -->
-          <div class="bg-slate-950 border border-slate-800 p-4 rounded-xl space-y-3">
-            <label class="flex items-center gap-2 text-sm font-bold text-white cursor-pointer">
-              <input type="checkbox" id="check_banho" class="w-4 h-4 text-amber-500 accent-amber-500">
-              🚿 Banho Social & Lavabo
-            </label>
-            <input type="text" id="medidas_banho" placeholder="Medidas reais (ex: Gabinete: 1.20m x 0.85m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
-            <input type="file" id="foto_banho" accept="image/*" class="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700">
-          </div>
-
-        </div>
-      </div>
-
-      <!-- BOTÃO DE AÇÃO -->
-      <button type="submit" id="btn-gerar" class="w-full py-4 rounded-xl font-extrabold bg-amber-500 hover:bg-amber-400 text-slate-950 text-base shadow-xl shadow-amber-500/10 transition flex items-center justify-center gap-3">
-        <i class="fas fa-magic"></i>
-        <span>Gerar Renders 3D Decorados e Orçamento</span>
-      </button>
-
-    </form>
-
-    <!-- RESULTADO DOS RENDERS -->
-    <div id="resultado-renders" class="hidden mt-10 bg-slate-900 border border-slate-800 p-6 rounded-2xl">
-      <h3 class="text-xl font-bold text-amber-500 mb-4 flex items-center gap-2">
-        <i class="fas fa-cubes"></i> Renders 3D e Análise do Projeto Gerados pela IA:
-      </h3>
-      <div id="grid-renders-gerados" class="grid grid-cols-1 md:grid-cols-2 gap-6"></div>
-    </div>
-
-  </div>
-
-  <script>
-    function mostrarNomePlanta(input) {
-      if (input.files && input.files[0]) {
-        document.getElementById('label-planta').innerText = input.files[0].name;
-      }
+@app.post("/api/processar-orcamento-multi")
+async def api_processar_orcamento_multi(
+    cliente_nome: str = Form(...),
+    cliente_whats: str = Form(...),
+    status_chaves: str = Form("Já estou com as chaves (Obra liberada)"),
+    data_previsao_chave: Optional[str] = Form(""),
+    espessura_caixa: str = Form("MDF 18mm"),
+    cor_caixa: str = Form("Branco TX"),
+    espessura_portas: str = Form("MDF 18mm"),
+    cor_portas: str = Form("Cinza Sagrado Matt"),
+    ferragens: str = Form("Blum"),
+    tamponamento: str = Form("Tamponamento 25mm"),
+    planta_geral: Optional[UploadFile] = File(None),
+    ambientes_selecionados: List[str] = Form(...),
+    medidas_cozinha: Optional[str] = Form(""),
+    medidas_lavanderia: Optional[str] = Form(""),
+    medidas_sacada: Optional[str] = Form(""),
+    medidas_casal: Optional[str] = Form(""),
+    medidas_solteiro: Optional[str] = Form(""),
+    medidas_banho: Optional[str] = Form(""),
+    briefing_cozinha: Optional[str] = Form(""),
+    briefing_lavanderia: Optional[str] = Form(""),
+    briefing_sacada: Optional[str] = Form(""),
+    briefing_casal: Optional[str] = Form(""),
+    briefing_solteiro: Optional[str] = Form(""),
+    briefing_banho: Optional[str] = Form(""),
+    foto_cozinha: Optional[UploadFile] = File(None),
+    foto_lavanderia: Optional[UploadFile] = File(None),
+    foto_sacada: Optional[UploadFile] = File(None),
+    foto_casal: Optional[UploadFile] = File(None),
+    foto_solteiro: Optional[UploadFile] = File(None),
+    foto_banho: Optional[UploadFile] = File(None)
+):
+    ambientes_config = {
+        "cozinha": (medidas_cozinha, briefing_cozinha, foto_cozinha, "Cozinha Planejada"),
+        "lavanderia": (medidas_lavanderia, briefing_lavanderia, foto_lavanderia, "Lavanderia"),
+        "sacada": (medidas_sacada, briefing_sacada, foto_sacada, "Sacada / Varanda Gourmet"),
+        "casal": (medidas_casal, briefing_casal, foto_casal, "Dormitório Casal / Suíte"),
+        "solteiro": (medidas_solteiro, briefing_solteiro, foto_solteiro, "Dormitório Solteiro"),
+        "banho": (medidas_banho, briefing_banho, foto_banho, "Banho Social & Lavabo")
     }
 
-    async function enviarProjetoMulti(e) {
-      e.preventDefault();
-      const btn = document.getElementById('btn-gerar');
-      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> O Gemini Vision está analisando as fotos com medidas e renderizando...';
-      btn.disabled = true;
+    resultados = []
+    gemini_key = os.getenv("GEMINI_API_KEY", "")
 
-      const formData = new FormData();
-      formData.append('cliente_nome', document.getElementById('cliente_nome').value);
-      formData.append('cliente_whats', document.getElementById('cliente_whats').value);
-      formData.append('espessura_caixa', document.getElementById('espessura_caixa').value);
-      formData.append('cor_caixa', document.getElementById('cor_caixa').value);
-      formData.append('espessura_portas', document.getElementById('espessura_portas').value);
-      formData.append('cor_portas', document.getElementById('cor_portas').value);
-      formData.append('ferragens', document.getElementById('ferragens').value);
-      formData.append('tamponamento', document.getElementById('tamponamento').value);
-
-      const plantaFile = document.getElementById('planta_geral').files[0];
-      if (plantaFile) formData.append('planta_geral', plantaFile);
-
-      const ambientes = ['cozinha', 'lavanderia', 'sacada', 'casal', 'solteiro', 'banho'];
-      ambientes.forEach(amb => {
-        if (document.getElementById(`check_${amb}`).checked) {
-          formData.append('ambientes_selecionados', amb);
-          formData.append(`medidas_${amb}`, document.getElementById(`medidas_${amb}`).value);
-          const fileInput = document.getElementById(`foto_${amb}`).files[0];
-          if (fileInput) formData.append(`foto_${amb}`, fileInput);
-        }
-      });
-
-      try {
-        const res = await fetch('/api/processar-orcamento-multi', {
-          method: 'POST',
-          body: formData
-        });
-        const data = await res.json();
+    for amb in ambientes_selecionados:
+        medida, briefing, foto_file, nome_amb = ambientes_config.get(amb, ("", "", None, amb.capitalize()))
         
-        if (data.status === 'sucesso') {
-          const container = document.getElementById('grid-renders-gerados');
-          container.innerHTML = '';
-          
-          data.resultados.forEach(item => {
-            container.innerHTML += `
-              <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-col justify-between">
-                <div>
-                  <h4 class="font-bold text-amber-400 text-lg mb-2 capitalize">${item.ambiente}</h4>
-                  <div class="relative w-full h-80 rounded-lg overflow-hidden border border-slate-800 mb-3 bg-slate-900">
-                    <img src="${item.url_render}" class="w-full h-full object-cover" alt="${item.ambiente}">
-                  </div>
-                  <p class="text-xs text-slate-300 leading-relaxed whitespace-pre-line">${item.descricao_decoracao}</p>
-                </div>
-              </div>
-            `;
-          });
-          document.getElementById('resultado-renders').classList.remove('hidden');
-          window.scrollTo({ top: document.getElementById('resultado-renders').offsetTop - 30, behavior: 'smooth' });
-        } else {
-          alert('Erro ao processar: ' + (data.mensagem || 'Tente novamente'));
-        }
-      } catch (err) {
-        alert('Erro de conexão ao renderizar.');
-      } finally {
-        btn.innerHTML = '<i class="fas fa-magic mr-2"></i> <span>Gerar Renders 3D Decorados e Orçamento</span>';
-        btn.disabled = false;
-      }
-    }
-  </script>
-</body>
-</html>
+        prompt_ia = ""
+        descricao_txt = ""
+
+        if gemini_key and foto_file and foto_file.filename:
+            try:
+                genai.configure(api_key=gemini_key)
+                model = genai.GenerativeModel("gemini-1.5-flash")
+                foto_bytes = await foto_file.read()
+                
+                instrucao = (
+                    f"Você é um projetista e arquiteto de móveis planejados de alto padrão. "
+                    f"Analise a foto enviada deste ambiente ({nome_amb}) e as cotas/medidas desenhadas na parede ({medida}). "
+                    f"Briefing do cliente: '{briefing}'. "
+                    f"Identifique o layout real da foto (ex: península em L ou U, bancada de granito preta existente, vãos, janelas, pé direito). "
+                    f"Gere DUAS coisas:\n"
+                    f"1) PROMPT_RENDER: Um parágrafo conciso em inglês para IA generativa criar um render 3D hiper-realista que reproduza EXATAMENTE a mesma disposição espacial, bancada existente e paredes da foto, decorada com marcenaria planejada com portas na cor '{cor_portas}', tamponamento de '{tamponamento}', armários superiores com fita LED embutida e eletros embutidos.\n"
+                    f"2) DESCRICAO_TECNICA: Um parágrafo em português explicando tecnicamente como a marcenaria se encaixa nas cotas de {medida} usando portas {cor_portas}, caixa {cor_caixa}, ferragens {ferragens} e atendendo ao briefing '{briefing}'."
+                )
+                
+                conteudo = [
+                    instrucao,
+                    {"mime_type": foto_file.content_type or "image/jpeg", "data": foto_bytes}
+                ]
+                resposta = model.generate_content(conteudo).text
+                
+                if "PROMPT_RENDER:" in resposta and "DESCRICAO_TECNICA:" in resposta:
+                    partes = resposta.split("DESCRICAO_TECNICA:")
+                    prompt_ia = partes[0].replace("PROMPT_RENDER:", "").strip()
+                    descricao_txt = partes[1].strip()
+                else:
+                    descricao_txt = resposta.strip()
+            except Exception as e:
+                print(f"Erro Gemini Vision: {e}")
+
+        if not prompt_ia:
+            detalhe_briefing = f", features: {briefing}" if briefing else ""
+            prompt_ia = (
+                f"photorealistic 3D interior architecture render of custom fitted {amb}, "
+                f"matching room shape and wall dimensions {medida or 'custom'}, "
+                f"black granite peninsula countertop, high-end millwork cabinet fronts in {cor_portas}, "
+                f"carcass in {cor_caixa}, {tamponamento}{detalhe_briefing}, "
+                f"warm recessed LED lighting under wall cabinets, modern luxury residential design, architectural photography 8k"
+            )
+
+        if not descricao_txt:
+            detalhes = f" Briefing atendido: {briefing}." if briefing else ""
+            descricao_txt = (
+                f"Projeto executivo sob medida para {nome_amb} respeitando a geometria e as dimensões informadas ({medida or 'conforme planta/foto'}). "
+                f"Estrutura em {cor_caixa} ({espessura_caixa}), portas em {cor_portas} ({espessura_portas}), ferragens {ferragens} e {tamponamento}.{detalhes}"
+            )
+
+        prompt_encoded = urllib.parse.quote(prompt_ia)
+        seed_aleatorio = secrets.randbelow(999999)
+        url_render_ia = f"https://image.pollinations.ai/prompt/{prompt_encoded}?width=1024&height=768&nologo=true&seed={seed_aleatorio}&model=flux"
+
+        resultados.append({
+            "ambiente": nome_amb,
+            "url_render": url_render_ia,
+            "descricao_decoracao": descricao_txt,
+            "especs": {
+                "espessura_caixa": espessura_caixa,
+                "cor_caixa": cor_caixa,
+                "espessura_portas": espessura_portas,
+                "cor_portas": cor_portas,
+                "ferragens": ferragens,
+                "tamponamento": tamponamento
+            }
+        })
+
+    return JSONResponse(content={"status": "sucesso", "resultados": resultados})
