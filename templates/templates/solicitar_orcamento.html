@@ -16,7 +16,7 @@
       <p class="text-slate-400 mt-2 text-sm md:text-base">Briefing Completo, Estimativa de Pré-Orçamento & Fechamento</p>
     </div>
 
-    <form id="form-orcamento" onsubmit="calcularEEnviarBriefing(event)" class="space-y-6">
+    <form id="form-orcamento" onsubmit="calcularEExibirOrcamento(event)" class="space-y-6">
       
       <!-- 1. DADOS DO CLIENTE & STATUS DAS CHAVES -->
       <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
@@ -26,7 +26,7 @@
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
             <label class="block text-xs text-slate-400 mb-1">Nome Completo</label>
-            <input type="text" id="cliente_nome" required class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-amber-500">
+            <input type="text" id="cliente_nome" required placeholder="Digite seu nome" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-amber-500">
           </div>
           <div>
             <label class="block text-xs text-slate-400 mb-1">WhatsApp</label>
@@ -255,7 +255,7 @@
   </div>
 
   <script>
-    let dadosProjetoAtual = {};
+    let dadosResumo = {};
 
     function toggleDataChave(valor) {
       const box = document.getElementById('box-previsao-chave');
@@ -266,86 +266,102 @@
       }
     }
 
-    async function calcularEEnviarBriefing(e) {
+    function formatarMoeda(num) {
+      return num.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    }
+
+    function calcularEExibirOrcamento(e) {
       e.preventDefault();
-      const btn = document.getElementById('btn-calcular');
-      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Calculando Estimativa...';
-      btn.disabled = true;
-
-      const formData = new FormData();
-      formData.append('cliente_nome', document.getElementById('cliente_nome').value);
-      formData.append('cliente_whats', document.getElementById('cliente_whats').value);
-      formData.append('status_chaves', document.getElementById('status_chaves').value);
-      formData.append('data_previsao_chave', document.getElementById('data_previsao_chave').value || '');
       
-      formData.append('espessura_caixa', document.getElementById('espessura_caixa').value);
-      formData.append('cor_caixa', document.getElementById('cor_caixa').value);
-      formData.append('espessura_portas', document.getElementById('espessura_portas').value);
-      formData.append('cor_portas', document.getElementById('cor_portas').value);
-      formData.append('ferragens', document.getElementById('ferragens').value);
-      formData.append('tamponamento', document.getElementById('tamponamento').value);
+      const nome = document.getElementById('cliente_nome').value || 'Cliente';
+      const whats = document.getElementById('cliente_whats').value || '';
+      const statusChaves = document.getElementById('status_chaves').value;
+      const ferragens = document.getElementById('ferragens').value;
+      const tamponamento = document.getElementById('tamponamento').value;
+      const corPortas = document.getElementById('cor_portas').value;
+      const corCaixa = document.getElementById('cor_caixa').value;
 
-      formData.append('planta_link', document.getElementById('planta_link').value);
-      formData.append('fotos_link', document.getElementById('fotos_link').value);
+      const precos = {
+        cozinha: 12500,
+        lavanderia: 4200,
+        sacada: 6800,
+        casal: 11500,
+        solteiro: 7200,
+        banho: 3800
+      };
 
-      const plantaFile = document.getElementById('planta_arquivo').files[0];
-      if (plantaFile) formData.append('planta_arquivo', plantaFile);
+      const nomes = {
+        cozinha: 'Cozinha',
+        lavanderia: 'Lavanderia',
+        sacada: 'Sacada',
+        casal: 'Dormitório Casal',
+        solteiro: 'Dormitório Solteiro',
+        banho: 'Banho'
+      };
 
-      const fotosFiles = document.getElementById('fotos_ambientes').files;
-      for (let i = 0; i < fotosFiles.length; i++) {
-        formData.append('fotos_ambientes', fotosFiles[i]);
-      }
+      let total = 0;
+      let ambientesEscolhidos = [];
 
-      const ambientes = ['cozinha', 'lavanderia', 'sacada', 'casal', 'solteiro', 'banho'];
-      ambientes.forEach(amb => {
-        if (document.getElementById(`check_${amb}`).checked) {
-          formData.append('ambientes_selecionados', amb);
-          formData.append(`medidas_${amb}`, document.getElementById(`medidas_${amb}`).value);
-          formData.append(`briefing_${amb}`, document.getElementById(`briefing_${amb}`).value);
+      ['cozinha', 'lavanderia', 'sacada', 'casal', 'solteiro', 'banho'].forEach(amb => {
+        const chk = document.getElementById(`check_${amb}`);
+        if (chk && chk.checked) {
+          total += precos[amb];
+          ambientesEscolhidos.push(nomes[amb]);
         }
       });
 
-      try {
-        const res = await fetch('/api/processar-orcamento-multi', {
-          method: 'POST',
-          body: formData
-        });
-        const data = await res.json();
-        
-        if (data.status === 'sucesso') {
-          dadosProjetoAtual = data;
-          document.getElementById('resumo-cliente').innerText = `Olá, ${data.cliente_nome}! Estimativa gerada com sucesso.`;
-          document.getElementById('resumo-ambientes').innerText = `Ambientes: ${data.ambientes_texto}`;
-          document.getElementById('valor-total-est').innerText = data.valor_total_fmt;
-          document.getElementById('valor-pix').innerText = data.valor_pix_fmt;
-
-          document.getElementById('resultado-orcamento').classList.remove('hidden');
-          window.scrollTo({ top: document.getElementById('resultado-orcamento').offsetTop - 30, behavior: 'smooth' });
-        } else {
-          alert('Erro ao calcular: ' + (data.mensagem || 'Tente novamente'));
-        }
-      } catch (err) {
-        alert('Erro de conexão ao calcular o orçamento.');
-      } finally {
-        btn.innerHTML = '<i class="fas fa-calculator mr-2"></i> <span>Calcular Pré-Orçamento Estimado</span>';
-        btn.disabled = false;
+      if (ambientesEscolhidos.length === 0) {
+        alert('Por favor, selecione pelo menos um ambiente.');
+        return;
       }
+
+      if (ferragens.includes('Blum')) total *= 1.10;
+      else if (ferragens.includes('Hettich')) total *= 1.08;
+
+      if (tamponamento.includes('36mm')) total *= 1.06;
+      else if (tamponamento.includes('25mm')) total *= 1.03;
+
+      const totalPix = total * 0.95;
+
+      dadosResumo = {
+        nome: nome,
+        whats: whats,
+        ambientes: ambientesEscolhidos.join(', '),
+        totalFmt: formatarMoeda(total),
+        pixFmt: formatarMoeda(totalPix),
+        statusChaves: statusChaves,
+        corPortas: corPortas,
+        corCaixa: corCaixa,
+        ferragens: ferragens
+      };
+
+      document.getElementById('resumo-cliente').innerText = `Olá, ${nome}! Estimativa gerada com base nas suas escolhas.`;
+      document.getElementById('resumo-ambientes').innerText = `Ambientes: ${dadosResumo.ambientes}`;
+      document.getElementById('valor-total-est').innerText = dadosResumo.totalFmt;
+      document.getElementById('valor-pix').innerText = dadosResumo.pixFmt;
+
+      document.getElementById('resultado-orcamento').classList.remove('hidden');
+      window.scrollTo({ top: document.getElementById('resultado-orcamento').offsetTop - 30, behavior: 'smooth' });
     }
 
     function continuarWhatsApp() {
-      if (!dadosProjetoAtual.cliente_nome) return;
+      if (!dadosResumo.nome) return;
       const texto = encodeURIComponent(
-        `Olá! Acabei de fazer a simulação no MVI CRM.\n` +
-        `👤 Cliente: ${dadosProjetoAtual.cliente_nome}\n` +
-        `🏠 Ambientes: ${dadosProjetoAtual.ambientes_texto}\n` +
-        `💰 Estimativa: ${dadosProjetoAtual.valor_total_fmt} (PIX: ${dadosProjetoAtual.valor_pix_fmt})\n` +
+        `Olá! Acabei de fazer o pré-orçamento no MVI CRM.\n\n` +
+        `👤 Cliente: ${dadosResumo.nome}\n` +
+        `📱 WhatsApp: ${dadosResumo.whats}\n` +
+        `🏠 Ambientes: ${dadosResumo.ambientes}\n` +
+        `🔑 Status: ${dadosResumo.statusChaves}\n` +
+        `🎨 Padrão: Portas ${dadosResumo.corPortas} | Caixa ${dadosResumo.corCaixa}\n` +
+        `🔩 Ferragens: ${dadosResumo.ferragens}\n\n` +
+        `💰 Estimativa Total: ${dadosResumo.totalFmt} (PIX: ${dadosResumo.pixFmt})\n\n` +
         `Gostaria de dar continuidade no projeto executivo!`
       );
       window.open(`https://wa.me/5511999999999?text=${texto}`, '_blank');
     }
 
     function fecharSemInteresse() {
-      alert('Obrigado pelo seu tempo! As informações da sua simulação ficaram registradas.');
+      alert('Obrigado! Suas escolhas ficaram registradas.');
     }
   </script>
 </body>
