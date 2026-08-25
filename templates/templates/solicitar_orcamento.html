@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Solicitar Orçamento & Render 3D - MVI CRM</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen p-4 md:p-8 font-sans">
+  <div class="max-w-5xl mx-auto">
+    
+    <div class="text-center mb-8">
+      <h1 class="text-3xl md:text-4xl font-extrabold text-amber-500 uppercase tracking-wide">Solicitação de Orçamento & Render 3D</h1>
+      <p class="text-slate-400 mt-2 text-sm md:text-base">Envie a planta baixa do imóvel e as fotos dos ambientes para geração automática do render decorado e precificação.</p>
+    </div>
+
+    <form id="form-orcamento-multi" onsubmit="enviarProjetoMulti(event)" class="space-y-6">
+      
+      <!-- 1. Dados do Cliente -->
+      <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
+        <h2 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
+          <i class="fas fa-user-circle text-amber-500"></i> 1. Dados do Cliente e Projeto
+        </h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">Nome Completo do Cliente</label>
+            <input type="text" id="cliente_nome" required class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-amber-500">
+          </div>
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">WhatsApp</label>
+            <input type="tel" id="cliente_whats" required placeholder="(11) 99999-9999" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-amber-500">
+          </div>
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">Estilo Geral de Decoração</label>
+            <select id="estilo_geral" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-amber-500">
+              <option value="Moderno Minimalista com Led">Moderno Minimalista com Led</option>
+              <option value="Industrial Amadeirado com Preto">Industrial Amadeirado com Preto</option>
+              <option value="Contemporâneo Ripado e Mármore">Contemporâneo Ripado e Mármore</option>
+              <option value="Clássico Branco e Dourado">Clássico Branco e Dourado</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. Planta Baixa (Upload 1x) -->
+      <div class="bg-slate-900 border-2 border-dashed border-amber-500/40 hover:border-amber-500 transition p-6 rounded-2xl text-center">
+        <i class="fas fa-drafting-compass text-3xl text-amber-500 mb-2"></i>
+        <h3 class="text-base font-bold text-white">Planta Baixa Geral do Imóvel (Envie 1x)</h3>
+        <p class="text-xs text-slate-400 mb-4">Envie o arquivo ou foto da planta do imóvel para leitura das medidas globais pela IA.</p>
+        <input type="file" id="planta_geral" accept="image/*,.pdf" class="hidden" onchange="mostrarNomePlanta(this)">
+        <label for="planta_geral" class="cursor-pointer inline-flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs transition">
+          <i class="fas fa-upload"></i> <span id="label-planta">Selecionar Arquivo da Planta</span>
+        </label>
+      </div>
+
+      <!-- 3. Ambientes -->
+      <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
+        <h2 class="text-lg font-bold text-white mb-2 flex items-center gap-2">
+          <i class="fas fa-cubes text-amber-500"></i> 2. Ambientes a Orçar e Renderizar
+        </h2>
+        <p class="text-xs text-slate-400 mb-6">Marque os ambientes desejados, insira as medidas das paredes e anexe a foto do local:</p>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+          <!-- Cozinha -->
+          <div class="bg-slate-950 border border-slate-800 p-4 rounded-xl space-y-3">
+            <label class="flex items-center gap-2 text-sm font-bold text-white cursor-pointer">
+              <input type="checkbox" id="check_cozinha" checked class="w-4 h-4 text-amber-500 accent-amber-500">
+              🍳 Cozinha Planejada
+            </label>
+            <input type="text" id="medidas_cozinha" placeholder="Medidas das paredes (ex: Parede Pia: 3.20m | Torre: 2.10m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
+            <input type="file" id="foto_cozinha" accept="image/*" class="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700">
+          </div>
+
+          <!-- Lavanderia -->
+          <div class="bg-slate-950 border border-slate-800 p-4 rounded-xl space-y-3">
+            <label class="flex items-center gap-2 text-sm font-bold text-white cursor-pointer">
+              <input type="checkbox" id="check_lavanderia" class="w-4 h-4 text-amber-500 accent-amber-500">
+              🧺 Lavanderia / Área de Serviço
+            </label>
+            <input type="text" id="medidas_lavanderia" placeholder="Medidas das paredes (ex: Parede Tanque: 1.80m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
+            <input type="file" id="foto_lavanderia" accept="image/*" class="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700">
+          </div>
+
+          <!-- Sacada -->
+          <div class="bg-slate-950 border border-slate-800 p-4 rounded-xl space-y-3">
+            <label class="flex items-center gap-2 text-sm font-bold text-white cursor-pointer">
+              <input type="checkbox" id="check_sacada" class="w-4 h-4 text-amber-500 accent-amber-500">
+              🍷 Sacada / Varanda Gourmet
+            </label>
+            <input type="text" id="medidas_sacada" placeholder="Medidas das paredes (ex: Bancada: 2.40m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
+            <input type="file" id="foto_sacada" accept="image/*" class="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700">
+          </div>
+
+          <!-- Dormitório Casal -->
+          <div class="bg-slate-950 border border-slate-800 p-4 rounded-xl space-y-3">
+            <label class="flex items-center gap-2 text-sm font-bold text-white cursor-pointer">
+              <input type="checkbox" id="check_casal" class="w-4 h-4 text-amber-500 accent-amber-500">
+              🛏️ Dormitório Casal / Suíte
+            </label>
+            <input type="text" id="medidas_casal" placeholder="Medidas das paredes (ex: Guarda-roupa: 3.50m | Cama: 2.80m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
+            <input type="file" id="foto_casal" accept="image/*" class="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700">
+          </div>
+
+          <!-- Dormitório Solteiro -->
+          <div class="bg-slate-950 border border-slate-800 p-4 rounded-xl space-y-3">
+            <label class="flex items-center gap-2 text-sm font-bold text-white cursor-pointer">
+              <input type="checkbox" id="check_solteiro" class="w-4 h-4 text-amber-500 accent-amber-500">
+              🧸 Dormitório Solteiro / Home Office
+            </label>
+            <input type="text" id="medidas_solteiro" placeholder="Medidas das paredes (ex: Bancada: 1.60m | Armário: 2.00m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
+            <input type="file" id="foto_solteiro" accept="image/*" class="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700">
+          </div>
+
+          <!-- Banho e Lavabo -->
+          <div class="bg-slate-950 border border-slate-800 p-4 rounded-xl space-y-3">
+            <label class="flex items-center gap-2 text-sm font-bold text-white cursor-pointer">
+              <input type="checkbox" id="check_banho" class="w-4 h-4 text-amber-500 accent-amber-500">
+              🚿 Banho Social & Lavabo
+            </label>
+            <input type="text" id="medidas_banho" placeholder="Medidas das paredes (ex: Gabinete: 1.10m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
+            <input type="file" id="foto_banho" accept="image/*" class="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700">
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Botão de Ação -->
+      <button type="submit" id="btn-gerar" class="w-full py-4 rounded-xl font-extrabold bg-amber-500 hover:bg-amber-400 text-slate-950 text-base shadow-xl shadow-amber-500/10 transition flex items-center justify-center gap-3">
+        <i class="fas fa-magic"></i>
+        <span>Gerar Renders 3D Decorados e Orçamento</span>
+      </button>
+
+    </form>
+
+    <!-- Área de Exibição dos Renders Gerados -->
+    <div id="resultado-renders" class="hidden mt-10 bg-slate-900 border border-slate-800 p-6 rounded-2xl">
+      <h3 class="text-xl font-bold text-amber-500 mb-4"><i class="fas fa-image mr-2"></i> Renders 3D Gerados pela IA:</h3>
+      <div id="grid-renders-gerados" class="grid grid-cols-1 md:grid-cols-2 gap-6"></div>
+    </div>
+
+  </div>
+
+  <script>
+    function mostrarNomePlanta(input) {
+      if (input.files && input.files[0]) {
+        document.getElementById('label-planta').innerText = input.files[0].name;
+      }
+    }
+
+    async function enviarProjetoMulti(e) {
+      e.preventDefault();
+      const btn = document.getElementById('btn-gerar');
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processando Planta e Renders 3D...';
+      btn.disabled = true;
+
+      const formData = new FormData();
+      formData.append('cliente_nome', document.getElementById('cliente_nome').value);
+      formData.append('cliente_whats', document.getElementById('cliente_whats').value);
+      formData.append('estilo_geral', document.getElementById('estilo_geral').value);
+
+      const plantaFile = document.getElementById('planta_geral').files[0];
+      if (plantaFile) formData.append('planta_geral', plantaFile);
+
+      const ambientes = ['cozinha', 'lavanderia', 'sacada', 'casal', 'solteiro', 'banho'];
+      ambientes.forEach(amb => {
+        if (document.getElementById(`check_${amb}`).checked) {
+          formData.append('ambientes_selecionados', amb);
+          formData.append(`medidas_${amb}`, document.getElementById(`medidas_${amb}`).value);
+          const fileInput = document.getElementById(`foto_${amb}`).files[0];
+          if (fileInput) formData.append(`foto_${amb}`, fileInput);
+        }
+      });
+
+      try {
+        const res = await fetch('/api/processar-orcamento-multi', {
+          method: 'POST',
+          body: formData
+        });
+        const data = await res.json();
+        
+        if (data.status === 'sucesso') {
+          const container = document.getElementById('grid-renders-gerados');
+          container.innerHTML = '';
+          
+          data.resultados.forEach(item => {
+            container.innerHTML += `
+              <div class="bg-slate-950 p-4 rounded-xl border border-slate-800">
+                <h4 class="font-bold text-amber-400 capitalize mb-2">${item.ambiente}</h4>
+                <img src="${item.url_render}" class="w-full h-64 object-cover rounded-lg mb-2" alt="${item.ambiente}">
+                <p class="text-xs text-slate-400">${item.descricao_decoracao}</p>
+              </div>
+            `;
+          });
+          document.getElementById('resultado-renders').classList.remove('hidden');
+          window.scrollTo({ top: document.getElementById('resultado-renders').offsetTop, behavior: 'smooth' });
+        } else {
+          alert('Erro no processamento: ' + (data.mensagem || 'Tente novamente'));
+        }
+      } catch (err) {
+        alert('Erro de conexão ao processar os ambientes.');
+      } finally {
+        btn.innerHTML = '<i class="fas fa-magic"></i> <span>Gerar Renders 3D Decorados e Orçamento</span>';
+        btn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>
