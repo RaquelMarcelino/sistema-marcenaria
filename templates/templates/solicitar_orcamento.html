@@ -10,8 +10,11 @@
 <body class="bg-slate-950 text-slate-100 min-h-screen p-4 md:p-8 font-sans">
   <div class="max-w-4xl mx-auto">
     
-    <!-- Cabeçalho -->
+    <!-- Cabeçalho com Identificação da Loja -->
     <div class="text-center mb-8">
+      <div id="badge-loja" class="inline-flex items-center gap-2 px-3 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-bold rounded-full mb-3 hidden">
+        <i class="fas fa-store"></i> <span id="nome-loja-exibicao">Loja Parceira</span>
+      </div>
       <h1 class="text-3xl md:text-5xl font-extrabold text-amber-500 uppercase tracking-wide">MVI CRM</h1>
       <p class="text-slate-400 mt-2 text-sm md:text-base">Briefing Completo, Estimativa de Pré-Orçamento & Fechamento</p>
     </div>
@@ -256,6 +259,19 @@
 
   <script>
     let dadosResumo = {};
+    let lojaSlug = 'padrao';
+    let lojaWhats = '5511999999999';
+
+    // Identifica a loja pelo parâmetro da URL (ex: ?loja=silva)
+    window.addEventListener('DOMContentLoaded', () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const lojaParam = urlParams.get('loja');
+      if (lojaParam) {
+        lojaSlug = lojaParam.toLowerCase();
+        document.getElementById('badge-loja').classList.remove('hidden');
+        document.getElementById('nome-loja-exibicao').innerText = 'Marcenaria / Loja: ' + lojaSlug.toUpperCase();
+      }
+    });
 
     function toggleDataChave(valor) {
       const box = document.getElementById('box-previsao-chave');
@@ -270,7 +286,7 @@
       return num.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     }
 
-    function calcularEExibirOrcamento(e) {
+    async function calcularEExibirOrcamento(e) {
       e.preventDefault();
       
       const nome = document.getElementById('cliente_nome').value || 'Cliente';
@@ -324,6 +340,7 @@
       const totalPix = total * 0.95;
 
       dadosResumo = {
+        loja_slug: lojaSlug,
         nome: nome,
         whats: whats,
         ambientes: ambientesEscolhidos.join(', '),
@@ -342,6 +359,25 @@
 
       document.getElementById('resultado-orcamento').classList.remove('hidden');
       window.scrollTo({ top: document.getElementById('resultado-orcamento').offsetTop - 30, behavior: 'smooth' });
+
+      // Salva silenciosamente o Lead no banco de dados para a loja específica
+      try {
+        const formData = new FormData();
+        formData.append('loja_slug', lojaSlug);
+        formData.append('cliente_nome', nome);
+        formData.append('cliente_whats', whats);
+        formData.append('status_chaves', statusChaves);
+        formData.append('ambientes', dadosResumo.ambientes);
+        formData.append('valor_estimado', dadosResumo.totalFmt);
+        formData.append('especificacoes', `Portas: ${corPortas} | Caixa: ${corCaixa} | Ferragens: ${ferragens}`);
+        
+        fetch('/api/salvar-lead-loja', {
+          method: 'POST',
+          body: formData
+        });
+      } catch (e) {
+        console.log('Lead registrado localmente');
+      }
     }
 
     function continuarWhatsApp() {
@@ -354,14 +390,14 @@
         `🔑 Status: ${dadosResumo.statusChaves}\n` +
         `🎨 Padrão: Portas ${dadosResumo.corPortas} | Caixa ${dadosResumo.corCaixa}\n` +
         `🔩 Ferragens: ${dadosResumo.ferragens}\n\n` +
-        `💰 Estimativa Total: ${dadosResumo.totalFmt} (PIX: ${dadosResumo.pixFmt})\n\n` +
+        `💰 Estimativa: ${dadosResumo.totalFmt} (PIX: ${dadosResumo.pixFmt})\n\n` +
         `Gostaria de dar continuidade no projeto executivo!`
       );
-      window.open(`https://wa.me/5511999999999?text=${texto}`, '_blank');
+      window.open(`https://wa.me/${lojaWhats}?text=${texto}`, '_blank');
     }
 
     function fecharSemInteresse() {
-      alert('Obrigado! Suas escolhas ficaram registradas.');
+      alert('Obrigado! Suas escolhas ficaram registradas para a marcenaria.');
     }
   </script>
 </body>
