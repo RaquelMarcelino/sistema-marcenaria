@@ -3198,14 +3198,13 @@ async def api_assinar_plano_mvi(request: Request):
         "chave_pix": chave_pix
     })
 # ==========================================================
-# --- SISTEMA MULTI-LOJAS & BRIEFING / ORÇAMENTO CRM ---
+# --- SISTEMA MULTI-LOJAS & ADMIN CRM ---
 # ==========================================================
 
 def inicializar_tabelas_multiloja():
     conn = sqlite3.connect("sistema_marcenaria.db")
     cursor = conn.cursor()
     
-    # Tabela de Lojas / Marcenarias
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS lojas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3220,13 +3219,11 @@ def inicializar_tabelas_multiloja():
         )
     """)
     
-    # Inserir loja padrão caso não exista
     cursor.execute("""
         INSERT OR IGNORE INTO lojas (slug, nome_loja, email, whatsapp, senha, plano, status)
         VALUES ('padrao', 'Marcenaria Principal (MVI)', 'admin@mvicrm.com', '5511999999999', '123456', 'Enterprise', 'ativo')
     """)
 
-    # Tabela de Leads / Orçamentos vinculados a cada Loja
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS leads_orcamentos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3243,15 +3240,32 @@ def inicializar_tabelas_multiloja():
     conn.commit()
     conn.close()
 
-# Executa a criação das tabelas
 try:
     inicializar_tabelas_multiloja()
 except Exception as e:
-    print(f"Erro ao inicializar tabelas multiloja: {e}")
+    print(f"Erro tabelas multiloja: {e}")
 
 @app.get("/solicitar-orcamento")
 @app.get("/orcamento-multi")
-async def rota_solicitar_orcamento(request: Request):
+async def rota_solicitar_orcamento(request: Request, loja: Optional[str] = None):
+    # Trava de Seguranca: Verifica se a loja existe e se esta ativa
+    if loja and loja.lower() != "padrao":
+        conn = sqlite3.connect("sistema_marcenaria.db")
+        cursor = conn.cursor()
+        cursor.execute("SELECT status FROM lojas WHERE slug = ?", (loja.lower(),))
+        row = cursor.fetchone()
+        conn.close()
+        
+        if not row or row[0] != "ativo":
+            return HTMLResponse(
+                content="<body style='background:#020617;color:#fff;font-family:sans-serif;text-align:center;padding:50px;'>"
+                        "<h2 style='color:#f59e0b;'>⚠️ Assinatura Inativa ou Nao Encontrada</h2>"
+                        "<p style='color:#94a3b8;'>Esta marcenaria nao possui uma conta ativa no MVI CRM.</p>"
+                        "<a href='/planos' style='display:inline-block;margin-top:20px;padding:12px 24px;background:#f59e0b;color:#000;font-weight:bold;text-decoration:none;border-radius:8px;'>Contratar Plano</a>"
+                        "</body>",
+                status_code=403
+            )
+
     caminhos_possiveis = [
         os.path.join(os.path.dirname(__file__), "templates", "templates", "solicitar_orcamento.html"),
         os.path.join(os.path.dirname(__file__), "templates", "solicitar_orcamento.html"),
@@ -3262,7 +3276,75 @@ async def rota_solicitar_orcamento(request: Request):
         if os.path.exists(p):
             with open(p, "r", encoding="utf-8") as f:
                 return HTMLResponse(content=f.read())
-    return HTMLResponse(content="<h2>Template de orçamento não encontrado</h2>", status_code=404)
+    return HTMLResponse(content="<h2>Template de orcamento nao encontrado</h2>", status_code=404)
+
+@app.get("/admin-lojas")
+async def rota_admin_lojas(request: Request):
+    caminhos_possiveis = [
+        os.path.join(os.path.dirname(__file__), "templates", "templates", "admin_lojas.html"),
+        os.path.join(os.path.dirname(__file__), "templates", "admin_lojas.html"),
+        os.path.join(os.getcwd(), "templates", "templates", "admin_lojas.html"),
+        os.path.join(os.getcwd(), "templates", "admin_lojas.html")
+    ]
+    for p in caminhos_possiveis:
+        if os.path.exists(p):
+            with open(p, "r", encoding="utf-8") as f:
+                return HTMLResponse(content=f.read())
+    return HTMLResponse(content="<h2>Template admin nao encontrado</h2>", status_code=404)
+
+@app.get("/api/admin/listar-lojas-leads")
+async def api_admin_listar_lojas_leads():
+    try:
+        conn = sqlite3.connect("sistema_marcenaria.db")
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT * FROM lojas ORDER BY id DESC")
+        lojas = [dict(row) for row in cursor.fetchall()]
+        
+        cursor.execute("SELECT * FROM leads_orcamentos ORDER BY id DESC LIMIT 50")
+        leads = [dict(row) for row in cursor.fetchall()]
+        
+        conn.close()
+        return JSONResponse(content={"status": "sucesso", "lojas": lojas, "leads": leads})
+    except Exception as e:
+        return JSONResponse(content={"status": "erro", "detalhes": str(e)}, status_code=500)
+
+@app.post("/api/admin/cadastrar-loja")
+async def api_admin_cadastrar_loja(
+    nome_loja: str = Form(...),
+    slug: str = Form(...),
+    whatsapp: str = Form(...),
+    email: str = Form(...),
+    plano: str = Form("Pro")
+):
+    try:
+        conn = sqlite3.connect("sistema_marcenaria.db")
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO lojas (slug, nome_loja, email, whatsapp, senha, plano, status)
+            VALUES (?, ?, ?, ?, '123456', ?, 'ativo')
+        """, (slug.lower(), nome_loja, email, whatsapp, plano))
+        conn.commit()
+        conn.close()
+        return JSONResponse(content={"status": "sucesso", "mensagem": "Loja cadastrada com sucesso!"})
+    except Exception as e:
+        return JSONResponse(content={"status": "erro", "mensagem": f"Erro: {e}"}, status_code=400)
+
+@app.post("/api/admin/alterar-status-loja")
+async def api_admin_alterar_status_loja(
+    slug: str = Form(...),
+    status: str = Form(...)
+):
+    try:
+        conn = sqlite3.connect("sistema_marcenaria.db")
+        cursor = conn.cursor()
+        cursor.execute("UPDATE lojas SET status = ? WHERE slug = ?", (status, slug.lower()))
+        conn.commit()
+        conn.close()
+        return JSONResponse(content={"status": "sucesso"})
+    except Exception as e:
+        return JSONResponse(content={"status": "erro", "detalhes": str(e)}, status_code=500)
 
 @app.post("/api/salvar-lead-loja")
 async def api_salvar_lead_loja(
@@ -3283,20 +3365,6 @@ async def api_salvar_lead_loja(
         """, (loja_slug.lower(), cliente_nome, cliente_whats, status_chaves, ambientes, valor_estimado, especificacoes))
         conn.commit()
         conn.close()
-        return JSONResponse(content={"status": "sucesso", "mensagem": "Lead salvo para a loja com sucesso"})
-    except Exception as e:
-        print(f"Erro ao salvar lead da loja: {e}")
-        return JSONResponse(content={"status": "erro", "detalhes": str(e)}, status_code=500)
-
-@app.get("/api/leads-loja/{slug}")
-async def api_obter_leads_loja(slug: str):
-    try:
-        conn = sqlite3.connect("sistema_marcenaria.db")
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM leads_orcamentos WHERE loja_slug = ? ORDER BY id DESC", (slug.lower(),))
-        leads = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-        return JSONResponse(content={"status": "sucesso", "leads": leads})
+        return JSONResponse(content={"status": "sucesso"})
     except Exception as e:
         return JSONResponse(content={"status": "erro", "detalhes": str(e)}, status_code=500)
