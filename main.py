@@ -3201,7 +3201,7 @@ async def api_assinar_plano_mvi(request: Request):
 # --- SOLICITAÇÃO DE ORÇAMENTO MULTI-AMBIENTES & RENDER ---
 # ==========================================================
 
-@app.get("/solicitar-orcamento")
+@app.get("/orcamento-multi")
 async def rota_solicitar_orcamento(request: Request):
     caminho = os.path.join(os.path.dirname(__file__), "templates", "templates", "solicitar_orcamento.html")
     if not os.path.exists(caminho):
