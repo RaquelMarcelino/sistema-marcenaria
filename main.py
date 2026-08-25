@@ -3083,3 +3083,116 @@ def analisar_planta_baixa_gemini(planta_bytes: bytes, tipo_ambiente: str, cor_es
     except Exception as e:
         print(f"Erro na leitura da planta com Gemini: {e}")
         return f"photorealistic 3d interior render narrow linear straight single wall kitchen cabinetry width {medidas_cliente}m {cor_escolhida} no island no L-shape built-in appliances 8k"
+
+# ==========================================================
+# --- PÁGINA PÚBLICA DE PLANOS & ASSINATURA (MVI CRM) ---
+# ==========================================================
+
+PLANOS_MVI = {
+    "starter": {
+        "id": "starter",
+        "nome": "Pequeno Porte",
+        "badge": "Starter",
+        "usuarios": "Até 2 usuários",
+        "setup": 1500.0,
+        "mensalidade": 297.0
+    },
+    "professional": {
+        "id": "professional",
+        "nome": "Médio Porte",
+        "badge": "Mais Escolhido",
+        "usuarios": "Até 5 usuários",
+        "setup": 2500.0,
+        "mensalidade": 590.0,
+        "destaque": True
+    },
+    "enterprise": {
+        "id": "enterprise",
+        "nome": "Grande Porte",
+        "badge": "Enterprise",
+        "usuarios": "Usuários Ilimitados",
+        "setup": 5000.0,
+        "mensalidade": 1200.0
+    }
+}
+
+@app.get("/planos", response_class=HTMLResponse)
+async def rota_pagina_planos(request: Request):
+    chave_pix = os.getenv("CHAVE_PIX", "suachavepix@mvicrm.com.br")
+    caminho_template = os.path.join(os.path.dirname(__file__), "templates", "planos_checkout.html")
+    if os.path.exists(caminho_template):
+        with open(caminho_template, "r", encoding="utf-8") as f:
+            html_content = f.read()
+        return HTMLResponse(content=html_content)
+    return HTMLResponse(content="<h2>Template de planos não encontrado na pasta templates.</h2>", status_code=404)
+
+@app.post("/api/assinar-plano")
+async def api_assinar_plano_mvi(request: Request):
+    try:
+        dados = await request.json()
+    except Exception:
+        dados = {}
+
+    plano_info = PLANOS_MVI.get(dados.get("plano_id"))
+    if not plano_info:
+        return JSONResponse(status_code=400, content={"status": "erro", "mensagem": "Plano inválido"})
+
+    asaas_key = os.getenv("ASAAS_API_KEY", "")
+    asaas_url = os.getenv("ASAAS_API_URL", "https://api.asaas.com/v3")
+    chave_pix = os.getenv("CHAVE_PIX", "suachavepix@mvicrm.com.br")
+
+    headers = {
+        "access_token": asaas_key,
+        "Content-Type": "application/json"
+    }
+
+    customer_id = None
+    if asaas_key:
+        payload_cliente = {
+            "name": dados.get("nome_empresa"),
+            "cpfCnpj": dados.get("cpf_cnpj"),
+            "email": dados.get("email"),
+            "mobilePhone": dados.get("whatsapp"),
+            "notificationDisabled": False
+        }
+        try:
+            req = urllib.request.Request(
+                f"{asaas_url}/customers",
+                data=json.dumps(payload_cliente).encode("utf-8"),
+                headers=headers,
+                method="POST"
+            )
+            with urllib.request.urlopen(req) as resp:
+                res_cliente = json.loads(resp.read().decode())
+                customer_id = res_cliente.get("id")
+        except Exception as e:
+            print(f"Erro Asaas Cliente: {e}")
+
+        if customer_id:
+            data_vencimento = (date.today() + timedelta(days=30)).strftime("%Y-%m-%d")
+            payload_sub = {
+                "customer": customer_id,
+                "billingType": "UNDEFINED",
+                "value": plano_info["mensalidade"],
+                "nextDueDate": data_vencimento,
+                "cycle": "MONTHLY",
+                "description": f"Mensalidade MVI CRM - Plano {plano_info['nome']}"
+            }
+            try:
+                req_sub = urllib.request.Request(
+                    f"{asaas_url}/subscriptions",
+                    data=json.dumps(payload_sub).encode("utf-8"),
+                    headers=headers,
+                    method="POST"
+                )
+                with urllib.request.urlopen(req_sub) as resp_sub:
+                    pass
+            except Exception as e:
+                print(f"Erro Asaas Subscrição: {e}")
+
+    return JSONResponse(content={
+        "status": "sucesso",
+        "plano": plano_info["nome"],
+        "setup_valor": plano_info["setup"],
+        "chave_pix": chave_pix
+    })
