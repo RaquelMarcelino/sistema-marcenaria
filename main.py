@@ -3198,113 +3198,105 @@ async def api_assinar_plano_mvi(request: Request):
         "chave_pix": chave_pix
     })
 # ==========================================================
-# --- SOLICITAÇÃO DE ORÇAMENTO MULTI-AMBIENTES & RENDER IA ---
+# --- SISTEMA MULTI-LOJAS & BRIEFING / ORÇAMENTO CRM ---
 # ==========================================================
+
+def inicializar_tabelas_multiloja():
+    conn = sqlite3.connect("sistema_marcenaria.db")
+    cursor = conn.cursor()
+    
+    # Tabela de Lojas / Marcenarias
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS lojas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            slug TEXT UNIQUE,
+            nome_loja TEXT,
+            email TEXT UNIQUE,
+            whatsapp TEXT,
+            senha TEXT,
+            plano TEXT,
+            status TEXT DEFAULT 'ativo',
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # Inserir loja padrão caso não exista
+    cursor.execute("""
+        INSERT OR IGNORE INTO lojas (slug, nome_loja, email, whatsapp, senha, plano, status)
+        VALUES ('padrao', 'Marcenaria Principal (MVI)', 'admin@mvicrm.com', '5511999999999', '123456', 'Enterprise', 'ativo')
+    """)
+
+    # Tabela de Leads / Orçamentos vinculados a cada Loja
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS leads_orcamentos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            loja_slug TEXT,
+            cliente_nome TEXT,
+            cliente_whats TEXT,
+            status_chaves TEXT,
+            ambientes TEXT,
+            valor_estimado TEXT,
+            especificacoes TEXT,
+            data_envio TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+# Executa a criação das tabelas
+try:
+    inicializar_tabelas_multiloja()
+except Exception as e:
+    print(f"Erro ao inicializar tabelas multiloja: {e}")
 
 @app.get("/solicitar-orcamento")
 @app.get("/orcamento-multi")
 async def rota_solicitar_orcamento(request: Request):
-    caminho = os.path.join(os.path.dirname(__file__), "templates", "templates", "solicitar_orcamento.html")
-    if not os.path.exists(caminho):
-        caminho = os.path.join(os.path.dirname(__file__), "templates", "solicitar_orcamento.html")
-    if os.path.exists(caminho):
-        with open(caminho, "r", encoding="utf-8") as f:
-            return HTMLResponse(content=f.read())
+    caminhos_possiveis = [
+        os.path.join(os.path.dirname(__file__), "templates", "templates", "solicitar_orcamento.html"),
+        os.path.join(os.path.dirname(__file__), "templates", "solicitar_orcamento.html"),
+        os.path.join(os.getcwd(), "templates", "templates", "solicitar_orcamento.html"),
+        os.path.join(os.getcwd(), "templates", "solicitar_orcamento.html")
+    ]
+    for p in caminhos_possiveis:
+        if os.path.exists(p):
+            with open(p, "r", encoding="utf-8") as f:
+                return HTMLResponse(content=f.read())
     return HTMLResponse(content="<h2>Template de orçamento não encontrado</h2>", status_code=404)
 
-@app.post("/api/processar-orcamento-multi")
-async def api_processar_orcamento_multi(
+@app.post("/api/salvar-lead-loja")
+async def api_salvar_lead_loja(
+    loja_slug: str = Form("padrao"),
     cliente_nome: str = Form(...),
     cliente_whats: str = Form(...),
-    espessura_caixa: str = Form("MDF 18mm"),
-    cor_caixa: str = Form("Branco TX"),
-    espessura_portas: str = Form("MDF 18mm"),
-    cor_portas: str = Form("Branco TX"),
-    ferragens: str = Form("Blum"),
-    tamponamento: str = Form("Tamponamento 25mm"),
-    planta_geral: Optional[UploadFile] = File(None),
-    ambientes_selecionados: List[str] = Form(...),
-    medidas_cozinha: Optional[str] = Form(""),
-    medidas_lavanderia: Optional[str] = Form(""),
-    medidas_sacada: Optional[str] = Form(""),
-    medidas_casal: Optional[str] = Form(""),
-    medidas_solteiro: Optional[str] = Form(""),
-    medidas_banho: Optional[str] = Form(""),
-    foto_cozinha: Optional[UploadFile] = File(None),
-    foto_lavanderia: Optional[UploadFile] = File(None),
-    foto_sacada: Optional[UploadFile] = File(None),
-    foto_casal: Optional[UploadFile] = File(None),
-    foto_solteiro: Optional[UploadFile] = File(None),
-    foto_banho: Optional[UploadFile] = File(None)
+    status_chaves: str = Form(""),
+    ambientes: str = Form(""),
+    valor_estimado: str = Form(""),
+    especificacoes: str = Form("")
 ):
-    medidas_map = {
-        "cozinha": (medidas_cozinha, foto_cozinha),
-        "lavanderia": (medidas_lavanderia, foto_lavanderia),
-        "sacada": (medidas_sacada, foto_sacada),
-        "casal": (medidas_casal, foto_casal),
-        "solteiro": (medidas_solteiro, foto_solteiro),
-        "banho": (medidas_banho, foto_banho)
-    }
+    try:
+        conn = sqlite3.connect("sistema_marcenaria.db")
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO leads_orcamentos (loja_slug, cliente_nome, cliente_whats, status_chaves, ambientes, valor_estimado, especificacoes)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (loja_slug.lower(), cliente_nome, cliente_whats, status_chaves, ambientes, valor_estimado, especificacoes))
+        conn.commit()
+        conn.close()
+        return JSONResponse(content={"status": "sucesso", "mensagem": "Lead salvo para a loja com sucesso"})
+    except Exception as e:
+        print(f"Erro ao salvar lead da loja: {e}")
+        return JSONResponse(content={"status": "erro", "detalhes": str(e)}, status_code=500)
 
-    nomes_formatados = {
-        "cozinha": "Cozinha Planejada",
-        "lavanderia": "Lavanderia",
-        "sacada": "Sacada / Varanda Gourmet",
-        "casal": "Dormitório Casal / Suíte",
-        "solteiro": "Dormitório Solteiro",
-        "banho": "Banho Social & Lavabo"
-    }
-
-    resultados = []
-    gemini_key = os.getenv("GEMINI_API_KEY", "")
-
-    for amb in ambientes_selecionados:
-        medida, foto_file = medidas_map.get(amb, ("", None))
-        nome_amb = nomes_formatados.get(amb, amb.capitalize())
-        
-        prompt_ia = (
-            f"photorealistic 3D interior architecture render of custom millwork {amb}, "
-            f"cabinet fronts in {cor_portas}, carcass {cor_caixa}, {tamponamento}, "
-            f"wall dimensions {medida or 'custom fit'}, modern high luxury interior design, "
-            f"warm led lighting strip accents, architectural photography, hyperrealistic 8k octane render"
-        )
-
-        descricao_txt = ""
-        if gemini_key and foto_file and foto_file.filename:
-            try:
-                genai.configure(api_key=gemini_key)
-                model = genai.GenerativeModel("gemini-1.5-flash")
-                foto_bytes = await foto_file.read()
-                
-                conteudo = [
-                    (
-                        f"Você é um arquiteto e projetista de móveis planejados. "
-                        f"Analise a foto deste ambiente ({nome_amb}) e as cotas/medidas desenhadas na parede ({medida}). "
-                        f"Escreva um resumo técnico e decorativo direto de 1 parágrafo em português detalhando como a marcenaria "
-                        f"foi distribuída para aproveitar essas dimensões exatas, usando portas em {cor_portas}, caixas em {cor_caixa}, "
-                        f"ferragens {ferragens}, {tamponamento} e iluminação LED embutida."
-                    ),
-                    {"mime_type": foto_file.content_type or "image/jpeg", "data": foto_bytes}
-                ]
-                resposta_gemini = model.generate_content(conteudo)
-                descricao_txt = resposta_gemini.text.strip()
-            except Exception as e:
-                print(f"Erro Gemini Vision: {e}")
-
-        if not descricao_txt:
-            descricao_txt = (
-                f"Projeto executivo sob medida para {nome_amb} respeitando as dimensões informadas ({medida or 'conforme planta'}). "
-                f"Estrutura em {cor_caixa}, portas e frentes em acabamento {cor_portas}, ferragens {ferragens} com amortecimento e {tamponamento}."
-            )
-
-        prompt_encoded = urllib.parse.quote(prompt_ia)
-        seed_aleatorio = secrets.randbelow(999999)
-        url_render_ia = f"https://image.pollinations.ai/prompt/{prompt_encoded}?width=1024&height=768&nologo=true&seed={seed_aleatorio}&model=flux"
-
-        resultados.append({
-            "ambiente": nome_amb,
-            "url_render": url_render_ia,
-            "descricao_decoracao": descricao_txt
-        })
-
-    return JSONResponse(content={"status": "sucesso", "resultados": resultados})
+@app.get("/api/leads-loja/{slug}")
+async def api_obter_leads_loja(slug: str):
+    try:
+        conn = sqlite3.connect("sistema_marcenaria.db")
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM leads_orcamentos WHERE loja_slug = ? ORDER BY id DESC", (slug.lower(),))
+        leads = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        return JSONResponse(content={"status": "sucesso", "leads": leads})
+    except Exception as e:
+        return JSONResponse(content={"status": "erro", "detalhes": str(e)}, status_code=500)
