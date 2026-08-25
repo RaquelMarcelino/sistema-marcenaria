@@ -3116,15 +3116,16 @@ PLANOS_MVI = {
     }
 }
 
-@app.get("/planos", response_class=HTMLResponse)
+@app.get("/planos")
 async def rota_pagina_planos(request: Request):
-    chave_pix = os.getenv("CHAVE_PIX", "suachavepix@mvicrm.com.br")
- caminho_template = os.path.join(os.path.dirname(__file__), "templates", "templates", "planos_checkout.html")   
- if os.path.exists(caminho_template):
-        with open(caminho_template, "r", encoding="utf-8") as f:
-            html_content = f.read()
-        return HTMLResponse(content=html_content)
-    return HTMLResponse(content="<h2>Template de planos não encontrado na pasta templates.</h2>", status_code=404)
+    caminho = os.path.join(os.path.dirname(__file__), "templates", "templates", "planos_checkout.html")
+    if not os.path.exists(caminho):
+        caminho = os.path.join(os.path.dirname(__file__), "templates", "planos_checkout.html")
+    
+    if os.path.exists(caminho):
+        with open(caminho, "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
+    return HTMLResponse(content="<h2>Template não encontrado</h2>", status_code=404)
 
 @app.post("/api/assinar-plano")
 async def api_assinar_plano_mvi(request: Request):
