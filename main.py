@@ -3197,3 +3197,61 @@ async def api_assinar_plano_mvi(request: Request):
         "setup_valor": plano_info["setup"],
         "chave_pix": chave_pix
     })
+# ==========================================================
+# --- SOLICITAÇÃO DE ORÇAMENTO MULTI-AMBIENTES & RENDER ---
+# ==========================================================
+
+@app.get("/solicitar-orcamento")
+async def rota_solicitar_orcamento(request: Request):
+    caminho = os.path.join(os.path.dirname(__file__), "templates", "templates", "solicitar_orcamento.html")
+    if not os.path.exists(caminho):
+        caminho = os.path.join(os.path.dirname(__file__), "templates", "solicitar_orcamento.html")
+    if os.path.exists(caminho):
+        with open(caminho, "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
+    return HTMLResponse(content="<h2>Template de orçamento não encontrado</h2>", status_code=404)
+
+@app.post("/api/processar-orcamento-multi")
+async def api_processar_orcamento_multi(
+    cliente_nome: str = Form(...),
+    cliente_whats: str = Form(...),
+    estilo_geral: str = Form(...),
+    planta_geral: Optional[UploadFile] = File(None),
+    ambientes_selecionados: List[str] = Form(...),
+    medidas_cozinha: Optional[str] = Form(""),
+    medidas_lavanderia: Optional[str] = Form(""),
+    medidas_sacada: Optional[str] = Form(""),
+    medidas_casal: Optional[str] = Form(""),
+    medidas_solteiro: Optional[str] = Form(""),
+    medidas_banho: Optional[str] = Form("")
+):
+    medidas_map = {
+        "cozinha": (medidas_cozinha, "https://images.unsplash.com/photo-1556911220-e15b29be8c8f?w=800"),
+        "lavanderia": (medidas_lavanderia, "https://images.unsplash.com/photo-1582735689369-4fe89db7114c?w=800"),
+        "sacada": (medidas_sacada, "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800"),
+        "casal": (medidas_casal, "https://images.unsplash.com/photo-1616486338812-3dadae4b4ace?w=800"),
+        "solteiro": (medidas_solteiro, "https://images.unsplash.com/photo-1595526114035-0d45ed16cfbf?w=800"),
+        "banho": (medidas_banho, "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=800")
+    }
+
+    nomes_formatados = {
+        "cozinha": "Cozinha Planejada",
+        "lavanderia": "Lavanderia",
+        "sacada": "Sacada / Varanda Gourmet",
+        "casal": "Dormitório Casal / Suíte",
+        "solteiro": "Dormitório Solteiro",
+        "banho": "Banho & Lavabo"
+    }
+
+    resultados = []
+    for amb in ambientes_selecionados:
+        medida, imagem_exemplo = medidas_map.get(amb, ("", "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800"))
+        nome_amb = nomes_formatados.get(amb, amb.capitalize())
+        
+        resultados.append({
+            "ambiente": nome_amb,
+            "url_render": imagem_exemplo,
+            "descricao_decoracao": f"Ambiente projetado no estilo {estilo_geral}, respeitando medidas: {medida or 'conforme planta'}."
+        })
+
+    return JSONResponse(content={"status": "sucesso", "resultados": resultados})
