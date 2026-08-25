@@ -1,154 +1,219 @@
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Planos & Assinatura - MVI CRM</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Planos & Assinatura - MVI CRM</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col items-center justify-center p-4 font-sans">
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col items-center justify-center p-4 md:p-8 font-sans">
 
-    <div class="max-w-6xl w-full text-center my-8">
-        <h1 class="text-3xl md:text-4xl font-extrabold text-amber-500 tracking-wide uppercase">MVI CRM</h1>
-        <p class="text-slate-400 mt-2 text-base md:text-lg">O ecossistema completo para gestão comercial, medição, fábrica e financeiro da sua marcenaria.</p>
-        <span class="inline-block mt-3 px-4 py-1 rounded-full bg-slate-800 text-xs text-amber-400 font-semibold border border-slate-700">
-            ⭐ Todos os recursos liberados em todos os planos
-        </span>
+  <div class="max-w-6xl w-full text-center my-6">
+    <h1 class="text-3xl md:text-5xl font-extrabold text-amber-500 tracking-wide uppercase">MVI CRM</h1>
+    <p class="text-slate-400 mt-2 text-base md:text-lg">O ecossistema completo para gestão comercial, medição, fábrica e financeiro da sua marcenaria.</p>
+    <span class="inline-block mt-3 px-4 py-1 rounded-full bg-slate-800 text-xs text-amber-400 font-semibold border border-slate-700">
+      <i class="fas fa-star mr-1"></i> Todos os recursos liberados em todos os planos
+    </span>
+  </div>
+
+  <!-- Cards dos 3 Planos -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-6xl w-full my-6">
+    
+    <!-- Starter -->
+    <div class="relative bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col justify-between hover:border-slate-700 transition">
+      <div class="absolute -top-3 left-1/2 -translate-x-1/2 bg-slate-800 text-slate-300 text-xs px-3 py-0.5 rounded-full uppercase tracking-wider font-semibold border border-slate-700">Starter</div>
+      <div>
+        <h3 class="text-xl font-bold mt-2">Pequeno Porte</h3>
+        <p class="text-slate-400 text-xs mb-4"><i class="fas fa-users mr-1"></i> Até 2 usuários</p>
+        <div class="bg-slate-950/60 p-4 rounded-xl border border-slate-800 mb-4">
+          <p class="text-xs text-slate-400 font-medium">Taxa de Adesão / Implantação:</p>
+          <p class="text-2xl font-black text-amber-500">R$ 1.500,00</p>
+          <hr class="border-slate-800 my-2">
+          <p class="text-xs text-slate-400 font-medium">Mensalidade Recorrente:</p>
+          <p class="text-xl font-bold text-white">R$ 297,00 <span class="text-xs text-slate-400 font-normal">/ mês</span></p>
+        </div>
+        <ul class="text-xs text-slate-300 space-y-2 mb-6 text-left">
+          <li><i class="fas fa-check text-emerald-400 mr-1.5"></i> Simulador comercial rápido para leads</li>
+          <li><i class="fas fa-check text-emerald-400 mr-1.5"></i> Contratos com assinatura digital</li>
+          <li><i class="fas fa-check text-emerald-400 mr-1.5"></i> Checklist automático de eletros/obra</li>
+          <li><i class="fas fa-check text-emerald-400 mr-1.5"></i> Leitura de XML / Promob / SketchUp</li>
+          <li><i class="fas fa-check text-emerald-400 mr-1.5"></i> Medição técnica e esteira de montagem</li>
+          <li><i class="fas fa-check text-emerald-400 mr-1.5"></i> Financeiro com carnês e Pix Asaas</li>
+        </ul>
+      </div>
+      <button onclick="abrirModal('starter', 'Pequeno Porte', 1500, 297)" class="w-full py-3 rounded-xl font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 transition">Contratar Agora</button>
     </div>
 
-    <!-- Cards dos 3 Planos -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-6xl w-full">
-        {% for chave, p in planos.items() %}
-        <div class="relative bg-slate-900 border {% if p.destaque %}border-amber-500 shadow-xl shadow-amber-500/10{% else %}border-slate-800{% endif %} rounded-2xl p-6 flex flex-col justify-between hover:border-slate-600 transition duration-300">
-            
-            {% if p.destaque %}
-            <div class="absolute -top-3 left-1/2 -translate-x-1/2 bg-amber-500 text-slate-950 text-xs font-black uppercase px-3 py-1 rounded-full tracking-wider">
-                {{ p.badge }}
-            </div>
-            {% endif %}
+    <!-- Professional (Destaque) -->
+    <div class="relative bg-slate-900 border-2 border-amber-500 shadow-2xl shadow-amber-500/10 rounded-2xl p-6 flex flex-col justify-between scale-105 z-10">
+      <div class="absolute -top-3 left-1/2 -translate-x-1/2 bg-amber-500 text-slate-950 text-xs px-3 py-0.5 rounded-full uppercase tracking-wider font-extrabold">Mais Escolhido</div>
+      <div>
+        <h3 class="text-xl font-bold mt-2">Médio Porte</h3>
+        <p class="text-amber-400 text-xs mb-4"><i class="fas fa-users mr-1"></i> Até 5 usuários</p>
+        <div class="bg-slate-950/60 p-4 rounded-xl border border-amber-500/30 mb-4">
+          <p class="text-xs text-slate-400 font-medium">Taxa de Adesão / Implantação:</p>
+          <p class="text-2xl font-black text-amber-500">R$ 2.500,00</p>
+          <hr class="border-slate-800 my-2">
+          <p class="text-xs text-slate-400 font-medium">Mensalidade Recorrente:</p>
+          <p class="text-xl font-bold text-white">R$ 590,00 <span class="text-xs text-slate-400 font-normal">/ mês</span></p>
+        </div>
+        <ul class="text-xs text-slate-300 space-y-2 mb-6 text-left">
+          <li><i class="fas fa-check text-emerald-400 mr-1.5"></i> Simulador comercial rápido para leads</li>
+          <li><i class="fas fa-check text-emerald-400 mr-1.5"></i> Contratos com assinatura digital</li>
+          <li><i class="fas fa-check text-emerald-400 mr-1.5"></i> Checklist automático de eletros/obra</li>
+          <li><i class="fas fa-check text-emerald-400 mr-1.5"></i> Leitura de XML / Promob / SketchUp</li>
+          <li><i class="fas fa-check text-emerald-400 mr-1.5"></i> Medição técnica e esteira de montagem</li>
+          <li><i class="fas fa-check text-emerald-400 mr-1.5"></i> Financeiro com carnês e Pix Asaas</li>
+        </ul>
+      </div>
+      <button onclick="abrirModal('professional', 'Médio Porte', 2500, 590)" class="w-full py-3 rounded-xl font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-lg shadow-amber-500/20 transition">Contratar Agora</button>
+    </div>
 
+    <!-- Enterprise -->
+    <div class="relative bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col justify-between hover:border-slate-700 transition">
+      <div class="absolute -top-3 left-1/2 -translate-x-1/2 bg-slate-800 text-slate-300 text-xs px-3 py-0.5 rounded-full uppercase tracking-wider font-semibold border border-slate-700">Enterprise</div>
+      <div>
+        <h3 class="text-xl font-bold mt-2">Grande Porte</h3>
+        <p class="text-slate-400 text-xs mb-4"><i class="fas fa-users mr-1"></i> Usuários Ilimitados</p>
+        <div class="bg-slate-950/60 p-4 rounded-xl border border-slate-800 mb-4">
+          <p class="text-xs text-slate-400 font-medium">Taxa de Adesão / Implantação:</p>
+          <p class="text-2xl font-black text-amber-500">R$ 5.000,00</p>
+          <hr class="border-slate-800 my-2">
+          <p class="text-xs text-slate-400 font-medium">Mensalidade Recorrente:</p>
+          <p class="text-xl font-bold text-white">R$ 1.200,00 <span class="text-xs text-slate-400 font-normal">/ mês</span></p>
+        </div>
+        <ul class="text-xs text-slate-300 space-y-2 mb-6 text-left">
+          <li><i class="fas fa-check text-emerald-400 mr-1.5"></i> Simulador comercial rápido para leads</li>
+          <li><i class="fas fa-check text-emerald-400 mr-1.5"></i> Contratos com assinatura digital</li>
+          <li><i class="fas fa-check text-emerald-400 mr-1.5"></i> Checklist automático de eletros/obra</li>
+          <li><i class="fas fa-check text-emerald-400 mr-1.5"></i> Leitura de XML / Promob / SketchUp</li>
+          <li><i class="fas fa-check text-emerald-400 mr-1.5"></i> Medição técnica e esteira de montagem</li>
+          <li><i class="fas fa-check text-emerald-400 mr-1.5"></i> Financeiro com carnês e Pix Asaas</li>
+        </ul>
+      </div>
+      <button onclick="abrirModal('enterprise', 'Grande Porte', 5000, 1200)" class="w-full py-3 rounded-xl font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 transition">Contratar Agora</button>
+    </div>
+
+  </div>
+
+  <!-- Modal de Checkout -->
+  <div id="modal-checkout" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 relative">
+      <button onclick="fecharModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white text-lg"><i class="fas fa-times"></i></button>
+
+      <div id="etapa-formulario">
+        <h3 class="text-xl font-bold text-white mb-1">Contratar Plano <span id="modal-plano-nome" class="text-amber-500"></span></h3>
+        <p class="text-xs text-slate-400 mb-4">Preencha os dados da marcenaria para liberação imediata e geração do contrato de recorrência.</p>
+        
+        <form id="form-adesao" onsubmit="enviarAdesao(event)" class="space-y-3">
+          <input type="hidden" id="plano_id" name="plano_id">
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">Nome da Marcenaria / Razão Social</label>
+            <input type="text" required id="nome_empresa" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-amber-500">
+          </div>
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">CNPJ ou CPF do Responsável</label>
+            <input type="text" required id="cpf_cnpj" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-amber-500">
+          </div>
+          <div class="grid grid-cols-2 gap-2">
             <div>
-                <h3 class="text-xl font-bold text-white mb-1">{{ p.nome }}</h3>
-                <p class="text-sm text-slate-400 mb-4"><i class="fa-solid fa-users text-amber-500 mr-1"></i> {{ p.usuarios }}</p>
-                
-                <div class="border-t border-b border-slate-800 py-4 my-4">
-                    <div class="text-xs text-slate-400">Taxa de Adesão / Implantação:</div>
-                    <div class="text-2xl font-black text-amber-400 mb-2">R$ {{ "%.2f"|format(p.setup) }}</div>
-                    
-                    <div class="text-xs text-slate-400">Mensalidade Recorrente:</div>
-                    <div class="text-xl font-bold text-white">R$ {{ "%.2f"|format(p.mensalidade) }} <span class="text-xs text-slate-400 font-normal">/ mês</span></div>
-                </div>
-
-                <ul class="text-left text-xs text-slate-300 space-y-2 mb-6">
-                    <li><i class="fa-solid fa-check text-green-400 mr-2"></i> Simulador comercial rápido para leads</li>
-                    <li><i class="fa-solid fa-check text-green-400 mr-2"></i> Contratos com assinatura digital</li>
-                    <li><i class="fa-solid fa-check text-green-400 mr-2"></i> Checklist automático de eletros/obra</li>
-                    <li><i class="fa-solid fa-check text-green-400 mr-2"></i> Leitura de XML / Promob / SketchUp</li>
-                    <li><i class="fa-solid fa-check text-green-400 mr-2"></i> Medição técnica e esteira de montagem</li>
-                    <li><i class="fa-solid fa-check text-green-400 mr-2"></i> Financeiro com carnês e Pix Asaas</li>
-                </ul>
+              <label class="block text-xs text-slate-400 mb-1">E-mail</label>
+              <input type="email" required id="email" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-amber-500">
             </div>
-
-            <button onclick="abrirModal('{{ p.id }}', '{{ p.nome }}', '{{ p.setup }}')" class="w-full py-3 rounded-xl font-bold transition {% if p.destaque %}bg-amber-500 hover:bg-amber-400 text-slate-950{% else %}bg-slate-800 hover:bg-slate-700 text-white border border-slate-700{% endif %}">
-                Contratar Agora
-            </button>
-        </div>
-        {% endfor %}
-    </div>
-
-    <!-- Modal de Formulário e Pagamento Pix -->
-    <div id="modalCheckout" class="fixed inset-0 bg-black/80 backdrop-blur-sm hidden items-center justify-center p-4 z-50">
-        <div class="bg-slate-900 border border-slate-800 max-w-md w-full rounded-2xl p-6 relative">
-            <button onclick="fecharModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white">✕</button>
-            
-            <h3 class="text-lg font-bold text-white mb-1" id="modalTitulo">Contratar Plano</h3>
-            <p class="text-xs text-slate-400 mb-4">Informe os dados da sua marcenaria para ativarmos seu acesso.</p>
-
-            <form id="formCheckout" onsubmit="enviarPedido(event)" class="space-y-3">
-                <input type="hidden" id="planoEscolhido">
-                <div>
-                    <label class="block text-xs text-slate-400 mb-1">Nome da Marcenaria / Loja</label>
-                    <input type="text" id="nomeEmpresa" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none">
-                </div>
-                <div>
-                    <label class="block text-xs text-slate-400 mb-1">CNPJ ou CPF do Responsável</label>
-                    <input type="text" id="cpfCnpj" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none">
-                </div>
-                <div>
-                    <label class="block text-xs text-slate-400 mb-1">WhatsApp (para receber avisos e boletos)</label>
-                    <input type="text" id="whatsapp" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none">
-                </div>
-                <div>
-                    <label class="block text-xs text-slate-400 mb-1">E-mail Profissional</label>
-                    <input type="email" id="email" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none">
-                </div>
-
-                <button type="submit" id="btnConfirmar" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl mt-2 transition">
-                    Gerar Pix de Adesão
-                </button>
-            </form>
-
-            <div id="areaPix" class="hidden text-center mt-4 pt-4 border-t border-slate-800">
-                <p class="text-xs text-green-400 font-semibold mb-2">✅ Cadastro criado! Realize o Pix de adesão:</p>
-                <div class="bg-slate-950 p-3 rounded-lg border border-slate-800 text-xs text-slate-300 break-all select-all font-mono mb-2" id="chavePixTexto">
-                    {{ chave_pix }}
-                </div>
-                <p class="text-[11px] text-slate-400">Após realizar o pagamento, nosso suporte entrará em contato pelo seu WhatsApp para liberar seus acessos.</p>
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">WhatsApp</label>
+              <input type="tel" required id="whatsapp" placeholder="(00) 00000-0000" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-amber-500">
             </div>
+          </div>
+          <button type="submit" id="btn-submit" class="w-full py-3 mt-4 rounded-xl font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition flex items-center justify-center gap-2">
+            <span>Avançar para Pagamento</span>
+            <i class="fas fa-arrow-right"></i>
+          </button>
+        </form>
+      </div>
+
+      <!-- Etapa de Pagamento Pix -->
+      <div id="etapa-pagamento" class="hidden text-center py-4">
+        <div class="w-12 h-12 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-3 text-xl">
+          <i class="fas fa-check"></i>
         </div>
+        <h4 class="text-lg font-bold text-white">Assinatura Solicitada com Sucesso!</h4>
+        <p class="text-xs text-slate-400 mt-1 mb-4">Para concluir a implantação, efetue o pagamento da taxa de adesão via Pix:</p>
+
+        <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 mb-4">
+          <p class="text-xs text-slate-400">Valor da Taxa de Adesão:</p>
+          <p id="pix-valor" class="text-2xl font-black text-amber-500 my-1">R$ 0,00</p>
+          <p class="text-[11px] text-slate-500 mb-2">Chave Pix CNPJ/E-mail:</p>
+          <div class="flex items-center justify-center gap-2">
+            <span id="pix-chave" class="font-mono text-xs text-slate-300 bg-slate-900 px-3 py-1 rounded border border-slate-700"></span>
+            <button onclick="copiarPix()" class="px-3 py-1 bg-amber-500 text-slate-950 font-bold rounded text-xs hover:bg-amber-400">Copiar</button>
+          </div>
+        </div>
+
+        <p class="text-[11px] text-slate-400 mb-4">Após o pagamento, nosso time entrará em contato via WhatsApp para liberar seus acessos imediatos.</p>
+        <button onclick="fecharModal()" class="w-full py-2.5 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 text-xs font-semibold">Fechar</button>
+      </div>
+
     </div>
+  </div>
 
-    <script>
-        function abrirModal(id, nome, setup) {
-            document.getElementById('planoEscolhido').value = id;
-            document.getElementById('modalTitulo').innerText = `Contratar ${nome}`;
-            document.getElementById('areaPix').classList.add('hidden');
-            document.getElementById('formCheckout').classList.remove('hidden');
-            document.getElementById('modalCheckout').classList.remove('hidden');
-            document.getElementById('modalCheckout').classList.add('flex');
+  <script>
+    function abrirModal(id, nome, setup, mensalidade) {
+      document.getElementById('plano_id').value = id;
+      document.getElementById('modal-plano-nome').innerText = nome;
+      document.getElementById('etapa-formulario').classList.remove('hidden');
+      document.getElementById('etapa-pagamento').classList.add('hidden');
+      document.getElementById('modal-checkout').classList.remove('hidden');
+    }
+
+    function fecharModal() {
+      document.getElementById('modal-checkout').classList.add('hidden');
+    }
+
+    async function enviarAdesao(e) {
+      e.preventDefault();
+      const btn = document.getElementById('btn-submit');
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processando...';
+      btn.disabled = true;
+
+      const payload = {
+        plano_id: document.getElementById('plano_id').value,
+        nome_empresa: document.getElementById('nome_empresa').value,
+        cpf_cnpj: document.getElementById('cpf_cnpj').value,
+        email: document.getElementById('email').value,
+        whatsapp: document.getElementById('whatsapp').value
+      };
+
+      try {
+        const res = await fetch('/api/assinar-plano', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        
+        if (data.status === 'sucesso') {
+          document.getElementById('pix-valor').innerText = 'R$ ' + Number(data.setup_valor).toLocaleString('pt-BR', {minimumFractionDigits: 2});
+          document.getElementById('pix-chave').innerText = data.chave_pix;
+          document.getElementById('etapa-formulario').classList.add('hidden');
+          document.getElementById('etapa-pagamento').classList.remove('hidden');
+        } else {
+          alert('Erro ao solicitar plano. Tente novamente.');
         }
+      } catch (err) {
+        alert('Erro de conexão ao processar plano.');
+      } finally {
+        btn.innerHTML = '<span>Avançar para Pagamento</span> <i class="fas fa-arrow-right"></i>';
+        btn.disabled = false;
+      }
+    }
 
-        function fecharModal() {
-            document.getElementById('modalCheckout').classList.add('hidden');
-            document.getElementById('modalCheckout').classList.remove('flex');
-        }
-
-        async function enviarPedido(e) {
-            e.preventDefault();
-            const btn = document.getElementById('btnConfirmar');
-            btn.innerText = "Processando...";
-            btn.disabled = true;
-
-            const payload = {
-                plano_id: document.getElementById('planoEscolhido').value,
-                nome_empresa: document.getElementById('nomeEmpresa').value,
-                cpf_cnpj: document.getElementById('cpfCnpj').value,
-                whatsapp: document.getElementById('whatsapp').value,
-                email: document.getElementById('email').value
-            };
-
-            try {
-                const response = await fetch('/api/assinar-plano', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(payload)
-                });
-                const res = await response.json();
-                if(res.status === 'sucesso') {
-                    document.getElementById('formCheckout').classList.add('hidden');
-                    document.getElementById('areaPix').classList.remove('hidden');
-                } else {
-                    alert("Erro ao processar contratação. Tente novamente.");
-                    btn.innerText = "Gerar Pix de Adesão";
-                    btn.disabled = false;
-                }
-            } catch(err) {
-                alert("Erro de conexão. Verifique os dados.");
-                btn.innerText = "Gerar Pix de Adesão";
-                btn.disabled = false;
-            }
-        }
-    </script>
+    function copiarPix() {
+      const chave = document.getElementById('pix-chave').innerText;
+      navigator.clipboard.writeText(chave);
+      alert('Chave Pix copiada com sucesso!');
+    }
+  </script>
 </body>
 </html>
