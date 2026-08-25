@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Painel Master - Gestão de Lojas MVI CRM</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen p-4 md:p-8 font-sans">
+  <div class="max-w-6xl mx-auto space-y-6">
+    
+    <!-- Topo -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-6 rounded-2xl">
+      <div>
+        <div class="inline-flex items-center gap-2 px-3 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-bold rounded-full mb-2">
+          <i class="fas fa-crown"></i> Painel Super Admin
+        </div>
+        <h1 class="text-2xl md:text-3xl font-extrabold text-white">Gestão de Marcenarias & Assinantes</h1>
+        <p class="text-xs text-slate-400 mt-1">Gerencie os lojistas, links exclusivos e status de pagamento.</p>
+      </div>
+      <button onclick="abrirModalNovaLoja()" class="px-5 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-sm rounded-xl transition flex items-center gap-2 shadow-lg shadow-amber-500/10">
+        <i class="fas fa-plus-circle"></i> Cadastrar Nova Loja
+      </button>
+    </div>
+
+    <!-- Tabela de Lojas Cadastradas -->
+    <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
+      <h2 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
+        <i class="fas fa-store text-amber-500"></i> Lojas Cadastradas no Sistema
+      </h2>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+            <tr>
+              <th class="p-3">Loja / Slug</th>
+              <th class="p-3">Responsável & Contato</th>
+              <th class="p-3">Plano</th>
+              <th class="p-3">Status</th>
+              <th class="p-3">Link Exclusivo do Orçamento</th>
+              <th class="p-3 text-right">Ações</th>
+            </tr>
+          </thead>
+          <tbody id="tabela-lojas-corpo" class="divide-y divide-slate-800 text-slate-300">
+            <tr>
+              <td colspan="6" class="p-4 text-center text-slate-500">Carregando lojas...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Visualizador de Leads Recentes -->
+    <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
+      <h2 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
+        <i class="fas fa-users text-amber-500"></i> Últimos Orçamentos Recebidos (Geral)
+      </h2>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+            <tr>
+              <th class="p-3">Data</th>
+              <th class="p-3">Loja</th>
+              <th class="p-3">Cliente</th>
+              <th class="p-3">WhatsApp</th>
+              <th class="p-3">Ambientes</th>
+              <th class="p-3">Valor Estimado</th>
+            </tr>
+          </thead>
+          <tbody id="tabela-leads-corpo" class="divide-y divide-slate-800 text-slate-300">
+            <tr>
+              <td colspan="6" class="p-4 text-center text-slate-500">Carregando orçamentos...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Modal Cadastrar Nova Loja -->
+  <div id="modal-nova-loja" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+    <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl max-w-md w-full space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-lg font-bold text-white">Cadastrar Marcenaria</h3>
+        <button onclick="fecharModalNovaLoja()" class="text-slate-400 hover:text-white"><i class="fas fa-times"></i></button>
+      </div>
+      <form onsubmit="salvarNovaLoja(event)" class="space-y-3">
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Nome da Marcenaria</label>
+          <input type="text" id="novo_nome_loja" required placeholder="Ex: Marcenaria Silva" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Identificador no Link (Slug sem espaços)</label>
+          <input type="text" id="novo_slug" required placeholder="Ex: silva" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">WhatsApp do Lojista</label>
+          <input type="tel" id="novo_whats" required placeholder="5511999999999" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">E-mail de Acesso</label>
+          <input type="email" id="novo_email" required placeholder="loja@email.com" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Plano</label>
+          <select id="novo_plano" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white">
+            <option value="Starter">Starter (R$ 197/mês)</option>
+            <option value="Pro">Pro (R$ 397/mês)</option>
+            <option value="Enterprise">Enterprise (R$ 697/mês)</option>
+          </select>
+        </div>
+        <div class="flex gap-2 pt-2">
+          <button type="button" onclick="fecharModalNovaLoja()" class="w-1/2 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl text-xs">Cancelar</button>
+          <button type="submit" class="w-1/2 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs">Salvar e Ativar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    async function carregarDados() {
+      try {
+        const res = await fetch('/api/admin/listar-lojas-leads');
+        const data = await res.json();
+        
+        // Renderizar Lojas
+        const tbodyLojas = document.getElementById('tabela-lojas-corpo');
+        if (data.lojas.length === 0) {
+          tbodyLojas.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-slate-500">Nenhuma loja cadastrada.</td></tr>';
+        } else {
+          tbodyLojas.innerHTML = data.lojas.map(l => {
+            const linkOrcamento = `${window.location.origin}/orcamento-multi?loja=${l.slug}`;
+            const statusBadge = l.status === 'ativo' 
+              ? '<span class="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">Ativo</span>'
+              : '<span class="px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/30 text-[10px] font-bold">Bloqueado</span>';
+
+            return `
+              <tr class="hover:bg-slate-950/40">
+                <td class="p-3 font-semibold text-white">${l.nome_loja}<br><span class="text-[10px] text-amber-500 font-mono">?loja=${l.slug}</span></td>
+                <td class="p-3">${l.email}<br><span class="text-[11px] text-slate-400">${l.whatsapp}</span></td>
+                <td class="p-3 font-semibold text-slate-300">${l.plano || 'Pro'}</td>
+                <td class="p-3">${statusBadge}</td>
+                <td class="p-3">
+                  <div class="flex items-center gap-2">
+                    <input type="text" readonly value="${linkOrcamento}" class="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[10px] text-slate-400 w-48 truncate">
+                    <button onclick="navigator.clipboard.writeText('${linkOrcamento}'); alert('Link copiado!');" class="p-1.5 bg-slate-800 hover:bg-slate-700 text-amber-400 rounded text-xs" title="Copiar Link"><i class="fas fa-copy"></i></button>
+                  </div>
+                </td>
+                <td class="p-3 text-right">
+                  <button onclick="alternarStatusLoja('${l.slug}', '${l.status === 'ativo' ? 'bloqueado' : 'ativo'}')" class="px-2.5 py-1 rounded text-[11px] font-bold ${l.status === 'ativo' ? 'bg-rose-500/20 text-rose-400 hover:bg-rose-500/30' : 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30'}">
+                    ${l.status === 'ativo' ? 'Bloquear' : 'Ativar'}
+                  </button>
+                </td>
+              </tr>
+            `;
+          }).join('');
+        }
+
+        // Renderizar Leads
+        const tbodyLeads = document.getElementById('tabela-leads-corpo');
+        if (data.leads.length === 0) {
+          tbodyLeads.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-slate-500">Nenhum orçamento registrado ainda.</td></tr>';
+        } else {
+          tbodyLeads.innerHTML = data.leads.map(lead => `
+            <tr class="hover:bg-slate-950/40">
+              <td class="p-3 text-slate-400">${new Date(lead.data_envio).toLocaleDateString('pt-BR')}</td>
+              <td class="p-3 font-bold text-amber-400 uppercase">${lead.loja_slug}</td>
+              <td class="p-3 text-white font-semibold">${lead.cliente_nome}</td>
+              <td class="p-3">${lead.cliente_whats}</td>
+              <td class="p-3">${lead.ambientes}</td>
+              <td class="p-3 font-bold text-emerald-400">${lead.valor_estimado}</td>
+            </tr>
+          `).join('');
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    function abrirModalNovaLoja() { document.getElementById('modal-nova-loja').classList.remove('hidden'); }
+    function fecharModalNovaLoja() { document.getElementById('modal-nova-loja').classList.add('hidden'); }
+
+    async function salvarNovaLoja(e) {
+      e.preventDefault();
+      const formData = new FormData();
+      formData.append('nome_loja', document.getElementById('novo_nome_loja').value);
+      formData.append('slug', document.getElementById('novo_slug').value.toLowerCase().trim().replace(/\s+/g, '-'));
+      formData.append('whatsapp', document.getElementById('novo_whats').value);
+      formData.append('email', document.getElementById('novo_email').value);
+      formData.append('plano', document.getElementById('novo_plano').value);
+
+      const res = await fetch('/api/admin/cadastrar-loja', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (data.status === 'sucesso') {
+        alert('Loja cadastrada com sucesso!');
+        fecharModalNovaLoja();
+        carregarDados();
+      } else {
+        alert('Erro ao cadastrar: ' + data.mensagem);
+      }
+    }
+
+    async function alternarStatusLoja(slug, novoStatus) {
+      if (!confirm(`Deseja alterar o status da loja ${slug} para ${novoStatus}?`)) return;
+      const formData = new FormData();
+      formData.append('slug', slug);
+      formData.append('status', novoStatus);
+      await fetch('/api/admin/alterar-status-loja', { method: 'POST', body: formData });
+      carregarDados();
+    }
+
+    window.addEventListener('DOMContentLoaded', carregarDados);
+  </script>
+</body>
+</html>
