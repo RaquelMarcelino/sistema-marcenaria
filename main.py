@@ -71,8 +71,12 @@ def enviar_email_convite_vendedor(nome_vendedor: str, email_vendedor: str, senha
         print(f"Erro no envio de e-mail ao vendedor: {e}")
         return False
 app = FastAPI(title="MVI Móveis Planejados - Master SaaS & FinTech")
-DB_PATH = "mvi_production_v49.db"
-META_PIXEL_ID = "641231925101582"
+# Banco persistente no Disco SSD do Render
+if os.path.exists("/var/data"):
+    DB_PATH = "/var/data/sistema_marcenaria.db"
+else:
+    DB_PATH = "sistema_marcenaria.db"
+    META_PIXEL_ID = "641231925101582"
 DEFAULT_ASAAS_KEY = "$aact_prod_000MzkwODA2MWY2OGM3MWRlMDU2NWM3MzJlNzZmNGZhZGY6OmZjNzAxZGMzLTA0MzItNGYxNy04NTI0LTU1ZDk0YmZjNTliYzo6JGFhY2hfZmY2M2U5MTAtZjA4Ny00YmFjLTgwY2UtYjVmYjBiM2Q4ZGYw"
 
 
