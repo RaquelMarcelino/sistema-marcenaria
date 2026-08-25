@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Solicitar Orçamento & Render 3D - MVI CRM</title>
+  <title>MVI CRM - Simulador & Render IA Multi-Ambientes</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
 </head>
@@ -11,55 +11,107 @@
   <div class="max-w-5xl mx-auto">
     
     <div class="text-center mb-8">
-      <h1 class="text-3xl md:text-4xl font-extrabold text-amber-500 uppercase tracking-wide">Solicitação de Orçamento & Render 3D</h1>
-      <p class="text-slate-400 mt-2 text-sm md:text-base">Envie a planta baixa do imóvel e as fotos dos ambientes para geração automática do render decorado e precificação.</p>
+      <h1 class="text-3xl md:text-5xl font-extrabold text-amber-500 uppercase tracking-wide">MVI CRM</h1>
+      <p class="text-slate-400 mt-2 text-sm md:text-base">Simulador Técnico de Marcenaria & Renderizador IA Fiel com Leitura de Medidas</p>
     </div>
 
     <form id="form-orcamento-multi" onsubmit="enviarProjetoMulti(event)" class="space-y-6">
       
-      <!-- 1. Dados do Cliente -->
+      <!-- 1. DADOS DO CLIENTE -->
       <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
         <h2 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
-          <i class="fas fa-user-circle text-amber-500"></i> 1. Dados do Cliente e Projeto
+          <i class="fas fa-user-circle text-amber-500"></i> 1. Dados do Cliente
         </h2>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label class="block text-xs text-slate-400 mb-1">Nome Completo do Cliente</label>
+            <label class="block text-xs text-slate-400 mb-1">Nome Completo</label>
             <input type="text" id="cliente_nome" required class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-amber-500">
           </div>
           <div>
             <label class="block text-xs text-slate-400 mb-1">WhatsApp</label>
             <input type="tel" id="cliente_whats" required placeholder="(11) 99999-9999" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-amber-500">
           </div>
+        </div>
+      </div>
+
+      <!-- 2. ESPECIFICAÇÕES TÉCNICAS DE MARCENARIA -->
+      <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
+        <h2 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
+          <i class="fas fa-tools text-amber-500"></i> 2. Especificações de Caixas, Portas & Ferragens
+        </h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <label class="block text-xs text-slate-400 mb-1">Estilo Geral de Decoração</label>
-            <select id="estilo_geral" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-amber-500">
-              <option value="Moderno Minimalista com Led">Moderno Minimalista com Led</option>
-              <option value="Industrial Amadeirado com Preto">Industrial Amadeirado com Preto</option>
-              <option value="Contemporâneo Ripado e Mármore">Contemporâneo Ripado e Mármore</option>
-              <option value="Clássico Branco e Dourado">Clássico Branco e Dourado</option>
+            <label class="block text-xs text-slate-400 mb-1">Espessura da Caixa (Estrutura)</label>
+            <select id="espessura_caixa" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white">
+              <option value="MDF 18mm (Reforçado)">MDF 18mm (Reforçado)</option>
+              <option value="MDF 15mm (Padrão)">MDF 15mm (Padrão)</option>
+              <option value="Compensado Naval 18mm">Compensado Naval 18mm</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">Padrão / Cor da Caixa</label>
+            <select id="cor_caixa" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white">
+              <option value="Branco TX">Branco TX</option>
+              <option value="Cinza Sagrado">Cinza Sagrado</option>
+              <option value="Grafite / Preto Trama">Grafite / Preto Trama</option>
+              <option value="Amadeirado Carvalho">Amadeirado Carvalho</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">Espessura das Portas</label>
+            <select id="espessura_portas" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white">
+              <option value="MDF 18mm">MDF 18mm</option>
+              <option value="MDF 25mm (Robusto)">MDF 25mm (Robusto)</option>
+              <option value="Vidro com Perfil Alumínio">Vidro com Perfil Alumínio</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">Padrão / Cor das Portas</label>
+            <select id="cor_portas" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white">
+              <option value="Branco TX">Branco TX</option>
+              <option value="Cinza Sagrado Matt">Cinza Sagrado Matt</option>
+              <option value="Verde Oliva / Sage">Verde Oliva / Sage</option>
+              <option value="Amadeirado Freijó / Louro">Amadeirado Freijó / Louro</option>
+              <option value="Preto Silk / Grafite">Preto Silk / Grafite</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">Marca das Ferragens</label>
+            <select id="ferragens" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white">
+              <option value="Blum (Linha Blumotion Áustria)">Blum (Linha Blumotion Áustria)</option>
+              <option value="Hettich (Linha Sensys Alemanha)">Hettich (Linha Sensys Alemanha)</option>
+              <option value="Hafele (Linha Oculta)">Hafele (Linha Oculta)</option>
+              <option value="FGV TN com Amortecimento">FGV TN com Amortecimento</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">Tamponamento Externo</label>
+            <select id="tamponamento" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white">
+              <option value="Tamponamento 25mm">Tamponamento 25mm</option>
+              <option value="Tamponamento 36mm Engrossado">Tamponamento 36mm Engrossado</option>
+              <option value="Sem Tamponamento (18mm Direto)">Sem Tamponamento (18mm Direto)</option>
             </select>
           </div>
         </div>
       </div>
 
-      <!-- 2. Planta Baixa (Upload 1x) -->
+      <!-- 3. PLANTA BAIXA GERAL (1X) -->
       <div class="bg-slate-900 border-2 border-dashed border-amber-500/40 hover:border-amber-500 transition p-6 rounded-2xl text-center">
         <i class="fas fa-drafting-compass text-3xl text-amber-500 mb-2"></i>
         <h3 class="text-base font-bold text-white">Planta Baixa Geral do Imóvel (Envie 1x)</h3>
-        <p class="text-xs text-slate-400 mb-4">Envie o arquivo ou foto da planta do imóvel para leitura das medidas globais pela IA.</p>
+        <p class="text-xs text-slate-400 mb-4">Envie o arquivo ou foto da planta com medidas para leitura global pela IA.</p>
         <input type="file" id="planta_geral" accept="image/*,.pdf" class="hidden" onchange="mostrarNomePlanta(this)">
         <label for="planta_geral" class="cursor-pointer inline-flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs transition">
           <i class="fas fa-upload"></i> <span id="label-planta">Selecionar Arquivo da Planta</span>
         </label>
       </div>
 
-      <!-- 3. Ambientes -->
+      <!-- 4. AMBIENTES, FOTOS E MEDIDAS REAIS -->
       <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
         <h2 class="text-lg font-bold text-white mb-2 flex items-center gap-2">
-          <i class="fas fa-cubes text-amber-500"></i> 2. Ambientes a Orçar e Renderizar
+          <i class="fas fa-cubes text-amber-500"></i> 4. Ambientes a Orçar & Fotos do Local com Medidas
         </h2>
-        <p class="text-xs text-slate-400 mb-6">Marque os ambientes desejados, insira as medidas das paredes e anexe a foto do local:</p>
+        <p class="text-xs text-slate-400 mb-6">Marque os ambientes, anexe a foto da parede/obra com as cotas desenhadas e digite as dimensões:</p>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 
@@ -69,7 +121,7 @@
               <input type="checkbox" id="check_cozinha" checked class="w-4 h-4 text-amber-500 accent-amber-500">
               🍳 Cozinha Planejada
             </label>
-            <input type="text" id="medidas_cozinha" placeholder="Medidas das paredes (ex: Parede Pia: 3.20m | Torre: 2.10m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
+            <input type="text" id="medidas_cozinha" placeholder="Medidas reais (ex: Parede 3.82m x 2.50m | Altura 2.63m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
             <input type="file" id="foto_cozinha" accept="image/*" class="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700">
           </div>
 
@@ -79,7 +131,7 @@
               <input type="checkbox" id="check_lavanderia" class="w-4 h-4 text-amber-500 accent-amber-500">
               🧺 Lavanderia / Área de Serviço
             </label>
-            <input type="text" id="medidas_lavanderia" placeholder="Medidas das paredes (ex: Parede Tanque: 1.80m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
+            <input type="text" id="medidas_lavanderia" placeholder="Medidas reais (ex: Parede Tanque: 1.80m x 2.60m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
             <input type="file" id="foto_lavanderia" accept="image/*" class="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700">
           </div>
 
@@ -89,7 +141,7 @@
               <input type="checkbox" id="check_sacada" class="w-4 h-4 text-amber-500 accent-amber-500">
               🍷 Sacada / Varanda Gourmet
             </label>
-            <input type="text" id="medidas_sacada" placeholder="Medidas das paredes (ex: Bancada: 2.40m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
+            <input type="text" id="medidas_sacada" placeholder="Medidas reais (ex: Parede Churrasqueira: 2.40m x 2.60m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
             <input type="file" id="foto_sacada" accept="image/*" class="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700">
           </div>
 
@@ -99,7 +151,7 @@
               <input type="checkbox" id="check_casal" class="w-4 h-4 text-amber-500 accent-amber-500">
               🛏️ Dormitório Casal / Suíte
             </label>
-            <input type="text" id="medidas_casal" placeholder="Medidas das paredes (ex: Guarda-roupa: 3.50m | Cama: 2.80m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
+            <input type="text" id="medidas_casal" placeholder="Medidas reais (ex: Armário: 3.50m | Cabeceira: 2.80m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
             <input type="file" id="foto_casal" accept="image/*" class="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700">
           </div>
 
@@ -109,7 +161,7 @@
               <input type="checkbox" id="check_solteiro" class="w-4 h-4 text-amber-500 accent-amber-500">
               🧸 Dormitório Solteiro / Home Office
             </label>
-            <input type="text" id="medidas_solteiro" placeholder="Medidas das paredes (ex: Bancada: 1.60m | Armário: 2.00m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
+            <input type="text" id="medidas_solteiro" placeholder="Medidas reais (ex: Armário: 2.00m | Bancada: 1.50m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
             <input type="file" id="foto_solteiro" accept="image/*" class="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700">
           </div>
 
@@ -119,14 +171,14 @@
               <input type="checkbox" id="check_banho" class="w-4 h-4 text-amber-500 accent-amber-500">
               🚿 Banho Social & Lavabo
             </label>
-            <input type="text" id="medidas_banho" placeholder="Medidas das paredes (ex: Gabinete: 1.10m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
+            <input type="text" id="medidas_banho" placeholder="Medidas reais (ex: Gabinete: 1.20m x 0.85m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
             <input type="file" id="foto_banho" accept="image/*" class="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700">
           </div>
 
         </div>
       </div>
 
-      <!-- Botão de Ação -->
+      <!-- BOTÃO DE AÇÃO -->
       <button type="submit" id="btn-gerar" class="w-full py-4 rounded-xl font-extrabold bg-amber-500 hover:bg-amber-400 text-slate-950 text-base shadow-xl shadow-amber-500/10 transition flex items-center justify-center gap-3">
         <i class="fas fa-magic"></i>
         <span>Gerar Renders 3D Decorados e Orçamento</span>
@@ -134,9 +186,11 @@
 
     </form>
 
-    <!-- Área de Exibição dos Renders Gerados -->
+    <!-- RESULTADO DOS RENDERS -->
     <div id="resultado-renders" class="hidden mt-10 bg-slate-900 border border-slate-800 p-6 rounded-2xl">
-      <h3 class="text-xl font-bold text-amber-500 mb-4"><i class="fas fa-image mr-2"></i> Renders 3D Gerados pela IA:</h3>
+      <h3 class="text-xl font-bold text-amber-500 mb-4 flex items-center gap-2">
+        <i class="fas fa-cubes"></i> Renders 3D e Análise do Projeto Gerados pela IA:
+      </h3>
       <div id="grid-renders-gerados" class="grid grid-cols-1 md:grid-cols-2 gap-6"></div>
     </div>
 
@@ -152,13 +206,18 @@
     async function enviarProjetoMulti(e) {
       e.preventDefault();
       const btn = document.getElementById('btn-gerar');
-      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processando Planta e Renders 3D...';
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> O Gemini Vision está analisando as fotos com medidas e renderizando...';
       btn.disabled = true;
 
       const formData = new FormData();
       formData.append('cliente_nome', document.getElementById('cliente_nome').value);
       formData.append('cliente_whats', document.getElementById('cliente_whats').value);
-      formData.append('estilo_geral', document.getElementById('estilo_geral').value);
+      formData.append('espessura_caixa', document.getElementById('espessura_caixa').value);
+      formData.append('cor_caixa', document.getElementById('cor_caixa').value);
+      formData.append('espessura_portas', document.getElementById('espessura_portas').value);
+      formData.append('cor_portas', document.getElementById('cor_portas').value);
+      formData.append('ferragens', document.getElementById('ferragens').value);
+      formData.append('tamponamento', document.getElementById('tamponamento').value);
 
       const plantaFile = document.getElementById('planta_geral').files[0];
       if (plantaFile) formData.append('planta_geral', plantaFile);
@@ -186,22 +245,26 @@
           
           data.resultados.forEach(item => {
             container.innerHTML += `
-              <div class="bg-slate-950 p-4 rounded-xl border border-slate-800">
-                <h4 class="font-bold text-amber-400 capitalize mb-2">${item.ambiente}</h4>
-                <img src="${item.url_render}" class="w-full h-64 object-cover rounded-lg mb-2" alt="${item.ambiente}">
-                <p class="text-xs text-slate-400">${item.descricao_decoracao}</p>
+              <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-col justify-between">
+                <div>
+                  <h4 class="font-bold text-amber-400 text-lg mb-2 capitalize">${item.ambiente}</h4>
+                  <div class="relative w-full h-80 rounded-lg overflow-hidden border border-slate-800 mb-3 bg-slate-900">
+                    <img src="${item.url_render}" class="w-full h-full object-cover" alt="${item.ambiente}">
+                  </div>
+                  <p class="text-xs text-slate-300 leading-relaxed whitespace-pre-line">${item.descricao_decoracao}</p>
+                </div>
               </div>
             `;
           });
           document.getElementById('resultado-renders').classList.remove('hidden');
-          window.scrollTo({ top: document.getElementById('resultado-renders').offsetTop, behavior: 'smooth' });
+          window.scrollTo({ top: document.getElementById('resultado-renders').offsetTop - 30, behavior: 'smooth' });
         } else {
-          alert('Erro no processamento: ' + (data.mensagem || 'Tente novamente'));
+          alert('Erro ao processar: ' + (data.mensagem || 'Tente novamente'));
         }
       } catch (err) {
-        alert('Erro de conexão ao processar os ambientes.');
+        alert('Erro de conexão ao renderizar.');
       } finally {
-        btn.innerHTML = '<i class="fas fa-magic"></i> <span>Gerar Renders 3D Decorados e Orçamento</span>';
+        btn.innerHTML = '<i class="fas fa-magic mr-2"></i> <span>Gerar Renders 3D Decorados e Orçamento</span>';
         btn.disabled = false;
       }
     }
