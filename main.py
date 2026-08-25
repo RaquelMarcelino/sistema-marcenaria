@@ -3248,7 +3248,6 @@ except Exception as e:
 @app.get("/solicitar-orcamento")
 @app.get("/orcamento-multi")
 async def rota_solicitar_orcamento(request: Request, loja: Optional[str] = None):
-    # Trava de Seguranca: Verifica se a loja existe e se esta ativa
     if loja and loja.lower() != "padrao":
         conn = sqlite3.connect("sistema_marcenaria.db")
         cursor = conn.cursor()
@@ -3266,30 +3265,34 @@ async def rota_solicitar_orcamento(request: Request, loja: Optional[str] = None)
                 status_code=403
             )
 
-    caminhos_possiveis = [
-        os.path.join(os.path.dirname(__file__), "templates", "templates", "solicitar_orcamento.html"),
-        os.path.join(os.path.dirname(__file__), "templates", "solicitar_orcamento.html"),
-        os.path.join(os.getcwd(), "templates", "templates", "solicitar_orcamento.html"),
-        os.path.join(os.getcwd(), "templates", "solicitar_orcamento.html")
+    caminhos = [
+        "templates/templates/templates/solicitar_orcamento.html",
+        "templates/templates/solicitar_orcamento.html",
+        "templates/solicitar_orcamento.html",
+        "solicitar_orcamento.html"
     ]
-    for p in caminhos_possiveis:
-        if os.path.exists(p):
-            with open(p, "r", encoding="utf-8") as f:
-                return HTMLResponse(content=f.read())
+    for c in caminhos:
+        for base in [os.path.dirname(__file__), os.getcwd()]:
+            p = os.path.join(base, c)
+            if os.path.exists(p):
+                with open(p, "r", encoding="utf-8") as f:
+                    return HTMLResponse(content=f.read())
     return HTMLResponse(content="<h2>Template de orcamento nao encontrado</h2>", status_code=404)
 
 @app.get("/admin-lojas")
 async def rota_admin_lojas(request: Request):
-    caminhos_possiveis = [
-        os.path.join(os.path.dirname(__file__), "templates", "templates", "admin_lojas.html"),
-        os.path.join(os.path.dirname(__file__), "templates", "admin_lojas.html"),
-        os.path.join(os.getcwd(), "templates", "templates", "admin_lojas.html"),
-        os.path.join(os.getcwd(), "templates", "admin_lojas.html")
+    caminhos = [
+        "templates/templates/templates/admin_lojas.html",
+        "templates/templates/admin_lojas.html",
+        "templates/admin_lojas.html",
+        "admin_lojas.html"
     ]
-    for p in caminhos_possiveis:
-        if os.path.exists(p):
-            with open(p, "r", encoding="utf-8") as f:
-                return HTMLResponse(content=f.read())
+    for c in caminhos:
+        for base in [os.path.dirname(__file__), os.getcwd()]:
+            p = os.path.join(base, c)
+            if os.path.exists(p):
+                with open(p, "r", encoding="utf-8") as f:
+                    return HTMLResponse(content=f.read())
     return HTMLResponse(content="<h2>Template admin nao encontrado</h2>", status_code=404)
 
 @app.get("/api/admin/listar-lojas-leads")
