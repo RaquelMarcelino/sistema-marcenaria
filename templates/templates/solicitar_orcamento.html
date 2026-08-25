@@ -13,10 +13,10 @@
     <!-- Cabeçalho -->
     <div class="text-center mb-8">
       <h1 class="text-3xl md:text-5xl font-extrabold text-amber-500 uppercase tracking-wide">MVI CRM</h1>
-      <p class="text-slate-400 mt-2 text-sm md:text-base">Briefing Completo e Solicitação de Orçamento Sob Medida</p>
+      <p class="text-slate-400 mt-2 text-sm md:text-base">Briefing Completo, Estimativa de Pré-Orçamento & Fechamento</p>
     </div>
 
-    <form id="form-orcamento" onsubmit="enviarBriefing(event)" class="space-y-6">
+    <form id="form-orcamento" onsubmit="calcularEEnviarBriefing(event)" class="space-y-6">
       
       <!-- 1. DADOS DO CLIENTE & STATUS DAS CHAVES -->
       <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
@@ -33,7 +33,7 @@
             <input type="tel" id="cliente_whats" required placeholder="(11) 99999-9999" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-amber-500">
           </div>
           <div>
-            <label class="block text-xs text-slate-400 mb-1">Status das Chaves do Imóvel</label>
+            <label class="block text-xs text-slate-400 mb-1">Status das Chaves</label>
             <select id="status_chaves" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-amber-500" onchange="toggleDataChave(this.value)">
               <option value="Já estou com as chaves (Obra liberada)">🔑 Já estou com as chaves</option>
               <option value="Aguardando entrega das chaves">📅 Aguardando entrega das chaves</option>
@@ -47,14 +47,14 @@
         </div>
       </div>
 
-      <!-- 2. ESPECIFICAÇÕES TÉCNICAS DE MARCENARIA -->
+      <!-- 2. ESPECIFICAÇÕES TÉCNICAS -->
       <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
         <h2 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
-          <i class="fas fa-tools text-amber-500"></i> 2. Especificações de Caixas, Portas & Ferragens
+          <i class="fas fa-tools text-amber-500"></i> 2. Especificações de Estrutura, Portas & Ferragens
         </h2>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <label class="block text-xs text-slate-400 mb-1">Espessura da Caixa (Estrutura)</label>
+            <label class="block text-xs text-slate-400 mb-1">Espessura da Caixa</label>
             <select id="espessura_caixa" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white">
               <option value="MDF 18mm (Reforçado)">MDF 18mm (Reforçado)</option>
               <option value="MDF 15mm (Padrão)">MDF 15mm (Padrão)</option>
@@ -108,33 +108,25 @@
         </div>
       </div>
 
-      <!-- 3. LINKS OU UPLOADS DE PLANTA E INSPIRAÇÕES -->
-      <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-6">
+      <!-- 3. PLANTA E INSPIRAÇÕES -->
+      <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4">
         <h2 class="text-lg font-bold text-white mb-2 flex items-center gap-2">
           <i class="fas fa-folder-open text-amber-500"></i> 3. Arquivos: Planta Geral & Fotos / Inspirações
         </h2>
-
-        <!-- Planta Baixa Geral (Upload 1x ou Link) -->
-        <div class="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-3">
-          <div class="flex items-center gap-2">
-            <i class="fas fa-drafting-compass text-amber-500"></i>
-            <h3 class="text-sm font-bold text-white">Planta Baixa Geral (Envie 1x)</h3>
-          </div>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-2">
+            <h3 class="text-xs font-bold text-white flex items-center gap-2">
+              <i class="fas fa-drafting-compass text-amber-500"></i> Planta Baixa Geral (Upload ou Link)
+            </h3>
             <input type="file" id="planta_arquivo" accept="image/*,.pdf" class="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700">
-            <input type="url" id="planta_link" placeholder="Ou cole o link da planta (Drive, Dropbox, Canva...)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
+            <input type="url" id="planta_link" placeholder="Ou cole o link do Drive/Dropbox..." class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white">
           </div>
-        </div>
-
-        <!-- Fotos dos Ambientes e Inspirações (Múltiplos Arquivos ou Link) -->
-        <div class="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-3">
-          <div class="flex items-center gap-2">
-            <i class="fas fa-images text-amber-500"></i>
-            <h3 class="text-sm font-bold text-white">Fotos dos Ambientes, Medidas & Inspirações (Múltiplos Arquivos)</h3>
-          </div>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div class="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-2">
+            <h3 class="text-xs font-bold text-white flex items-center gap-2">
+              <i class="fas fa-images text-amber-500"></i> Fotos dos Ambientes / Inspirações
+            </h3>
             <input type="file" id="fotos_ambientes" multiple accept="image/*,.pdf" class="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700">
-            <input type="url" id="fotos_link" placeholder="Ou cole o link da pasta de fotos / Pinterest / Drive" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
+            <input type="url" id="fotos_link" placeholder="Ou link da pasta/Pinterest..." class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white">
           </div>
         </div>
       </div>
@@ -142,7 +134,7 @@
       <!-- 4. BRIEFING DETALHADO POR AMBIENTE -->
       <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
         <h2 class="text-lg font-bold text-white mb-2 flex items-center gap-2">
-          <i class="fas fa-cubes text-amber-500"></i> 4. Briefing e Medidas por Ambiente
+          <i class="fas fa-cubes text-amber-500"></i> 4. Briefing e Metragens por Ambiente
         </h2>
         <p class="text-xs text-slate-400 mb-6">Marque os ambientes desejados e descreva o que o cliente sonha para cada espaço:</p>
 
@@ -154,8 +146,8 @@
               <input type="checkbox" id="check_cozinha" checked class="w-4 h-4 text-amber-500 accent-amber-500">
               🍳 Cozinha Planejada
             </label>
-            <input type="text" id="medidas_cozinha" placeholder="Medidas das paredes (ex: Parede Pia 3.82m x 2.50m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
-            <textarea id="briefing_cozinha" rows="2" placeholder="Briefing: Torre quente, bancada península em L, fita LED nos aéreos, lixeira embutida..." class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500"></textarea>
+            <input type="text" id="medidas_cozinha" placeholder="Medidas das paredes (ex: 2.50m x 3.82m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
+            <textarea id="briefing_cozinha" rows="2" placeholder="Briefing: Torre quente, península em L, fita LED nos aéreos..." class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500"></textarea>
           </div>
 
           <!-- Lavanderia -->
@@ -164,8 +156,8 @@
               <input type="checkbox" id="check_lavanderia" class="w-4 h-4 text-amber-500 accent-amber-500">
               🧺 Lavanderia / Área de Serviço
             </label>
-            <input type="text" id="medidas_lavanderia" placeholder="Medidas das paredes (ex: Parede Tanque 1.80m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
-            <textarea id="briefing_lavanderia" rows="2" placeholder="Briefing: Armário sobre a máquina, tulha aramada para roupas, basculante..." class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500"></textarea>
+            <input type="text" id="medidas_lavanderia" placeholder="Medidas das paredes (ex: 1.80m x 2.60m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
+            <textarea id="briefing_lavanderia" rows="2" placeholder="Briefing: Armário máquina lava e seca, tulha aramada..." class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500"></textarea>
           </div>
 
           <!-- Sacada -->
@@ -174,8 +166,8 @@
               <input type="checkbox" id="check_sacada" class="w-4 h-4 text-amber-500 accent-amber-500">
               🍷 Sacada / Varanda Gourmet
             </label>
-            <input type="text" id="medidas_sacada" placeholder="Medidas das paredes (ex: Bancada Churrasqueira 2.40m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
-            <textarea id="briefing_sacada" rows="2" placeholder="Briefing: Adega climatizada, móvel sob a churrasqueira, painel ripado..." class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500"></textarea>
+            <input type="text" id="medidas_sacada" placeholder="Medidas das paredes (ex: 2.40m x 2.60m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
+            <textarea id="briefing_sacada" rows="2" placeholder="Briefing: Móvel para chopeira, adega climatizada, ripado..." class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500"></textarea>
           </div>
 
           <!-- Dormitório Casal -->
@@ -184,8 +176,8 @@
               <input type="checkbox" id="check_casal" class="w-4 h-4 text-amber-500 accent-amber-500">
               🛏️ Dormitório Casal / Suíte
             </label>
-            <input type="text" id="medidas_casal" placeholder="Medidas das paredes (ex: Guarda-roupa 3.50m | Parede Cama 2.80m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
-            <textarea id="briefing_casal" rows="2" placeholder="Briefing: Portas reflecta bronze, LED interno, cabeceira ripada e mesas suspensas..." class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500"></textarea>
+            <input type="text" id="medidas_casal" placeholder="Medidas das paredes (ex: Armário 3.50m | Cabeceira 2.80m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
+            <textarea id="briefing_casal" rows="2" placeholder="Briefing: Portas reflecta bronze, LED interno, cabeceira ripada..." class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500"></textarea>
           </div>
 
           <!-- Dormitório Solteiro -->
@@ -195,7 +187,7 @@
               🧸 Dormitório Solteiro / Office
             </label>
             <input type="text" id="medidas_solteiro" placeholder="Medidas das paredes (ex: Armário 2.00m | Mesa 1.50m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
-            <textarea id="briefing_solteiro" rows="2" placeholder="Briefing: Bancada de estudos, nichos iluminados para livros, gaveteiro..." class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500"></textarea>
+            <textarea id="briefing_solteiro" rows="2" placeholder="Briefing: Bancada de estudos, nichos iluminados para livros..." class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500"></textarea>
           </div>
 
           <!-- Banho e Lavabo -->
@@ -205,30 +197,66 @@
               🚿 Banho Social & Lavabo
             </label>
             <input type="text" id="medidas_banho" placeholder="Medidas das paredes (ex: Gabinete 1.20m x 0.85m)" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500">
-            <textarea id="briefing_banho" rows="2" placeholder="Briefing: Gabinete suspenso resistente a umidade, espelheira iluminada..." class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500"></textarea>
+            <textarea id="briefing_banho" rows="2" placeholder="Briefing: Gabinete suspenso com gavetas ocultas, espelheira..." class="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500"></textarea>
           </div>
 
         </div>
       </div>
 
-      <!-- BOTÃO DE ENVIO -->
-      <button type="submit" id="btn-enviar" class="w-full py-4 rounded-xl font-extrabold bg-amber-500 hover:bg-amber-400 text-slate-950 text-base shadow-xl shadow-amber-500/10 transition flex items-center justify-center gap-3">
-        <i class="fas fa-paper-plane"></i>
-        <span>Enviar Briefing e Solicitar Orçamento</span>
+      <!-- BOTÃO CALCULAR PRÉ-ORÇAMENTO -->
+      <button type="submit" id="btn-calcular" class="w-full py-4 rounded-xl font-extrabold bg-amber-500 hover:bg-amber-400 text-slate-950 text-base shadow-xl shadow-amber-500/10 transition flex items-center justify-center gap-3">
+        <i class="fas fa-calculator"></i>
+        <span>Calcular Pré-Orçamento Estimado</span>
       </button>
 
     </form>
 
-    <!-- CONFIRMAÇÃO DE ENVIO -->
-    <div id="resultado-sucesso" class="hidden mt-8 bg-slate-900 border border-emerald-500/40 p-6 rounded-2xl text-center">
-      <i class="fas fa-check-circle text-4xl text-emerald-400 mb-2"></i>
-      <h3 class="text-xl font-bold text-emerald-400">Briefing e Solicitação Recebidos com Sucesso!</h3>
-      <p class="text-xs text-slate-300 mt-2 leading-relaxed" id="resumo-envio"></p>
+    <!-- BLOCO DE RESULTADO: PRÉ-ORÇAMENTO + DECISÃO COMERCIAL -->
+    <div id="resultado-orcamento" class="hidden mt-8 space-y-6">
+      
+      <!-- Card do Valor Estimado -->
+      <div class="bg-slate-900 border border-amber-500/40 p-6 md:p-8 rounded-2xl text-center shadow-2xl relative">
+        <div class="inline-flex items-center gap-2 px-3 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-bold rounded-full mb-3">
+          ✨ Pré-Orçamento Calculado com Sucesso!
+        </div>
+        <h3 class="text-slate-300 text-sm mb-1" id="resumo-cliente"></h3>
+        <p class="text-xs text-slate-400 mb-4" id="resumo-ambientes"></p>
+        
+        <div class="py-4 border-y border-slate-800 my-4">
+          <p class="text-xs text-slate-400 uppercase tracking-wider mb-1">Valor Estimado do Projeto</p>
+          <div class="text-3xl md:text-5xl font-black text-amber-400 tracking-tight" id="valor-total-est">R$ 0,00</div>
+          <div class="mt-2 inline-flex items-center gap-1.5 text-xs text-emerald-400 font-semibold bg-emerald-500/10 px-3 py-1 rounded-md">
+            <i class="fas fa-bolt"></i> À Vista no PIX (5% de Desconto): <span id="valor-pix">R$ 0,00</span>
+          </div>
+        </div>
+
+        <p class="text-[11px] text-slate-500 max-w-xl mx-auto">
+          *Estimativa preliminar baseada nos ambientes, ferragens e padrões selecionados. O projeto executivo e detalhamento oficial serão validados pelo projetista técnico.
+        </p>
+      </div>
+
+      <!-- Card de Decisão Comercial: Continuar ou Não -->
+      <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
+        <h4 class="text-base font-bold text-center text-white mb-4">Deseja dar continuidade ao seu projeto?</h4>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <button onclick="continuarWhatsApp()" class="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold rounded-xl shadow-lg transition flex items-center justify-center gap-2 text-sm">
+            <i class="fab fa-whatsapp text-lg"></i>
+            <span>SIM, QUERO DAR CONTINUIDADE NO WHATSAPP</span>
+          </button>
+          <button onclick="fecharSemInteresse()" class="w-full py-3.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl transition flex items-center justify-center gap-2 text-sm">
+            <i class="fas fa-times text-slate-400"></i>
+            <span>Não tenho interesse no momento</span>
+          </button>
+        </div>
+      </div>
+
     </div>
 
   </div>
 
   <script>
+    let dadosProjetoAtual = {};
+
     function toggleDataChave(valor) {
       const box = document.getElementById('box-previsao-chave');
       if (valor.includes('Aguardando') || valor.includes('planta')) {
@@ -238,10 +266,10 @@
       }
     }
 
-    async function enviarBriefing(e) {
+    async function calcularEEnviarBriefing(e) {
       e.preventDefault();
-      const btn = document.getElementById('btn-enviar');
-      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Enviando Briefing...';
+      const btn = document.getElementById('btn-calcular');
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Calculando Estimativa...';
       btn.disabled = true;
 
       const formData = new FormData();
@@ -285,18 +313,39 @@
         const data = await res.json();
         
         if (data.status === 'sucesso') {
-          document.getElementById('resumo-envio').innerText = data.mensagem;
-          document.getElementById('resultado-sucesso').classList.remove('hidden');
-          window.scrollTo({ top: document.getElementById('resultado-sucesso').offsetTop - 30, behavior: 'smooth' });
+          dadosProjetoAtual = data;
+          document.getElementById('resumo-cliente').innerText = `Olá, ${data.cliente_nome}! Estimativa gerada com sucesso.`;
+          document.getElementById('resumo-ambientes').innerText = `Ambientes: ${data.ambientes_texto}`;
+          document.getElementById('valor-total-est').innerText = data.valor_total_fmt;
+          document.getElementById('valor-pix').innerText = data.valor_pix_fmt;
+
+          document.getElementById('resultado-orcamento').classList.remove('hidden');
+          window.scrollTo({ top: document.getElementById('resultado-orcamento').offsetTop - 30, behavior: 'smooth' });
         } else {
-          alert('Erro ao enviar: ' + (data.mensagem || 'Tente novamente'));
+          alert('Erro ao calcular: ' + (data.mensagem || 'Tente novamente'));
         }
       } catch (err) {
-        alert('Erro de conexão ao enviar o formulário.');
+        alert('Erro de conexão ao calcular o orçamento.');
       } finally {
-        btn.innerHTML = '<i class="fas fa-paper-plane mr-2"></i> <span>Enviar Briefing e Solicitar Orçamento</span>';
+        btn.innerHTML = '<i class="fas fa-calculator mr-2"></i> <span>Calcular Pré-Orçamento Estimado</span>';
         btn.disabled = false;
       }
+    }
+
+    function continuarWhatsApp() {
+      if (!dadosProjetoAtual.cliente_nome) return;
+      const texto = encodeURIComponent(
+        `Olá! Acabei de fazer a simulação no MVI CRM.\n` +
+        `👤 Cliente: ${dadosProjetoAtual.cliente_nome}\n` +
+        `🏠 Ambientes: ${dadosProjetoAtual.ambientes_texto}\n` +
+        `💰 Estimativa: ${dadosProjetoAtual.valor_total_fmt} (PIX: ${dadosProjetoAtual.valor_pix_fmt})\n` +
+        `Gostaria de dar continuidade no projeto executivo!`
+      );
+      window.open(`https://wa.me/5511999999999?text=${texto}`, '_blank');
+    }
+
+    function fecharSemInteresse() {
+      alert('Obrigado pelo seu tempo! As informações da sua simulação ficaram registradas.');
     }
   </script>
 </body>
