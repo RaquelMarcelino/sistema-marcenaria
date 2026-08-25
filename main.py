@@ -3119,8 +3119,8 @@ PLANOS_MVI = {
 @app.get("/planos", response_class=HTMLResponse)
 async def rota_pagina_planos(request: Request):
     chave_pix = os.getenv("CHAVE_PIX", "suachavepix@mvicrm.com.br")
-    caminho_template = os.path.join(os.path.dirname(__file__), "templates", "planos_checkout.html")
-    if os.path.exists(caminho_template):
+ caminho_template = os.path.join(os.path.dirname(__file__), "templates", "templates", "planos_checkout.html")   
+ if os.path.exists(caminho_template):
         with open(caminho_template, "r", encoding="utf-8") as f:
             html_content = f.read()
         return HTMLResponse(content=html_content)
