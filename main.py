@@ -3198,7 +3198,7 @@ async def api_assinar_plano_mvi(request: Request):
         "chave_pix": chave_pix
     })
 # ==========================================================
-# --- SISTEMA MULTI-LOJAS, LOGIN LOJISTA & ADMIN CRM ---
+# --- SISTEMA MULTI-LOJAS, LOGIN UNIVERSAL & ADMIN CRM ---
 # ==========================================================
 
 def inicializar_tabelas_multiloja():
@@ -3219,9 +3219,16 @@ def inicializar_tabelas_multiloja():
         )
     """)
     
+    # Inserir loja padrão
     cursor.execute("""
         INSERT OR IGNORE INTO lojas (slug, nome_loja, email, whatsapp, senha, plano, status)
         VALUES ('padrao', 'Marcenaria Principal (MVI)', 'admin@mvicrm.com', '5511999999999', '123456', 'Enterprise', 'ativo')
+    """)
+
+    # Garantir que a Versatto já venha cadastrada e ativa
+    cursor.execute("""
+        INSERT OR REPLACE INTO lojas (slug, nome_loja, email, whatsapp, senha, plano, status)
+        VALUES ('guilherme', 'Versatto Moveis Planejados', 'mversatto@gmail.com', '11966556933', '123456', 'Starter', 'ativo')
     """)
 
     cursor.execute("""
@@ -3245,75 +3252,64 @@ try:
 except Exception as e:
     print(f"Erro tabelas multiloja: {e}")
 
-# Rota de login unificada (Lojistas e Admins)
+# Autenticação de Login que aceita Form, JSON e AJAX
 @app.post("/login")
 @app.post("/api/login")
-async def rota_login_unificada(
-    request: Request,
-    email: str = Form(...),
-    senha: str = Form(...)
-):
-    email_limpo = email.strip().lower()
-    senha_limpa = senha.strip()
+async def rota_login_unificada(request: Request):
+    email = ""
+    senha = ""
     
-    # 1. Verifica se é um Lojista cadastrado na tabela de lojas
+    # Tenta ler como JSON ou como FormData
+    try:
+        dados_json = await request.json()
+        email = dados_json.get("email", "")
+        senha = dados_json.get("senha", "")
+    except Exception:
+        try:
+            dados_form = await request.form()
+            email = dados_form.get("email", "")
+            senha = dados_form.get("senha", "")
+        except Exception:
+            pass
+
+    email_limpo = str(email).strip().lower()
+    senha_limpa = str(senha).strip()
+
     conn = sqlite3.connect("sistema_marcenaria.db")
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
+    # 1. Busca na tabela de lojas
     cursor.execute("SELECT * FROM lojas WHERE LOWER(email) = ?", (email_limpo,))
     loja = cursor.fetchone()
     
     if loja:
         if loja["status"] != "ativo":
             conn.close()
-            return HTMLResponse(
-                content="<body style='background:#020617;color:#fff;font-family:sans-serif;text-align:center;padding:50px;'>"
-                        "<h2 style='color:#ef4444;'>🔒 Acesso Bloqueado</h2>"
-                        "<p style='color:#94a3b8;'>Sua assinatura está inativa. Entre em contato para regularizar.</p>"
-                        "<a href='/login' style='color:#f59e0b;'>Voltar ao Login</a>"
-                        "</body>",
-                status_code=403
-            )
+            return JSONResponse(content={"status": "erro", "mensagem": "Assinatura inativa ou bloqueada."}, status_code=403)
         
-        # Validação da senha (compara direta ou '123456' padrão)
+        # Senha correta ou senha padrão '123456'
         if loja["senha"] == senha_limpa or senha_limpa == "123456":
             conn.close()
-            # Redireciona para o painel da loja com sessão
-            resposta = RedirectResponse(url=f"/painel?loja={loja['slug']}", status_code=303)
+            resposta = JSONResponse(content={"status": "sucesso", "redirect": f"/painel?loja={loja['slug']}"})
             resposta.set_cookie(key="loja_logada", value=loja["slug"], max_age=86400)
             resposta.set_cookie(key="usuario_email", value=loja["email"], max_age=86400)
             return resposta
 
-    # 2. Se não for lojista, verifica na tabela de usuários antigos
+    # 2. Busca na tabela tradicional de usuários
     try:
         cursor.execute("SELECT * FROM usuarios WHERE LOWER(email) = ? AND senha = ?", (email_limpo, senha_limpa))
         usuario = cursor.fetchone()
-        conn.close()
         if usuario:
-            resposta = RedirectResponse(url="/painel", status_code=303)
+            conn.close()
+            resposta = JSONResponse(content={"status": "sucesso", "redirect": "/painel"})
             resposta.set_cookie(key="usuario_email", value=usuario["email"], max_age=86400)
             return resposta
     except Exception:
-        conn.close()
+        pass
 
-    # Se credenciais forem inválidas
-    caminho_login = os.path.join(os.path.dirname(__file__), "templates", "login.html")
-    if not os.path.exists(caminho_login):
-        caminho_login = os.path.join(os.getcwd(), "templates", "login.html")
-    
-    if os.path.exists(caminho_login):
-        with open(caminho_login, "r", encoding="utf-8") as f:
-            html = f.read()
-            html = html.replace('id="erro-msg" class="hidden"', 'id="erro-msg" class="block"')
-            return HTMLResponse(content=html, status_code=401)
-            
-    return HTMLResponse(
-        content="<body style='background:#020617;color:#fff;font-family:sans-serif;text-align:center;padding:50px;'>"
-                "<h3 style='color:#ef4444;'>E-mail ou senha incorretos.</h3>"
-                "<a href='/login' style='color:#f59e0b;'>Tentar novamente</a></body>",
-        status_code=401
-    )
+    conn.close()
+    return JSONResponse(content={"status": "erro", "mensagem": "E-mail ou senha incorretos."}, status_code=401)
 
 @app.get("/solicitar-orcamento")
 @app.get("/orcamento-multi")
@@ -3395,7 +3391,7 @@ async def api_admin_cadastrar_loja(
         conn = sqlite3.connect("sistema_marcenaria.db")
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO lojas (slug, nome_loja, email, whatsapp, senha, plano, status)
+            INSERT OR REPLACE INTO lojas (slug, nome_loja, email, whatsapp, senha, plano, status)
             VALUES (?, ?, ?, ?, '123456', ?, 'ativo')
         """, (slug.lower(), nome_loja, email.strip().lower(), whatsapp, plano))
         conn.commit()
