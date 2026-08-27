@@ -3014,10 +3014,9 @@ def minuta_contrato_route(orcamento_id: int):
 
             <div>
                 <h2 class="font-bold text-slate-900 uppercase border-b pb-1 mb-2">4. DO PRAZO DE FABRICAÇÃO E INSTALAÇÃO</h2>
-                <p>O prazo estimado para entrega e início da montagem é de <b>{prazo}</b>, contados a partir da conclusão da medição técnica final no local e aprovação definitiva do projeto executivo por ambas as partes.</p>
-                <p class="mt-1 text-slate-600"><i>Parágrafo Único:</i> O CONTRATANTE compromete-se a deixar o ambiente civilmente preparado (alvenaria, hidráulica, elétrica e pisos concluídos) para o início da montagem.</p>
-            </div>
-
+<p>O prazo estimado para entrega e início da montagem é de <b>35 dias úteis</b>, contados a partir da conclusão da medição técnica final no local e aprovação definitiva do projeto executivo por ambas as partes.</p>
+            <p class="mt-1 text-slate-600"><i>Parágrafo Único:</i> O CONTRATANTE compromete-se a deixar o ambiente civilmente preparado (alvenaria, hidráulica, elétrica e pisos concluídos) para o início da montagem.</p>
+        </div>
             <div>
                 <h2 class="font-bold text-slate-900 uppercase border-b pb-1 mb-2">5. DA GARANTIA E ASSISTÊNCIA TÉCNICA</h2>
                 <p>A CONTRATADA oferece garantia legal e contratual de <b>12 (doze) meses</b> contra eventuais defeitos de fabricação e montagem, excetuando-se danos decorrentes de umidade excessiva, mau uso, impacto mecânico ou intervenção de terceiros não autorizados.</p>
