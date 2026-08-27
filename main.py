@@ -2754,7 +2754,17 @@ async def importar_promob_route(
     novo_id = cursor.lastrowid
     CURRENT_SESSION["cliente_ativo_id"] = novo_id
     conn.close()
-
+    nome = cliente_nome
+    whatsapp = cliente_telefone
+    cidade = "Não informada"
+    area_m2_total = 45
+    espessura_caixa = "15mm"
+    cor_caixa = "Branco TX"
+    espessura_porta = "18mm"
+    cor_porta = "Madeirado"
+    acabamento_porta = "MDF Texturizado"
+    marca_ferragens = "Hettich"
+    espessura_tamponamento = "18mm"
     empresa_dados = get_empresa_dados()
     ambientes_str = "Cozinha Planejada"
     return HTMLResponse(render_pre_orcamento_agendamento(
