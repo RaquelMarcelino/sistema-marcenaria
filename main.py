@@ -2939,7 +2939,7 @@ def minuta_contrato_route(orcamento_id: int):
     end_emp = empresa.get("endereco", "Endereço da Fábrica / Showroom")
     
     forma_pag = orc.get("modalidade_pagamento") or orc.get("forma_pagamento") or "A combinar"
-    parcelas = orc.get("parcelas_qtd") or orc.get("parcelas") or 1
+    parcelas = orc.get("num_parcelas") or orc.get("parcelas_qtd") or orc.get("qtd_parcelas") or orc.get("parcelas") or orc.get("condicao_parcelas") or 1    
     entrada = float(orc.get("entrada_valor") or 0)
     
     cliente_nome = orc.get("cliente_nome", "Cliente")
