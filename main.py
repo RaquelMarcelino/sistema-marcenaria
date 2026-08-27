@@ -3510,3 +3510,108 @@ async def api_salvar_lead_loja(
         return JSONResponse(content={"status": "sucesso"})
     except Exception as e:
         return JSONResponse(content={"status": "erro", "detalhes": str(e)}, status_code=500)
+@app.get("/assinar/{contrato_id}", response_class=HTMLResponse)
+def assinar_digital_view(contrato_id: int):
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM orcamentos WHERE id = ?", (contrato_id,))
+        row = cursor.fetchone()
+    if not row:
+        return HTMLResponse("<h3>Contrato não encontrado.</h3>", status_code=404)
+    
+    orc = dict(row)
+    cliente = orc.get("cliente_nome", "Cliente")
+    pv_total = float(orc.get("preco_venda") or 0) + float(orc.get("adendo_valor") or 0)
+
+    return HTMLResponse(f"""
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Assinatura Digital - Versatto Móveis</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <style>
+            canvas {{
+                touch-action: none;
+            }}
+        </style>
+    </head>
+    <body class="bg-slate-900 text-slate-100 min-h-screen flex items-center justify-center p-4">
+        <div class="max-w-md w-full bg-slate-800 p-6 rounded-2xl shadow-2xl border border-slate-700 text-center">
+            <div class="mb-4">
+                <span class="inline-block px-3 py-1 bg-amber-500/20 text-amber-400 text-xs font-semibold rounded-full uppercase tracking-wider border border-amber-500/30">Versatto Móveis Planejados</span>
+            </div>
+            
+            <h1 class="text-xl font-bold text-white mb-1">Assinatura do Contrato #{contrato_id:04d}</h1>
+            <p class="text-sm text-slate-400 mb-4">Contratante: <strong class="text-slate-200">{cliente}</strong> | Valor: <strong class="text-emerald-400">R$ {fmt_br(pv_total)}</strong></p>
+            
+            <div class="text-left mb-2 text-xs text-slate-400 flex justify-between items-center">
+                <span>Desenhe sua assinatura abaixo:</span>
+                <button type="button" onclick="limparCanvas()" class="text-amber-400 hover:text-amber-300 underline text-xs">Limpar</button>
+            </div>
+            
+            <div class="border-2 border-dashed border-slate-600 rounded-xl bg-white overflow-hidden mb-4">
+                <canvas id="pad" class="w-full h-48 block cursor-crosshair"></canvas>
+            </div>
+
+            <p class="text-[11px] text-slate-400 leading-tight mb-6">
+                Ao clicar em "Confirmar e Assinar", você declara concordar integralmente com as cláusulas, prazos e condições comerciais descritas na minuta contratual.
+            </p>
+
+            <button type="button" onclick="salvarAssinatura()" id="btnAssinar" class="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold py-3 px-4 rounded-xl shadow-lg transition active:scale-95 text-sm">
+                Confirmar e Assinar Documento
+            </button>
+            
+            <div id="sucesso" class="hidden mt-4 p-4 bg-emerald-950/80 border border-emerald-500 text-emerald-200 rounded-xl text-xs font-semibold">
+                ✓ Contrato Assinado Digitalmente com Sucesso!
+            </div>
+        </div>
+
+        <script>
+            const canvas = document.getElementById('pad');
+            const ctx = canvas.getContext('2d');
+            let desenhando = false;
+
+            function redimensionar() {{
+                const rect = canvas.getBoundingClientRect();
+                canvas.width = rect.width;
+                canvas.height = rect.height;
+                ctx.lineWidth = 2.5;
+                ctx.lineCap = 'round';
+                ctx.strokeStyle = '#0f172a';
+            }}
+            redimensionar();
+            window.addEventListener('resize', redimensionar);
+
+            function pos(e) {{
+                const rect = canvas.getBoundingClientRect();
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                return {{ x: clientX - rect.left, y: clientY - rect.top }};
+            }}
+
+            function iniciar(e) {{ desenhando = true; ctx.beginPath(); const p = pos(e); ctx.moveTo(p.x, p.y); }}
+            function mover(e) {{ if (!desenhando) return; const p = pos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); }}
+            function parar() {{ desenhando = false; }}
+
+            canvas.addEventListener('mousedown', iniciar);
+            canvas.addEventListener('mousemove', mover);
+            window.addEventListener('mouseup', parar);
+
+            canvas.addEventListener('touchstart', (e) => {{ e.preventDefault(); iniciar(e); }}, {{ passive: false }});
+            canvas.addEventListener('touchmove', (e) => {{ e.preventDefault(); mover(e); }}, {{ passive: false }});
+            canvas.addEventListener('touchend', parar);
+
+            function limparCanvas() {{
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }}
+
+            function salvarAssinatura() {{
+                document.getElementById('btnAssinar').style.display = 'none';
+                document.getElementById('sucesso').classList.remove('hidden');
+            }}
+        </script>
+    </body>
+    </html>
+    """)
