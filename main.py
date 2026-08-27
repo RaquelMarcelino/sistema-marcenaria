@@ -2941,7 +2941,13 @@ def minuta_contrato_route(orcamento_id: int):
     forma_pag = orc.get("modalidade_pagamento") or orc.get("forma_pagamento") or "A combinar"
     parcelas = orc.get("num_parcelas") or orc.get("parcelas_qtd") or orc.get("qtd_parcelas") or orc.get("parcelas") or orc.get("condicao_parcelas") or 1    
     entrada = float(orc.get("entrada_valor") or 0)
-    
+    try:
+        parcelas_int = int(parcelas) if int(parcelas) > 0 else 1
+    except:
+        parcelas_int = 1
+    saldo_devedor = max(0.0, pv_total - entrada)
+    valor_parcela = saldo_devedor / parcelas_int
+    texto_parcelamento = f"{parcelas_int}x de R$ {valor_parcela:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     cliente_nome = orc.get("cliente_nome", "Cliente")
     ambiente = orc.get("cliente_ambiente", "Móveis Planejados")
     prazo = orc.get("prazo_entrega", "25 dias úteis")
@@ -2996,7 +3002,7 @@ def minuta_contrato_route(orcamento_id: int):
                 <h2 class="font-bold text-slate-900 uppercase border-b pb-1 mb-2">3. DO VALOR E FORMA DE PAGAMENTO</h2>
                 <p>Pela prestação dos serviços e fornecimento dos materiais, o CONTRATANTE pagará à CONTRATADA o valor total fechado de <b>R$ {fmt_br(pv_total)}</b>.</p>
                 <p class="mt-1"><b>Condição comercial acordada:</b> {forma_pag}.</p>
-                <p class="mt-1"><b>Valor de Entrada:</b> R$ {fmt_br(entrada)} | <b>Parcelamento:</b> {parcelas}x parcela(s).</p>
+            <p class="mt-1"><b>Valor de Entrada:</b> R$ {fmt_br(entrada)} | <b>Parcelamento:</b> {texto_parcelamento}.</p>           
             </div>
 
             <div>
