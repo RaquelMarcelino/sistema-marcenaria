@@ -3019,8 +3019,8 @@ def minuta_contrato_route(orcamento_id: int):
         </div>
             <div>
                 <h2 class="font-bold text-slate-900 uppercase border-b pb-1 mb-2">5. DA GARANTIA E ASSISTÊNCIA TÉCNICA</h2>
-                <p>A CONTRATADA oferece garantia legal e contratual de <b>12 (doze) meses</b> contra eventuais defeitos de fabricação e montagem, excetuando-se danos decorrentes de umidade excessiva, mau uso, impacto mecânico ou intervenção de terceiros não autorizados.</p>
-            </div>
+ <p>A CONTRATADA oferece garantia legal e contratual de <b>05 (cinco) anos para marcenaria/madeira</b> e <b>12 (doze) meses para ferragens e acessórios</b> contra eventuais defeitos de fabricação e montagem, excetuando-se danos decorrentes de umidade excessiva, mau uso, impacto mecânico ou intervenção de terceiros não autorizados.</p>           
+ </div>
 
             <div>
                 <h2 class="font-bold text-slate-900 uppercase border-b pb-1 mb-2">6. DO FORO</h2>
