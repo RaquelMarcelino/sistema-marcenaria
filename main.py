@@ -231,7 +231,7 @@ def init_db():
             descricao_manual TEXT DEFAULT '',
             adendo_descricao TEXT DEFAULT '',
             adendo_valor REAL DEFAULT 0,
-            prazo_entrega TEXT DEFAULT '25 dias úteis',
+            prazo_entrega TEXT DEFAULT '35 dias úteis',
             prazo_garantia TEXT DEFAULT '12 (doze) meses',
             data_entrega_prevista TEXT DEFAULT '',
             status TEXT DEFAULT 'Novo Lead',
@@ -1041,7 +1041,7 @@ def render_dashboard_view():
     c_cidade_ent = cliente_ativo.get("cliente_cidade_entrega") or ""
     c_uf_ent = cliente_ativo.get("cliente_uf_entrega") or ""
 
-    c_prazo = cliente_ativo.get("prazo_entrega") or "25 dias úteis"
+    c_prazo = cliente_ativo.get("prazo_entrega") or "35 dias úteis"
     c_amb = cliente_ativo.get("cliente_ambiente") or "Cozinha Planejada"
     
     c_p_bruto = float(cliente_ativo.get("preco_bruto") or cliente_ativo.get("preco_venda") or 0)
@@ -2423,7 +2423,7 @@ async def submit_lead_route(
             prazo_entrega, data_entrega_prevista, status, custo_materiais,
             custo_mao_obra, custo_frete_montagem, preco_bruto, preco_venda, lucro_liquido, comissao_valor,
             observacoes_tecnicas, descricao_promob, imagens_json, arquivo_planta, arquivo_inspiracao
-        ) VALUES (1, ?, 'Raquel Marcelino', 'raquel@mvi.com', ?, ?, ?, '25 dias úteis', ?, 'Novo Lead', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (1, ?, 'Raquel Marcelino', 'raquel@mvi.com', ?, ?, ?, '35 dias úteis', ?, 'Novo Lead', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         agora, nome, whatsapp, ambientes_str, (date.today() + timedelta(days=25)).strftime("%Y-%m-%d"),
         calc["total_mat"], calc["custo_mo"], calc["custo_frete"], calc["preco_bruto"], calc["preco_venda"], calc["lucro"], calc["comissao"],
@@ -2743,7 +2743,7 @@ async def importar_promob_route(
             prazo_entrega, status, preco_venda, preco_bruto,
             comissao_valor, lucro_liquido,
             observacoes_tecnicas, descricao_promob
-        ) VALUES (1, ?, 'Raquel Marcelino', 'raquel@mvi.com', ?, ?, ?, '25 dias úteis', 'Em Negociação', ?, ?, ?, ?, ?, ?)
+        ) VALUES (1, ?, 'Raquel Marcelino', 'raquel@mvi.com', ?, ?, ?, '35 dias úteis', 'Em Negociação', ?, ?, ?, ?, ?, ?)
     """, (
         agora, cliente_nome, cliente_telefone, cliente_ambiente,
         pv_num, pv_num, comissao_num, lucro_estimado,
@@ -2950,7 +2950,7 @@ def minuta_contrato_route(orcamento_id: int):
     texto_parcelamento = f"{parcelas_int}x de R$ {valor_parcela:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     cliente_nome = orc.get("cliente_nome", "Cliente")
     ambiente = orc.get("cliente_ambiente", "Móveis Planejados")
-    prazo = orc.get("prazo_entrega", "25 dias úteis")
+    prazo = orc.get("prazo_entrega", "35 dias úteis")
     criado_em = orc.get("criado_em", "")
     contrato_id = orc.get("id", 1)
 
