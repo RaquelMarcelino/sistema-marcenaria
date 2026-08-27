@@ -2982,9 +2982,16 @@ def minuta_contrato_route(orcamento_id: int):
         </div>
 
         <div class="text-center border-b pb-4 mb-6">
-            <h1 class="text-base font-bold uppercase tracking-wider text-slate-900">INSTRUMENTO PARTICULAR DE PRESTAÇÃO DE SERVIÇOS E FORNECIMENTO DE MÓVEIS SOB MEDIDA</h1>
-            <p class="text-xs text-slate-500 mt-1">Contrato Referência: #{contrato_id:04d} | Emissão: {criado_em}</p>
+        <div style="display: flex; justify-content: center; margin-bottom: 12px;">
+            <div style="background-color: #0d0d0d; border: 1.5px solid #d4af37; padding: 12px 24px; border-radius: 6px; text-align: center;">
+                <div style="font-family: serif; font-size: 26px; font-weight: bold; color: #d4af37; line-height: 1; margin-bottom: 2px;">V</div>
+                <div style="font-family: serif; font-size: 18px; font-weight: bold; letter-spacing: 4px; color: #d4af37; text-transform: uppercase;">VERSATTO</div>
+                <div style="font-size: 8px; letter-spacing: 2.5px; color: #e5c365; text-transform: uppercase; margin-top: 2px;">MÓVEIS PLANEJADOS</div>
+            </div>
         </div>
+        <h1 class="text-base font-bold uppercase tracking-wider text-slate-900">INSTRUMENTO PARTICULAR DE PRESTAÇÃO DE SERVIÇOS E FORNECIMENTO DE MÓVEIS SOB MEDIDA</h1>
+        <p class="text-xs text-slate-500 mt-1">Contrato Referência: #{contrato_id:04d} | Emissão: {criado_em}</p>
+    </div>
 
         <div class="space-y-4">
             <div>
