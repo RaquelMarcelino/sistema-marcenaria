@@ -992,13 +992,12 @@ def render_dashboard_view():
 
     if perfil == "financeiro":
         cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 AND status IN ('Aprovado', 'Venda Fechada', 'Em Produção', 'Entregue', 'Liberado para Financeiro & Fábrica', 'Contrato Assinado Digitalmente') ORDER BY id DESC")
-      elif perfil == "vendedor":
+    elif perfil == "vendedor":
         cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 AND status != 'Contrato Fechado' AND (vendedor_email = ? OR vendedor_responsavel = ?) ORDER BY id DESC", (CURRENT_SESSION.get('user_email',''), CURRENT_SESSION.get('user_nome','')))
     else:
         cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 AND status != 'Contrato Fechado' ORDER BY id DESC LIMIT 100")
 
     leads = cursor.fetchall()
-
     # Busca apenas os contratos fechados para a pasta com cadeado
     if perfil == "vendedor":
         cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 AND status = 'Contrato Fechado' AND (vendedor_email = ? OR vendedor_responsavel = ?) ORDER BY id DESC", (CURRENT_SESSION.get('user_email',''), CURRENT_SESSION.get('user_nome','')))
