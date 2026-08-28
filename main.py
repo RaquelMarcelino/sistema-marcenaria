@@ -3747,3 +3747,27 @@ def assinar_digital_view(contrato_id: int):
     </body>
     </html>
     """)
+@app.post("/fechar-contrato-operacional/{contrato_id}")
+@app.post("/fechar-contrato-operacional/{contrato_id}")
+async def fechar_contrato_operacional_route(contrato_id: int):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE orcamentos SET status = 'Contrato Fechado' WHERE id = ? OR lead_id = ?", (contrato_id, contrato_id))
+        conn.commit()
+        conn.close()
+        return JSONResponse({"status": "sucesso"})
+    except Exception as e:
+        return JSONResponse({"status": "erro", "mensagem": str(e)}, status_code=500)
+
+@app.post("/desbloquear-contrato-adm/{contrato_id}")
+async def desbloquear_contrato_adm_route(contrato_id: int, request: Request):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE orcamentos SET status = 'Em Negociação' WHERE id = ? OR lead_id = ?", (contrato_id, contrato_id))
+        conn.commit()
+        conn.close()
+        return JSONResponse({"status": "sucesso"})
+    except Exception as e:
+        return JSONResponse({"status": "erro", "mensagem": str(e)}, status_code=500)
