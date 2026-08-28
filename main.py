@@ -3319,9 +3319,7 @@ PLANOS_MVI = {
         "usuarios": "Usuários Ilimitados",
         "setup": 497.0,
         "mensalidade": 179.90,
-    }
-}
-    }
+        }
 }
 
 @app.get("/planos")
