@@ -2183,4 +2183,4 @@ def render_dashboard_view():
 </script>
     </body>
     </html>
-    '''
+    """
