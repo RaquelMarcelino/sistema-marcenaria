@@ -1834,7 +1834,13 @@ def render_dashboard_view():
                             <span id="icone_olho_promob">👁️</span>
                         </button>
                     </div>
-                    <span id="status_salvamento_mesa" class="text-xs font-bold text-emerald-400 opacity-0 transition-opacity">✓ Atualizado com Sucesso!</span>
+                    <div class="flex items-center gap-3">
+    <span id="status_salvamento_mesa" class="text-xs font-bold text-emerald-400 opacity-0 transition-opacity">✓ Atualizado com Sucesso!</span>
+    <button type="button" onclick="fecharEImprimirContrato({c_id})" class="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold rounded-xl shadow-lg flex items-center gap-2 transition text-xs">
+        <span>🤝 Fechar Contrato & Imprimir Minuta</span>
+        <span>🖨️</span>
+    </button>
+</div>
                 </div>
 
                 <!-- CARD DE VALOR BRUTO PROMOB COM MODO SIGILO -->
@@ -2070,6 +2076,26 @@ def render_dashboard_view():
             if (targetAba) targetAba.classList.add('active');
             if (targetBtn) targetBtn.classList.add('active');
             window.scrollTo({{ top: 0, behavior: 'smooth' }});
+        }}
+     async function fecharEImprimirContrato(orcId) {{
+            if (!orcId || orcId == '0' || orcId == '{c_id}') {{
+                alert('Selecione uma pasta com cliente válido antes de fechar o contrato.');
+                return;
+            }}
+            if (!confirm('Deseja fechar o contrato agora? Ele será registrado como FECHADO, travado com cadeado e a minuta de impressão será aberta imediatamente.')) return;
+            
+            try {{
+                const res = await fetch('/fechar-contrato-operacional/' + orcId, {{ method: 'POST' }});
+                const data = await res.json();
+                if (data.status === 'sucesso') {{
+                    window.open('/minuta-contrato/' + orcId, '_blank');
+                    window.location.reload();
+                }} else {{
+                    alert('Erro ao fechar o contrato.');
+                }}
+            }} catch(e) {{
+                alert('Falha na comunicação com o servidor.');
+            }}
         }}
      function alternarSigiloPromob() {{
             var txt = document.getElementById('campo_promob_bruto_texto');
