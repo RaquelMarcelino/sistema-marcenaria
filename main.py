@@ -3297,28 +3297,30 @@ def analisar_planta_baixa_gemini(planta_bytes: bytes, tipo_ambiente: str, cor_es
 PLANOS_MVI = {
     "starter": {
         "id": "starter",
-        "nome": "Pequeno Porte",
-        "badge": "Starter",
-        "usuarios": "Até 2 usuários",
-        "setup": 1500.0,
-        "mensalidade": 297.0
+        "nome": "Individual",
+        "badge": "Individual",
+        "usuarios": "1 Operador",
+        "setup": 0.0,
+        "mensalidade": 49.97,
     },
     "professional": {
         "id": "professional",
-        "nome": "Médio Porte",
+        "nome": "Profissional",
         "badge": "Mais Escolhido",
-        "usuarios": "Até 5 usuários",
-        "setup": 2500.0,
-        "mensalidade": 590.0,
+        "usuarios": "Até 5 Operadores",
+        "setup": 197.0,
+        "mensalidade": 97.90,
         "destaque": True
     },
     "enterprise": {
         "id": "enterprise",
-        "nome": "Grande Porte",
+        "nome": "Ilimitado",
         "badge": "Enterprise",
         "usuarios": "Usuários Ilimitados",
-        "setup": 5000.0,
-        "mensalidade": 1200.0
+        "setup": 497.0,
+        "mensalidade": 179.90,
+    }
+}
     }
 }
 
