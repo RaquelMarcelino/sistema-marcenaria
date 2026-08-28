@@ -992,12 +992,43 @@ def render_dashboard_view():
 
     if perfil == "financeiro":
         cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 AND status IN ('Aprovado', 'Venda Fechada', 'Em Produção', 'Entregue', 'Liberado para Financeiro & Fábrica', 'Contrato Assinado Digitalmente') ORDER BY id DESC")
-    elif perfil == "vendedor":
-        cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 AND (vendedor_email = ? OR vendedor_responsavel = ?) ORDER BY id DESC", (CURRENT_SESSION['user_email'], CURRENT_SESSION['user_nome']))
+      elif perfil == "vendedor":
+        cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 AND status != 'Contrato Fechado' AND (vendedor_email = ? OR vendedor_responsavel = ?) ORDER BY id DESC", (CURRENT_SESSION.get('user_email',''), CURRENT_SESSION.get('user_nome','')))
     else:
-        cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 ORDER BY id DESC LIMIT 100")
-    
+        cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 AND status != 'Contrato Fechado' ORDER BY id DESC LIMIT 100")
+
     leads = cursor.fetchall()
+
+    # Busca apenas os contratos fechados para a pasta com cadeado
+    if perfil == "vendedor":
+        cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 AND status = 'Contrato Fechado' AND (vendedor_email = ? OR vendedor_responsavel = ?) ORDER BY id DESC", (CURRENT_SESSION.get('user_email',''), CURRENT_SESSION.get('user_nome','')))
+    else:
+        cursor.execute("SELECT * FROM orcamentos WHERE empresa_id = 1 AND status = 'Contrato Fechado' ORDER BY id DESC")
+    fechados_rows = cursor.fetchall()
+
+    lista_fechados_html = ""
+    for f in fechados_rows:
+        fd = dict(f)
+        f_id = fd.get('id', 0)
+        f_nome = fd.get('cliente_nome') or 'Cliente'
+        f_val = float(fd.get('preco_venda') or 0) + float(fd.get('adendo_valor') or 0)
+        f_val_fmt = f"{f_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        btn_adm = f"<button onclick='desbloquearContrato({f_id})' class='px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded text-[10px]'>🔓 Destravar (ADM)</button>" if perfil == "adm" else "<span class='text-slate-500 text-[10px] font-semibold flex items-center justify-end gap-1'>🔒 Bloqueado</span>"
+        
+        lista_fechados_html += f"""
+        <tr class='hover:bg-slate-800/40 transition'>
+            <td class='py-3 px-3 font-mono font-bold text-amber-400'>#{f_id:04d}</td>
+            <td class='py-3 px-3 font-semibold text-white'>{f_nome}</td>
+            <td class='py-3 px-3 text-emerald-400 font-bold'>R$ {f_val_fmt}</td>
+            <td class='py-3 px-3'><span class='px-2 py-0.5 bg-emerald-950 border border-emerald-500/40 text-emerald-400 rounded-full text-[10px] font-bold'>Contrato Fechado</span></td>
+            <td class='py-3 px-3 text-right flex items-center justify-end gap-2'>
+                <a href='/minuta-contrato/{f_id}' target='_blank' class='px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[10px] font-semibold'>📄 Ver Minuta</a>
+                {btn_adm}
+            </td>
+        </tr>
+        """
+    if not lista_fechados_html:
+        lista_fechados_html = "<tr><td colspan='5' class='py-6 text-center text-slate-500'>Nenhum contrato fechado no momento.</td></tr>"
     
     cursor.execute("SELECT * FROM propostas_credito WHERE empresa_id = 1 ORDER BY id DESC")
     propostas_credito = cursor.fetchall()
@@ -1459,14 +1490,17 @@ def render_dashboard_view():
                 ''' if (pode_excluir and c_id > 0) else ''}
 
                 <ul class="mt-2 space-y-1">
-                    <li><button onclick="mudarAba('aba-resumo')" id="btn-aba-resumo" class="tree-item active w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-white font-semibold">📋 1. Resumo da Venda</button></li>
-                    <li><button onclick="mudarAba('aba-cliente')" id="btn-aba-cliente" class="tree-item w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-slate-300 font-medium">👤 2. Dados do Cliente</button></li>
-                    {f'''<li><button onclick="mudarAba('aba-mesa')" id="btn-aba-mesa" class="tree-item w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-slate-300 font-medium">💼 3. Mesa de Negociação</button></li>
-                    <li><button onclick="mudarAba('aba-promob')" id="btn-aba-promob" class="tree-item w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-slate-300 font-medium">🚀 4. Integrador Promob</button></li>''' if not somente_leitura_fabrica else ''}
-                    <li><a href="/minuta-contrato/{c_id}" target="_blank" class="tree-item flex items-center gap-2 p-2.5 rounded-xl text-amber-400 font-bold hover:bg-slate-800">📜 5. Minuta Contrato PDF</a></li>
-                    <li><a href="/assinar/{c_id}" target="_blank" class="tree-item flex items-center gap-2 p-2.5 rounded-xl text-emerald-400 font-bold hover:bg-slate-800">✍️ 6. Assinatura Digital</a></li>
-                    <li><button onclick="mudarAba('aba-comissoes')" id="btn-aba-comissoes" class="tree-item w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-emerald-300 font-semibold">💰 7. Extrato de Comissões</button></li>
-                </ul>
+    <li><button onclick="mudarAba('aba-cliente')" id="btn-aba-cliente" class="tree-item active w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-white font-semibold">👤 1. Dados do Cliente</button></li>
+    <li><button onclick="mudarAba('aba-promob')" id="btn-aba-promob" class="tree-item w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-slate-300 font-medium">🚀 2. Integrador Promob</button></li>
+    {f'''<li><button onclick="mudarAba('aba-mesa')" id="btn-aba-mesa" class="tree-item w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-slate-300 font-medium">💼 3. Mesa de Negociação</button></li>''' if c_id > 0 else ''}
+    <li><a href="/minuta-contrato/{c_id}" target="_blank" class="tree-item flex items-center gap-2 p-2.5 rounded-xl text-amber-400 font-medium hover:bg-slate-800">📜 4. Minuta e Fechamento de Contrato</a></li>
+    <li class="pt-2 border-t border-slate-800">
+        <button onclick="mudarAba('aba-fechados')" id="btn-aba-fechados" class="tree-item w-full text-left flex items-center justify-between p-2.5 rounded-xl text-emerald-400 font-semibold bg-emerald-950/20 hover:bg-emerald-950/40 border border-emerald-500/20">
+            <span class="flex items-center gap-2">📁 5. Contratos Fechados</span>
+            <span>🔒</span>
+        </button>
+    </li>
+</ul>
             </div>
 
             <!-- SEÇÃO DE AMBIENTES -->
@@ -1630,9 +1664,47 @@ def render_dashboard_view():
                 </div>
             </div>
 
+           <!-- ABA 5: CONTRATOS FECHADOS (BLOQUEADOS) -->
+        <div id="aba-fechados" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-5 text-xs">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div class="flex items-center gap-3">
+                    <span class="p-2 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400 text-lg">📁</span>
+                    <div>
+                        <h3 class="font-bold text-white text-base">Arquivo de Contratos Fechados</h3>
+                        <p class="text-[11px] text-slate-400">Contratos assinados e travados operacionalmente.</p>
+                    </div>
+                </div>
+                <span class="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-400 font-semibold rounded-full text-[11px]">
+                    🔒 Protegido (Somente Leitura)
+                </span>
+            </div>
+
+            <div class="p-4 bg-slate-950/60 rounded-2xl border border-slate-800/80">
+                <p class="text-slate-300 text-xs leading-relaxed">
+                    Os contratos listados aqui foram assinados e estão bloqueados para edição de vendedores. Qualquer ajuste requer autorização e desbloqueio por um administrador (ADM).
+                </p>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs border-collapse">
+                    <thead>
+                        <tr class="border-b border-slate-800 text-slate-400 uppercase text-[10px] tracking-wider">
+                            <th class="py-2.5 px-3">Contrato</th>
+                            <th class="py-2.5 px-3">Cliente</th>
+                            <th class="py-2.5 px-3">Valor Total</th>
+                            <th class="py-2.5 px-3">Status</th>
+                            <th class="py-2.5 px-3 text-right">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-800/60 text-slate-200">
+                        {lista_fechados_html}
+                    </tbody>
+                </table>
+            </div>
+        </div> 
             <!-- ABA 2: DADOS DO CLIENTE & ENDEREÇOS COM AUTOCOMPLETE DE CEP -->
-            <div id="aba-cliente" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
-                <h3 class="font-bold text-amber-400 uppercase pb-1 border-b border-slate-800">👤 Cadastro de Contratante & Obra</h3>
+ <div id="aba-cliente" class="tab-content active bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">               
+ <h3 class="font-bold text-amber-400 uppercase pb-1 border-b border-slate-800">👤 Cadastro de Contratante & Obra</h3>
                 <form action="/salvar-dados-completos-cliente" method="post" class="space-y-4">
                     <input type="hidden" name="orcamento_id" value="{c_id}">
                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
