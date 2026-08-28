@@ -1401,9 +1401,14 @@ def render_dashboard_view():
                 {f'''<button onclick="mudarAba('aba-equipe')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700">👥 Equipe</button>
                 <button onclick="mudarAba('aba-empresa')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700">🏢 Empresa</button>''' if pode_gerenciar_equipe else ''}
                 <a href="/solicitar-orcamento" target="_blank" class="px-3 py-1.5 rounded-lg bg-amber-950 text-amber-300 hover:bg-amber-900 border border-amber-500/40">🔗 Link Público</a>
-                <button onclick="document.getElementById('modal-novo-colaborador').classList.remove('hidden')" class="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition shadow-lg shadow-amber-500/20">
-            <span>👥</span> + Colaborador
-        </button>
+                <button onclick="document.getElementById('modal-novo-colaborador').classList.remove('hidden')" class="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-medium text-sm flex items-center gap-1.5 shadow-sm">
+    <span>👥</span> + Colaborador
+</button>
+
+<button type="button" onclick="abrirModalNovaPastaDireta()" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-sm flex items-center gap-1.5 shadow-sm">
+    <span>📁</span>
+    <span>+ Nova Pasta / Cliente Direto</span>
+</button>
 
         <div id="modal-novo-colaborador" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
             <div class="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl p-6 shadow-2xl space-y-4 text-left">
@@ -3769,5 +3774,32 @@ async def desbloquear_contrato_adm_route(contrato_id: int, request: Request):
         conn.commit()
         conn.close()
         return JSONResponse({"status": "sucesso"})
+    except Exception as e:
+        return JSONResponse({"status": "erro", "mensagem": str(e)}, status_code=500)
+@app.post("/criar-pasta-direta-crm")
+async def criar_pasta_direta_crm(request: Request):
+    try:
+        data = await request.json()
+        nome = data.get("nome", "Cliente Balcão").strip()
+        telefone = data.get("telefone", "").strip()
+        ambientes = data.get("ambientes", "Móveis Planejados").strip()
+        vendedor_nome = CURRENT_SESSION.get("user_nome", "Vendedor")
+        vendedor_email = CURRENT_SESSION.get("user_email", "")
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            INSERT INTO orcamentos (
+                empresa_id, nome, telefone, ambiente, status, 
+                vendedor_responsavel, vendedor_email, preco_final, entrada, parcelas
+            ) VALUES (1, ?, ?, ?, 'Em Aberto', ?, ?, 0.0, 0.0, 1)
+        """, (nome, telefone, ambientes, vendedor_nome, vendedor_email))
+        
+        novo_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+
+        return JSONResponse({"status": "sucesso", "id": novo_id})
     except Exception as e:
         return JSONResponse({"status": "erro", "mensagem": str(e)}, status_code=500)
