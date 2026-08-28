@@ -2180,3 +2180,7 @@ def render_dashboard_view():
                 alert('Falha na comunicação com o servidor.');
             }}
         }}
+</script>
+    </body>
+    </html>
+    '''
