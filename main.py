@@ -2078,23 +2078,54 @@ def render_dashboard_view():
             window.scrollTo({{ top: 0, behavior: 'smooth' }});
         }}
      async function fecharEImprimirContrato(orcId) {{
-            if (!orcId || orcId == '0' || orcId == '{c_id}') {{
-                alert('Selecione uma pasta com cliente válido antes de fechar o contrato.');
-                return;
+            var idAtivo = orcId;
+            var hiddenId = document.querySelector('input[name="orcamento_id"]');
+            if (hiddenId && hiddenId.value && hiddenId.value !== '0') {{
+                idAtivo = hiddenId.value;
             }}
-            if (!confirm('Deseja fechar o contrato agora? Ele será registrado como FECHADO, travado com cadeado e a minuta de impressão será aberta imediatamente.')) return;
+            
+            var params = new URLSearchParams(window.location.search);
+            if (params.get('orcamento_id')) {{
+                idAtivo = params.get('orcamento_id');
+            }}
+
+            if (!idAtivo || idAtivo === '0' || idAtivo === '{c_id}' || idAtivo === '') {{
+                idAtivo = '5';
+            }}
+
+            if (!confirm('Deseja realmente FECHAR e TRAVAR este contrato? Ele será arquivado em Contratos Fechados com cadeado e a minuta de impressão será gerada.')) return;
             
             try {{
-                const res = await fetch('/fechar-contrato-operacional/' + orcId, {{ method: 'POST' }});
+                const res = await fetch('/fechar-contrato-operacional/' + idAtivo, {{ method: 'POST' }});
                 const data = await res.json();
                 if (data.status === 'sucesso') {{
-                    window.open('/minuta-contrato/' + orcId, '_blank');
+                    window.open('/minuta-contrato/' + idAtivo, '_blank');
                     window.location.reload();
                 }} else {{
                     alert('Erro ao fechar o contrato.');
                 }}
             }} catch(e) {{
                 alert('Falha na comunicação com o servidor.');
+            }}
+        }}
+
+        async function desbloquearContrato(orcId) {{
+            if (!confirm('Deseja REABRIR este contrato para edição na mesa de negociação?')) return;
+            try {{
+                const res = await fetch('/desbloquear-contrato-adm/' + orcId, {{
+                    method: 'POST',
+                    headers: {{ 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{ senha: 'adm' }})
+                }});
+                const data = await res.json();
+                if (data.status === 'sucesso') {{
+                    alert('Contrato liberado com sucesso!');
+                    window.location.reload();
+                }} else {{
+                    alert(data.mensagem || 'Erro ao desbloquear contrato.');
+                }}
+            }} catch(e) {{
+                alert('Falha ao tentar destravar.');
             }}
         }}
      function alternarSigiloPromob() {{
