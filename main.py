@@ -771,24 +771,7 @@ def render_pre_orcamento_agendamento(
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen p-4 sm:p-8 font-sans flex items-center justify-center">
     <div class="max-w-2xl w-full bg-slate-900 border border-amber-500/40 rounded-3xl p-6 sm:p-10 shadow-2xl space-y-6">
-    <!-- CARD DE PROJETO 3D GERADO POR IA -->
-    <div class="my-4 p-5 rounded-2xl bg-slate-950 border border-amber-500/40 text-center shadow-xl">
-        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 text-amber-400 text-xs font-bold uppercase tracking-wider mb-2">
-            ✨ Perspectiva 3D Preliminar por IA
-        </div>
-        <h3 class="text-white font-bold text-base mb-1">Conceito Visual Sugerido</h3>
-        <p class="text-slate-400 text-xs mb-3">Ambiente personalizado com base nas suas preferências.</p>
-        
-        <div class="relative rounded-xl overflow-hidden border border-slate-800 bg-slate-900 flex items-center justify-center min-h-[220px]">
-            <img 
-                src="{url_render_ia}" 
-                alt="Perspectiva 3D Baseada na Planta" 
-                class="w-full h-auto object-cover rounded-xl shadow-md"
-                loading="lazy"
-            />
-        </div>
-        <span class="block text-[10px] text-slate-500 mt-2">*Perspectiva conceitual preliminar gerada por IA baseada na metragem de {area_m2} m². O projeto executivo oficial será detalhado pelo projetista.</span>
-    </div>
+   
         
 
     <div class="text-center space-y-2 border-b border-slate-800 pb-4">
@@ -806,10 +789,8 @@ def render_pre_orcamento_agendamento(
             <span class="text-xl sm:text-2xl font-black text-emerald-400">R$ {desconto_fmt}</span>
         </div>
     </div>
-                <span class="text-xs text-emerald-300 font-bold block">⚡ À Vista no PIX (5% de Desconto):</span>
-                <span class="text-xl sm:text-2xl font-black text-emerald-400">R$ {desconto_fmt}</span>
-            </div>
-        </div>
+
+      
         <!-- OPÇÕES DE CONTATO (SEM IA) -->
                         <div class="bg-slate-950/80 p-5 rounded-2xl border border-slate-800 space-y-4">
                             <div class="text-center">
@@ -824,10 +805,7 @@ def render_pre_orcamento_agendamento(
                                     <span>Sim, quero dar continuidade no WhatsApp</span>
                                 </a>
 
-                                <a href="/solicitar-orcamento" 
-                                   class="w-full flex items-center justify-center py-2.5 px-4 text-slate-400 hover:text-slate-200 hover:bg-slate-900 rounded-xl text-xs font-medium transition">
-                                    Não tenho interesse
-                                </a>
+                    
                             </div>
                         </div>
 
