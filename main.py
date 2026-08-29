@@ -810,33 +810,26 @@ def render_pre_orcamento_agendamento(
                 <span class="text-xl sm:text-2xl font-black text-emerald-400">R$ {desconto_fmt}</span>
             </div>
         </div>
-        <!-- PERSPECTIVA 3D IA -->
-        <div class="p-5 rounded-2xl bg-slate-950 border border-amber-500/40 text-center shadow-xl space-y-3">
-            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 text-amber-400 text-xs font-bold uppercase tracking-wider">
-                ✨ Conceito 3D Gerado por IA
-            </div>
-            <p class="text-white font-bold text-sm">Perspectiva Sugerida para seu Projeto</p>
-            <div class="w-full rounded-xl overflow-hidden border border-slate-800 bg-slate-900">
-                <img 
-                    src="https://image.pollinations.ai/prompt/luxurious%20modern%20bespoke%20kitchen%20cabinetry%20interior%20design%20graphite%20mdf%20freijo%20wood%20warm%20led%20lighting%20photorealistic%208k?width=800&height=500&nologo=true" 
-                    alt="Perspectiva 3D Cozinha" 
-                    class="w-full h-auto object-cover rounded-xl shadow-md"
-                    loading="lazy"
-                />
-            </div>
-            <span class="block text-[10px] text-slate-500">*Perspectiva conceitual preliminar criada por IA. O projeto executivo detalhado será desenvolvido no Promob pelo projetista técnico.</span>
-        </div>
+        <!-- OPÇÕES DE CONTATO (SEM IA) -->
+                        <div class="bg-slate-950/80 p-5 rounded-2xl border border-slate-800 space-y-4">
+                            <div class="text-center">
+                                <h3 class="text-sm font-bold text-white uppercase tracking-wide">Deseja dar continuidade ao seu projeto?</h3>
+                                <p class="text-xs text-slate-400 mt-1">Selecione uma opção abaixo:</p>
+                            </div>
 
-        <div class="bg-slate-950/80 p-5 rounded-2xl border border-slate-800 space-y-4">
-            <div class="text-center">
-                <h3 class="text-sm font-bold text-white uppercase tracking-wide">Deseja dar continuidade ao seu projeto?</h3>
-                <p class="text-xs text-slate-400 mt-1">Selecione uma opção abaixo:</p>
-            </div>
+                            <div class="space-y-3">
+                                <a href="https://wa.me/{tel_limpo}?text=Ol%C3%A1!%20Simulei%20meu%20projeto%20no%20site%20da%20{empresa['nome_empresa']}%20(Projeto%20%23{orcamento_id:04d})" 
+                                   target="_blank"
+                                   class="w-full flex items-center justify-center gap-2 py-3.5 px-4 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold rounded-xl text-sm transition shadow-lg shadow-emerald-500/20">
+                                    <span>Sim, quero dar continuidade no WhatsApp</span>
+                                </a>
 
-            <div class="space-y-3">
-                <a href="https://wa.me/55{tel_limpo}?text=Ol%C3%A1!%20Simulei%20meu%20projeto%20no%20site%20da%20{empresa['nome_empresa']}%20(Projeto%20%23{orcamento_id:04d})%20e%20quero%20dar%20continuidade%20ao%20atendimento!" target="_blank" class="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black rounded-2xl flex items-center justify-center space-x-2 shadow-lg shadow-emerald-500/20 transition-all text-sm uppercase tracking-wider text-center block">
-                    ✅ Sim, quero dar continuidade no WhatsApp
-                </a>
+                                <a href="/solicitar-orcamento" 
+                                   class="w-full flex items-center justify-center py-2.5 px-4 text-slate-400 hover:text-slate-200 hover:bg-slate-900 rounded-xl text-xs font-medium transition">
+                                    Não tenho interesse
+                                </a>
+                            </div>
+                        </div>
 
                 <form action="/recusar-lead" method="post">
                     <input type="hidden" name="orcamento_id" value="{orcamento_id}">
