@@ -757,8 +757,8 @@ def render_pre_orcamento_agendamento(
     pv_redondo = int(round(preco_venda * 0.95))
     desconto_vista_5 = int(round(pv_redondo * 0.95))
     
-        pv_fmt = f"{pv_redondo:,}".replace(",", ".")
-        desconto_fmt = f"{desconto_vista_5:,}".replace(",", ".")
+    pv_fmt = f"{pv_redondo:,}".replace(",", ".")
+    desconto_fmt = f"{desconto_vista_5:,}".replace(",", ".")
     
     tel_limpo = (empresa.get("telefone") or "").replace("-","").replace(" ","").replace("(","").replace(")","")
 
