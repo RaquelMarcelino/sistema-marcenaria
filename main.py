@@ -754,8 +754,8 @@ def render_pre_orcamento_agendamento(
     empresa, orcamento_id, nome, whatsapp, cidade, area_m2, preco_venda,
     esp_caixa, cor_caixa, esp_porta, cor_porta, acab_porta, marca_ferr, esp_tamp, ambientes_str, url_render_ia: str = ""
 ):
-    pv_redondo = int(round(preco_venda * 1.15))
-    desconto_vista_5 = int(round(pv_redondo * 0.95))
+    pv_redondo = int(round(preco_venda * 0.95))
+desconto_vista_5 = int(round(pv_redondo * 0.95))
     
     pv_fmt = f"{pv_redondo:,}".replace(",", ".")
     desconto_fmt = f"{desconto_vista_5:,}".replace(",", ".")
