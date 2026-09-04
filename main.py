@@ -2607,6 +2607,19 @@ def salvar_negociacao_mesa_json(
         valor_parcela = (saldo_financiar / n_parc) if n_parc > 0 else 0.0
 
     total_com_juros = ent_num + (valor_parcela * n_parc)
+    cronograma_html = ""
+for i in range(1, n_parc + 1):
+    cronograma_html += f"""
+    <tr class="border-b border-slate-800 hover:bg-slate-800/40">
+        <td class="py-2.5 px-3 text-center font-bold text-amber-400">{i}ª Parcela</td>
+        <td class="py-2.5 px-3 text-slate-400">A definir</td>
+        <td class="py-2.5 px-3 text-right">
+            <input type="number" step="0.01" name="parcela_valor_{i}" value="{valor_parcela:.2f}" class="w-28 text-right bg-slate-950 border border-amber-500/50 rounded px-2 py-1 text-amber-400 font-bold focus:outline-none focus:border-amber-400">
+        </td>
+        <td class="py-2.5 px-3 text-slate-300">{forma_opcao}</td>
+        <td class="py-2.5 px-3 text-slate-400">Mensal</td>
+    </tr>
+    """
 
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
