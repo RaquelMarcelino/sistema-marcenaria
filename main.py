@@ -2592,16 +2592,16 @@ def salvar_negociacao_mesa_json(
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
-        UPDATE orcamentos SET
-            preco_venda = ?,
-            desconto_pct = ?,
-            entrada_valor = ?,
-            modalidade_pagamento = ?,
-            num_parcelas = ?,
-            comissao_valor = ?,
-            lucro_liquido = ?
-        WHERE id = ?
-    """, (pv_num, desc_num, ent_num, forma_opcao, n_parc, comissao_num, lucro_estimado, orcamento_id))
+            UPDATE orcamentos SET
+                preco_venda = ?,
+                desconto_pct = ?,
+                entrada_valor = ?,
+                modalidade_pagamento = ?,
+                num_parcelas = ?,
+                comissao_valor = ?,
+                lucro_liquido = ?
+            WHERE id = ?
+        """, (pv_num, desc_num, ent_num, forma_opcao, n_parc, comissao_num, lucro_estimado, orcamento_id))
     conn.commit()
     conn.close()
 
