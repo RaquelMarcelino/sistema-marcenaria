@@ -2631,7 +2631,6 @@ def salvar_negociacao_mesa_json(
     <td class="py-2.5 px-3 text-slate-400">Personalizado</td>
 </tr>
 """
-
         cronograma_html += linhas_parcelas_item
 
     cronograma_html += f"""
