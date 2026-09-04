@@ -1902,16 +1902,11 @@ def render_dashboard_view():
                 </tr>
             </thead>
             <tbody id="corpo_tabela_cronograma">
-                {cronograma_html}
+                <!-- As parcelas serão carregadas ao salvar -->
             </tbody>
         </table>
     </div>
 </div>
-            </tbody>
-        </table>
-    </div>
-</div>
-
             <!-- ABA 4: PROMOB COM CAMPO DE VALOR DE VENDA MANUAL -->
             <div id="aba-promob" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
                 <h3 class="font-bold text-amber-400 uppercase pb-1 border-b border-slate-800">🚀 Importação Direta Promob</h3>
