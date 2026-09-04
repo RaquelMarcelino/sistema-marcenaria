@@ -2673,7 +2673,7 @@ for i in range(1, n_parc + 1):
     </tr>
     """
 
-    return {
+        return {
         "sucesso": True,
         "preco_venda_fmt": fmt_br(pv_num),
         "entrada_valor_fmt": fmt_br(ent_num),
