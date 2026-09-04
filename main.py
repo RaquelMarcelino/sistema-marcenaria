@@ -2626,7 +2626,7 @@ def salvar_negociacao_mesa_json(
             <td class="py-2.5 px-3 text-slate-300">{dt_parc}</td>
             <td class="py-2.5 px-3 font-bold text-amber-400 text-right">R$ {fmt_br(valor_parcela)}</td>
             <td class="py-2.5 px-3 text-slate-300">{forma_opcao}</td>
-            <td class="py-2.5 px-3 text-slate-400">Carnê / Boleto MVI</td>
+            <td class="py-2.5 px-3 text-slate-400">{forma_opcao}</td>
         </tr>
         """
         cronograma_html += linhas_parcelas_item
