@@ -1907,6 +1907,10 @@ def render_dashboard_view():
         </table>
     </div>
 </div>
+            </tbody>
+        </table>
+    </div>
+</div>
 
             <!-- ABA 4: PROMOB COM CAMPO DE VALOR DE VENDA MANUAL -->
             <div id="aba-promob" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
