@@ -1870,8 +1870,7 @@ def render_dashboard_view():
                         </div>
                         <div>
                             <label class="block text-slate-400 mb-1 font-semibold">Parcelas</label>
-                            <input type="number" name="num_parcelas" id="mesa_num_parcelas" oninput="aoMudarEntradaOuParcela()" value="{c_parc}" min="1" max="36" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-bold text-white">
-                        </div>
+                            <input type="number" name="num_parcelas" id="mesa_num_parcelas" value="{c_parc}" min="1" max="36" class="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-xl font-semibold text-white">                        </div>
                     </div>
 
                     {f'''<div class="p-4 bg-slate-950 border border-emerald-500/30 rounded-2xl flex justify-between items-center">
