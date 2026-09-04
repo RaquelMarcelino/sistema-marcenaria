@@ -2621,14 +2621,17 @@ def salvar_negociacao_mesa_json(
     for i in range(1, n_parc + 1):
         dt_parc = (hoje + timedelta(days=30 * i)).strftime("%d/%m/%Y")
         linhas_parcelas_item = f"""
-        <tr class="border-b border-slate-800 text-xs hover:bg-slate-800/40">
-            <td class="py-2.5 px-3 text-center text-slate-400 font-mono">{i}ª Parc</td>
-            <td class="py-2.5 px-3 text-slate-300">{dt_parc}</td>
-            <td class="py-2.5 px-3 font-bold text-amber-400 text-right"><input type="text" name="valor_parcela_{i}" value="{fmt_br(valor_parcela)}" class="w-24 p-1 bg-slate-900 border border-slate-700 rounded text-right text-amber-400 font-bold" onchange="aoMudarEntradaOuParcela()"></td>
-            <td class="py-2.5 px-3 text-slate-300">{forma_opcao}</td>
-            <td class="py-2.5 px-3 text-slate-400">{forma_opcao}</td>
-        </tr>
-        """
+<tr class="border-b border-slate-800 text-xs hover:bg-slate-800/40">
+    <td class="py-2.5 px-3 text-center text-slate-400 font-mono">{i}ª Parc</td>
+    <td class="py-2.5 px-3 text-slate-300">{dt_parc}</td>
+    <td class="py-2.5 px-3 font-bold text-amber-400 text-right">
+        <input type="text" name="valor_parcela_{i}" value="{fmt_br(valor_parcela)}" class="w-24 p-1 bg-slate-900 border border-slate-700 rounded text-right text-amber-400 font-bold">
+    </td>
+    <td class="py-2.5 px-3 text-slate-300">{forma_opcao}</td>
+    <td class="py-2.5 px-3 text-slate-400">Personalizado</td>
+</tr>
+"""
+
         cronograma_html += linhas_parcelas_item
 
     cronograma_html += f"""
