@@ -1887,6 +1887,26 @@ def render_dashboard_view():
                     </button>
                 </form>
             </div>
+            <!-- CRONOGRAMA DE PAGAMENTOS (PARCELAS PERSONALIZÁVEIS) -->
+<div class="mt-6 bg-slate-900/60 p-4 rounded-xl border border-slate-800">
+    <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Cronograma de Pagamentos & Parcelas</h4>
+    <div class="overflow-x-auto">
+        <table class="w-full text-left text-sm text-slate-300">
+            <thead>
+                <tr class="text-xs text-slate-400 border-b border-slate-700 bg-slate-950">
+                    <th class="py-2.5 px-3 text-center">Parcela</th>
+                    <th class="py-2.5 px-3">Vencimento</th>
+                    <th class="py-2.5 px-3 text-right">Valor (R$)</th>
+                    <th class="py-2.5 px-3">Forma</th>
+                    <th class="py-2.5 px-3">Tipo</th>
+                </tr>
+            </thead>
+            <tbody id="corpo_tabela_cronograma">
+                {cronograma_html}
+            </tbody>
+        </table>
+    </div>
+</div>
 
             <!-- ABA 4: PROMOB COM CAMPO DE VALOR DE VENDA MANUAL -->
             <div id="aba-promob" class="tab-content bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-xs">
