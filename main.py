@@ -2609,8 +2609,8 @@ def salvar_negociacao_mesa_json(
 
     total_com_juros = ent_num + (valor_parcela * n_parc)
     cronograma_html = ""
-for i in range(1, n_parc + 1):
-    cronograma_html += f"""
+        for i in range(1, n_parc + 1):
+        cronograma_html += f"""
     <tr class="border-b border-slate-800 hover:bg-slate-800/40">
         <td class="py-2.5 px-3 text-center font-bold text-amber-400">{i}ª Parcela</td>
         <td class="py-2.5 px-3 text-slate-400">A definir</td>
@@ -2622,9 +2622,9 @@ for i in range(1, n_parc + 1):
     </tr>
     """
 
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("""
             UPDATE orcamentos SET
                 preco_venda = ?,
                 desconto_pct = ?,
@@ -2652,7 +2652,7 @@ for i in range(1, n_parc + 1):
             """
             cronograma_html += linhas_parcelas_item
     
-         cronograma_html += f"""
+             cronograma_html += f"""
         <tr class="border-t-2 border-slate-700 text-xs bg-slate-950 font-bold">
             <td colspan="2" class="py-3 px-3 text-amber-400 uppercase">Total Geral (Entrada + Parcelas):</td>
             <td class="py-3 px-3 font-black text-amber-400 text-right text-sm">R$ {fmt_br(total_com_juros)}</td>
@@ -2660,7 +2660,7 @@ for i in range(1, n_parc + 1):
         </tr>
         """
     
-            return {
+                return {
             "sucesso": True,
             "preco_venda_fmt": fmt_br(pv_num),
             "entrada_valor_fmt": fmt_br(ent_num),
