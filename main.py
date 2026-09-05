@@ -2663,8 +2663,7 @@ for i in range(1, n_parc + 1):
     <td class="py-2.5 px-3 text-slate-300">{forma_opcao}</td>
     <td class="py-2.5 px-3 text-slate-400">Personalizado</td>
 </tr>
-"""
-        cronograma_html += linhas_parcelas_item
+    cronograma_html += linhas_parcelas_item
 
     cronograma_html += f"""
     <tr class="border-t-2 border-slate-700 text-xs bg-slate-950 font-bold">
@@ -2674,13 +2673,13 @@ for i in range(1, n_parc + 1):
     </tr>
     """
 
-    return {
-            "sucesso": True,
-            "preco_venda_fmt": fmt_br(pv_num),
-            "entrada_valor_fmt": fmt_br(ent_num),
-            "comissao_fmt": fmt_br(comissao_num),
-            "lucro_fmt": fmt_br(lucro_estimado),
-            "cronograma_html": cronograma_html
+        return {
+        "sucesso": True,
+        "preco_venda_fmt": fmt_br(pv_num),
+        "entrada_valor_fmt": fmt_br(ent_num),
+        "comissao_fmt": fmt_br(comissao_num),
+        "lucro_fmt": fmt_br(lucro_estimado),
+        "cronograma_html": cronograma_html
         }
 
 @app.post("/salvar-empresa-json")
