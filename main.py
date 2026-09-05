@@ -2303,6 +2303,7 @@ def render_dashboard_view():
                     statusTxt.innerText = '✓ Dados Salvos!';
                     statusTxt.style.opacity = '1';
                     setTimeout(() => {{ statusTxt.style.opacity = '0'; }}, 2500);
+                    if (data.cronograma_html) document.getElementById('corpo_tabela_cronograma').innerHTML = data.cronograma_html;
                 }}
             }})
             .finally(() => {{
