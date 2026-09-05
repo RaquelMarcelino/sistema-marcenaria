@@ -2651,7 +2651,7 @@ for i in range(1, n_parc + 1):
         </tr>
         """
 
-   for i in range(1, n_parc + 1):
+       for i in range(1, n_parc + 1):
         dt_parc = (hoje + timedelta(days=30 * i)).strftime("%d/%m/%Y")
         linhas_parcelas_item = f"""
         <tr class="border-b border-slate-800 text-xs hover:bg-slate-800/40">
