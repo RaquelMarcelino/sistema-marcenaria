@@ -2675,13 +2675,13 @@ for i in range(1, n_parc + 1):
     """
 
     return {
-        "sucesso": True,
-        "preco_venda_fmt": fmt_br(pv_num),
-        "entrada_valor_fmt": fmt_br(ent_num),
-        "comissao_fmt": fmt_br(comissao_num),
-        "lucro_fmt": fmt_br(lucro_estimado),
-        "cronograma_html": cronograma_html
-    }
+            "sucesso": True,
+            "preco_venda_fmt": fmt_br(pv_num),
+            "entrada_valor_fmt": fmt_br(ent_num),
+            "comissao_fmt": fmt_br(comissao_num),
+            "lucro_fmt": fmt_br(lucro_estimado),
+            "cronograma_html": cronograma_html
+        }
 
 @app.post("/salvar-empresa-json")
 def salvar_empresa_json(
