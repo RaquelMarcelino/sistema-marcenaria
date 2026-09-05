@@ -2635,54 +2635,39 @@ for i in range(1, n_parc + 1):
                 lucro_liquido = ?
             WHERE id = ?
         """, (pv_num, desc_num, ent_num, forma_opcao, n_parc, comissao_num, lucro_estimado, orcamento_id))
-    conn.commit()
-    conn.close()
-
-    hoje = date.today()
-    cronograma_html = ""
-    if ent_num > 0:
-        cronograma_html += f"""
-        <tr class="border-b border-slate-800 text-xs bg-emerald-950/30 hover:bg-slate-800/40">
-            <td class="py-2.5 px-3 text-center text-emerald-400 font-bold font-mono">Entrada</td>
-            <td class="py-2.5 px-3 text-slate-300">{hoje.strftime("%d/%m/%Y")}</td>
-            <td class="py-2.5 px-3 font-bold text-emerald-400 text-right">R$ {fmt_br(ent_num)}</td>
-            <td class="py-2.5 px-3 text-slate-300">PIX / À Vista (Ato)</td>
-            <td class="py-2.5 px-3 text-emerald-400 font-semibold">✓ Confirmado / Entrada</td>
+        conn.commit()
+        conn.close()
+        for i in range(1, n_parc + 1):
+            dt_parc = (hoje + timedelta(days=30 * i)).strftime("%d/%m/%Y")
+            linhas_parcelas_item = f"""
+            <tr class="border-b border-slate-800 text-xs hover:bg-slate-800/40">
+                <td class="py-2.5 px-3 text-center text-slate-400 font-mono">{i}ª Parc</td>
+                <td class="py-2.5 px-3 text-slate-300">{dt_parc}</td>
+                <td class="py-2.5 px-3 font-bold text-amber-400 text-right">
+                    <input type="text" name="valor_parcela_{i}" value="{fmt_br(valor_parcela)}" class="w-24 p-1 bg-slate-900 border border-slate-700 rounded text-right text-amber-400 font-bold text-xs" />
+                </td>
+                <td class="py-2.5 px-3 text-slate-300">{forma_opcao}</td>
+                <td class="py-2.5 px-3 text-slate-400">Personalizado</td>
+            </tr>
+            """
+            cronograma_html += linhas_parcelas_item
+    
+         cronograma_html += f"""
+        <tr class="border-t-2 border-slate-700 text-xs bg-slate-950 font-bold">
+            <td colspan="2" class="py-3 px-3 text-amber-400 uppercase">Total Geral (Entrada + Parcelas):</td>
+            <td class="py-3 px-3 font-black text-amber-400 text-right text-sm">R$ {fmt_br(total_com_juros)}</td>
+            <td colspan="2" class="py-3 px-3 text-slate-400 text-[11px]">Plano {n_parc}x com juros de {taxa_juros}% a.m.</td>
         </tr>
         """
-
-       for i in range(1, n_parc + 1):
-        dt_parc = (hoje + timedelta(days=30 * i)).strftime("%d/%m/%Y")
-        linhas_parcelas_item = f"""
-        <tr class="border-b border-slate-800 text-xs hover:bg-slate-800/40">
-            <td class="py-2.5 px-3 text-center text-slate-400 font-mono">{i}ª Parc</td>
-            <td class="py-2.5 px-3 text-slate-300">{dt_parc}</td>
-            <td class="py-2.5 px-3 font-bold text-amber-400 text-right">
-                <input type="text" name="valor_parcela_{i}" value="{fmt_br(valor_parcela)}" class="w-24 p-1 bg-slate-900 border border-slate-700 rounded text-right text-amber-400 font-bold text-xs" />
-            </td>
-            <td class="py-2.5 px-3 text-slate-300">{forma_opcao}</td>
-            <td class="py-2.5 px-3 text-slate-400">Personalizado</td>
-        </tr>
-        """
-        cronograma_html += linhas_parcelas_item
-
-    cronograma_html += f"""
-    <tr class="border-t-2 border-slate-700 text-xs bg-slate-950 font-bold">
-        <td colspan="2" class="py-3 px-3 text-amber-400 uppercase">Total Geral (Entrada + Parcelas):</td>
-        <td class="py-3 px-3 font-black text-amber-400 text-right text-sm">R$ {fmt_br(total_com_juros)}</td>
-        <td colspan="2" class="py-3 px-3 text-slate-400 text-[11px]">Plano {n_parc}x com juros de {taxa_juros}% a.m.</td>
-    </tr>
-    """
-
-        return {
-        "sucesso": True,
-        "preco_venda_fmt": fmt_br(pv_num),
-        "entrada_valor_fmt": fmt_br(ent_num),
-        "comissao_fmt": fmt_br(comissao_num),
-        "lucro_fmt": fmt_br(lucro_estimado),
-        "cronograma_html": cronograma_html
+    
+            return {
+            "sucesso": True,
+            "preco_venda_fmt": fmt_br(pv_num),
+            "entrada_valor_fmt": fmt_br(ent_num),
+            "comissao_fmt": fmt_br(comissao_num),
+            "lucro_fmt": fmt_br(lucro_estimado),
+            "cronograma_html": cronograma_html
         }
-
 @app.post("/salvar-empresa-json")
 def salvar_empresa_json(
     nome_empresa: str = Form("MVI Móveis Planejados"),
